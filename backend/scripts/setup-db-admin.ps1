@@ -86,12 +86,12 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$appDb')\gexec
         $toSecure = { param($s) [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)) }
         # up to 3 attempts instead of failing on the first typo
         for ($try = 1; $try -le 3 -and -not $newPass; $try++) {
-            Write-Host 'Requirements: at least 12 characters, letters AND digits.' -ForegroundColor DarkGray
+            Write-Host 'Requirements: 12+ characters, LATIN letters (A-Z, a-z) AND digits (0-9). Tip: generate it in KeePassXC.' -ForegroundColor DarkGray
             $plain1 = & $toSecure (Read-Host 'New password' -AsSecureString)
             $plain2 = & $toSecure (Read-Host 'Repeat password' -AsSecureString)
             if ($plain1 -ne $plain2) { Write-Host 'Passwords do not match, try again.' -ForegroundColor Red; continue }
             if ($plain1.Length -lt 12 -or $plain1 -notmatch '\d' -or $plain1 -notmatch '[A-Za-z]') {
-                Write-Host 'Too weak: need 12+ characters with letters and digits, try again.' -ForegroundColor Red; continue
+                Write-Host 'Too weak: need 12+ characters with LATIN letters and digits (check EN keyboard layout), try again.' -ForegroundColor Red; continue
             }
             $newPass = $plain1
         }
