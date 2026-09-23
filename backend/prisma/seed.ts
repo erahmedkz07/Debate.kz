@@ -3,7 +3,7 @@
 import 'dotenv/config'
 import bcrypt from 'bcryptjs'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { PrismaClient, type Role, type Side, type TournamentLevel, type TournamentStatus } from '../src/generated/prisma/client.js'
+import { PrismaClient, type ModerationStatus, type Role, type Side, type TournamentLevel, type TournamentStatus } from '../src/generated/prisma/client.js'
 
 if (process.env.NODE_ENV === 'production') {
   console.error('Refusing to seed a production database')
@@ -36,17 +36,20 @@ const images = {
 interface T {
   key: string; name: string; city: string; startDate: string; endDate: string; level: TournamentLevel; status: TournamentStatus
   teamsCount: number; maxTeams: number; cover: string; organizer: string; prelims: number; breakSize: number; languages: string[]; description: string
+  owner?: 'org' | 'dinara'; moderation?: ModerationStatus
 }
 
 const tournaments: T[] = [
-  { key: 't1', name: 'Кубок Астаны по дебатам 2026', city: 'Астана', startDate: '2026-10-17', endDate: '2026-10-18', level: 'school', status: 'registration', teamsCount: 8, maxTeams: 12, cover: images.podium, organizer: 'Дебатный клуб «Шешен»', prelims: 4, breakSize: 4, languages: ['ru', 'kz'], description: 'Ежегодный школьный турнир для учеников 8–11 классов. Четыре отборочных раунда, полуфиналы и финал в формате World Schools. Лучшие спикеры получат приглашение на республиканский этап.' },
+  { key: 't1', owner: 'org', name: 'Кубок Астаны по дебатам 2026', city: 'Астана', startDate: '2026-10-17', endDate: '2026-10-18', level: 'school', status: 'registration', teamsCount: 8, maxTeams: 12, cover: images.podium, organizer: 'Дебатный клуб «Шешен»', prelims: 4, breakSize: 4, languages: ['ru', 'kz'], description: 'Ежегодный школьный турнир для учеников 8–11 классов. Четыре отборочных раунда, полуфиналы и финал в формате World Schools. Лучшие спикеры получат приглашение на республиканский этап.' },
   { key: 't2', name: 'Almaty Open Debate Cup', city: 'Алматы', startDate: '2026-11-07', endDate: '2026-11-09', level: 'university', status: 'registration', teamsCount: 18, maxTeams: 32, cover: images.stageAudience, organizer: 'KazNU Debate Society', prelims: 5, breakSize: 8, languages: ['ru', 'kz'], description: 'Открытый университетский турнир для студентов вузов Казахстана и Центральной Азии. Пять отборочных раундов, четвертьфиналы и финал на главной сцене.' },
   { key: 't3', name: 'Шымкент Жас Шешендер', city: 'Шымкент', startDate: '2026-10-24', endDate: '2026-10-25', level: 'school', status: 'registration', teamsCount: 6, maxTeams: 12, cover: images.handsUp, organizer: 'Лицей «Білім-Инновация»', prelims: 3, breakSize: 4, languages: ['kz'], description: 'Турнир на казахском языке для школьников Туркестанской области и Шымкента. Отличный старт для новичков.' },
-  { key: 't4', name: 'Лига дебатов Караганды — осень', city: 'Караганда', startDate: '2026-09-19', endDate: '2026-09-27', level: 'school', status: 'ongoing', teamsCount: 12, maxTeams: 12, cover: images.studentsHall, organizer: 'Дебатный клуб «Шешен»', prelims: 4, breakSize: 4, languages: ['ru', 'kz'], description: 'Осенний этап городской лиги. Турнир идёт прямо сейчас — следите за жеребьёвкой и результатами онлайн.' },
+  { key: 't4', owner: 'org', name: 'Лига дебатов Караганды — осень', city: 'Караганда', startDate: '2026-09-19', endDate: '2026-09-27', level: 'school', status: 'ongoing', teamsCount: 12, maxTeams: 12, cover: images.studentsHall, organizer: 'Дебатный клуб «Шешен»', prelims: 4, breakSize: 4, languages: ['ru', 'kz'], description: 'Осенний этап городской лиги. Турнир идёт прямо сейчас — следите за жеребьёвкой и результатами онлайн.' },
   { key: 't5', name: 'Nazarbayev University Debate Open', city: 'Астана', startDate: '2026-09-21', endDate: '2026-09-24', level: 'university', status: 'ongoing', teamsCount: 24, maxTeams: 24, cover: images.panel, organizer: 'NU Debate Club', prelims: 5, breakSize: 8, languages: ['ru'], description: 'Один из самых сильных студенческих турниров страны. Сильные судьи, актуальные темы и отличная атмосфера.' },
   { key: 't6', name: 'Кубок Павлодара', city: 'Павлодар', startDate: '2026-12-05', endDate: '2026-12-06', level: 'school', status: 'registration', teamsCount: 4, maxTeams: 16, cover: images.presentation, organizer: 'Школа-гимназия №8', prelims: 4, breakSize: 4, languages: ['ru'], description: 'Первый открытый турнир Павлодара. Приглашаем команды из всех регионов Казахстана.' },
-  { key: 't7', name: 'Республиканский чемпионат школьников', city: 'Алматы', startDate: '2026-05-14', endDate: '2026-05-17', level: 'school', status: 'finished', teamsCount: 32, maxTeams: 32, cover: images.audience, organizer: 'Debate.kz', prelims: 6, breakSize: 16, languages: ['ru', 'kz'], description: 'Главный школьный турнир года. 32 команды из 14 областей страны.' },
+  { key: 't7', owner: 'org', name: 'Республиканский чемпионат школьников', city: 'Алматы', startDate: '2026-05-14', endDate: '2026-05-17', level: 'school', status: 'finished', teamsCount: 32, maxTeams: 32, cover: images.audience, organizer: 'Debate.kz', prelims: 6, breakSize: 16, languages: ['ru', 'kz'], description: 'Главный школьный турнир года. 32 команды из 14 областей страны.' },
   { key: 't8', name: 'Актобе Debate Weekend', city: 'Актобе', startDate: '2026-08-22', endDate: '2026-08-23', level: 'university', status: 'finished', teamsCount: 10, maxTeams: 12, cover: images.speakerCrowd, organizer: 'АРГУ им. Жубанова', prelims: 4, breakSize: 4, languages: ['ru', 'kz'], description: 'Летний турнир выходного дня для студентов западного Казахстана.' },
+  // waits for admin moderation: not visible in the public list
+  { key: 't10', owner: 'dinara', moderation: 'pending', name: 'Осенний кубок Лицея №15', city: 'Павлодар', startDate: '2026-11-28', endDate: '2026-11-29', level: 'school', status: 'registration', teamsCount: 0, maxTeams: 12, cover: images.handsUp, organizer: 'Лицей №15', prelims: 3, breakSize: 4, languages: ['ru', 'kz'], description: 'Первый турнир дебатного клуба лицея. Ждёт проверки администратором.' },
   { key: 't9', name: 'Костанай — Кубок первокурсника', city: 'Костанай', startDate: '2026-11-21', endDate: '2026-11-22', level: 'university', status: 'registration', teamsCount: 6, maxTeams: 12, cover: images.studentsLaugh, organizer: 'КРУ им. Байтурсынова', prelims: 3, breakSize: 4, languages: ['ru'], description: 'Турнир только для первокурсников — идеальный способ познакомиться с дебатами.' },
 ]
 
@@ -100,16 +103,17 @@ async function main() {
 
   // ---------- users (demo password: demo1234) ----------
   const hash = await bcrypt.hash('demo1234', 12)
+  // everyone is a plain "user"; organizer/judge rights come from tournaments. Demo accounts are pre-verified.
   const mkUser = (email: string, name: string, role: Role, extra: Partial<{ phone: string; institution: string; city: string; blocked: boolean; createdAt: Date }> = {}) =>
-    prisma.user.create({ data: { email, name, role, passwordHash: hash, ...extra } })
+    prisma.user.create({ data: { email, name, role, passwordHash: hash, emailVerifiedAt: extra.createdAt ?? new Date(), consentAt: extra.createdAt ?? new Date(), ...extra } })
 
   const admin = await mkUser('admin@debate.kz', 'Администратор Debate.kz', 'admin', { city: 'Астана', createdAt: day('2026-01-10') })
-  const org = await mkUser('org@debate.kz', 'Аргын Ахмед', 'organizer', { phone: '+7 701 111 22 33', institution: 'Дебатный клуб «Шешен»', city: 'Астана', createdAt: day('2026-02-01') })
-  await mkUser('dinara@mail.kz', 'Динара Касымова', 'organizer', { institution: 'Лицей №15', city: 'Павлодар', createdAt: day('2026-05-20') })
-  await mkUser('timur@mail.kz', 'Тимур Оспанов', 'judge', { institution: 'КазНУ им. аль-Фараби', city: 'Алматы', createdAt: day('2026-06-11') })
-  await mkUser('aruzhan@mail.kz', 'Аружан Бекова', 'participant', { institution: 'НИШ ФМН', city: 'Астана', createdAt: day('2026-07-03') })
-  await mkUser('maxim@mail.kz', 'Максим Ким', 'participant', { institution: 'КТЛ', city: 'Актобе', blocked: true, createdAt: day('2026-08-19') })
-  await mkUser('sabina@mail.kz', 'Сабина Нурланова', 'judge', { institution: 'ЕНУ им. Гумилёва', city: 'Астана', createdAt: day('2026-09-01') })
+  const org = await mkUser('org@debate.kz', 'Аргын Ахмед', 'user', { phone: '+7 701 111 22 33', institution: 'Дебатный клуб «Шешен»', city: 'Астана', createdAt: day('2026-02-01') })
+  const dinara = await mkUser('dinara@mail.kz', 'Динара Касымова', 'user', { institution: 'Лицей №15', city: 'Павлодар', createdAt: day('2026-05-20') })
+  await mkUser('timur@mail.kz', 'Тимур Оспанов', 'user', { institution: 'КазНУ им. аль-Фараби', city: 'Алматы', createdAt: day('2026-06-11') })
+  await mkUser('aruzhan@mail.kz', 'Аружан Бекова', 'user', { institution: 'НИШ ФМН', city: 'Астана', createdAt: day('2026-07-03') })
+  await mkUser('maxim@mail.kz', 'Максим Ким', 'user', { institution: 'КТЛ', city: 'Актобе', blocked: true, createdAt: day('2026-08-19') })
+  await mkUser('sabina@mail.kz', 'Сабина Нурланова', 'user', { institution: 'ЕНУ им. Гумилёва', city: 'Астана', createdAt: day('2026-09-01') })
 
   // ---------- institutions ----------
   const instId = new Map<string, string>()
@@ -142,9 +146,10 @@ async function main() {
         maxTeams: t.maxTeams, coverUrl: t.cover, organizerName: t.organizer, description: t.description,
         preliminaryRounds: t.prelims, breakSize: t.breakSize, languages: t.languages,
         plan: pro ? 'pro' : 'free', paid: !pro || t.status !== 'registration',
+        moderation: t.moderation ?? 'approved',
         scoringConfig: { create: {} },
         schedule: { create: schedule.map(([d, time, title]) => ({ day: d, time, title })) },
-        ...(['t1', 't4', 't7'].includes(t.key) && { organizers: { create: { userId: org.id } } }),
+        ...(t.owner && { organizers: { create: { userId: t.owner === 'org' ? org.id : dinara.id, role: 'owner' } } }),
       },
     })
 
@@ -172,7 +177,7 @@ async function main() {
       let userId: string | undefined
       if (judgeLinks[t.key] === i) {
         if (!judgeUserId) {
-          const u = await mkUser('judge@debate.kz', name, 'judge', { phone: '+7 702 222 33 44', institution: 'Nazarbayev University', city: 'Астана', createdAt: day('2026-03-15') })
+          const u = await mkUser('judge@debate.kz', name, 'user', { phone: '+7 702 222 33 44', institution: 'Nazarbayev University', city: 'Астана', createdAt: day('2026-03-15') })
           judgeUserId = u.id
         }
         const u = await prisma.user.findUniqueOrThrow({ where: { id: judgeUserId } })
@@ -247,7 +252,7 @@ async function main() {
 
   // ---------- participant account linked to a real speaker ----------
   const speaker = await prisma.speaker.findUniqueOrThrow({ where: { id: studentSpeakerId! }, include: { team: { include: { institution: true, speakers: { orderBy: { position: 'asc' } } } } } })
-  const student = await mkUser('student@debate.kz', speaker.name, 'participant', {
+  const student = await mkUser('student@debate.kz', speaker.name, 'user', {
     phone: '+7 705 333 44 55', institution: speaker.team.institution?.name, city: 'Караганда', createdAt: day('2026-04-02'),
   })
   await prisma.speaker.update({ where: { id: speaker.id }, data: { userId: student.id } })

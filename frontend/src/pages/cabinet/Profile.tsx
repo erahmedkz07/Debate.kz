@@ -42,7 +42,7 @@ export default function Profile() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">{user.name}</h1>
-              <Badge>{t(`roles.${user.role}`)}</Badge>
+              {user.role === 'admin' && <Badge variant="danger">{t('roles.admin')}</Badge>}
             </div>
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5"><Mail className="size-4" />{user.email}</span>

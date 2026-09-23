@@ -42,7 +42,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    values: { team: '', institution: user?.institution ?? '', s1: user?.role === 'participant' ? user.name : '', s2: '', s3: '', phone: user?.phone ?? '' },
+    values: { team: '', institution: user?.institution ?? '', s1: user?.name ?? '', s2: '', s3: '', phone: user?.phone ?? '' },
   })
 
   const onSubmit = async (v: Form) => {
@@ -56,10 +56,10 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     }
   }
 
-  // guests must sign in first; only participants register teams
+  // guests must sign in first; an unverified email is explained before filling the form
   const onOpenChange = (v: boolean) => {
     if (v && !user) return setGate(true)
-    if (v && user?.role !== 'participant') return void toast.info(t('authGate.onlyParticipants'))
+    if (v && !user?.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
     setOpen(v)
   }
 

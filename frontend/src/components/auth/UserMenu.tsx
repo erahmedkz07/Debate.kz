@@ -2,24 +2,26 @@ import * as M from '@radix-ui/react-dropdown-menu'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ChevronDown, ClipboardList, Gavel, LayoutGrid, LogOut, ShieldCheck, UserRound } from 'lucide-react'
-import type { Role } from '@/types'
+import { ChevronDown, Gavel, LayoutGrid, LogOut, ShieldCheck, UserRound } from 'lucide-react'
+import type { Role, User } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { cn, initials } from '@/lib/utils'
 
 const avatarColor: Record<Role, string> = {
-  participant: 'bg-primary text-primary-foreground',
-  organizer: 'bg-accent text-navy',
-  judge: 'bg-navy text-white dark:bg-primary-soft dark:text-primary',
+  user: 'bg-primary text-primary-foreground',
   admin: 'bg-danger text-white',
 }
 
-// Cabinet links available for each role
-export function cabinetLinks(role: Role) {
-  const links = [{ to: '/me', key: 'profile', icon: UserRound }]
-  if (role === 'organizer' || role === 'admin') links.unshift({ to: '/dashboard', key: 'organizer', icon: LayoutGrid })
-  if (role === 'judge' || role === 'admin') links.unshift({ to: '/judge', key: 'judge', icon: Gavel })
-  if (role === 'admin') links.unshift({ to: '/admin', key: 'admin', icon: ShieldCheck })
+// Cabinet sections depend on what the person actually does, not on a global role:
+// everyone has a profile and "my tournaments" (anyone can create one);
+// "judging" appears once they were invited as a judge; admins also get the admin panel.
+export function cabinetLinks(user: User) {
+  const links = [
+    { to: '/me', key: 'profile', icon: UserRound },
+    { to: '/dashboard', key: 'organizer', icon: LayoutGrid },
+  ]
+  if (user.judges || user.role === 'admin') links.push({ to: '/judge', key: 'judge', icon: Gavel })
+  if (user.role === 'admin') links.unshift({ to: '/admin', key: 'admin', icon: ShieldCheck })
   return links
 }
 
@@ -28,7 +30,7 @@ export function Avatar({ name, role, src, className }: { name: string; role: Rol
   if (src) {
     return <img src={src} alt={name} loading="lazy" className={cn('size-9 shrink-0 rounded-full bg-muted object-cover', className)} />
   }
-  return <span className={cn('grid size-9 shrink-0 place-items-center rounded-full text-sm font-extrabold', avatarColor[role], className)}>{initials(name)}</span>
+  return <span className={cn('grid size-9 shrink-0 place-items-center rounded-full text-sm font-extrabold', avatarColor[role] ?? avatarColor.user, className)}>{initials(name)}</span>
 }
 
 export function UserMenu({ onDark }: { onDark?: boolean }) {
@@ -58,24 +60,19 @@ export function UserMenu({ onDark }: { onDark?: boolean }) {
             <div className="min-w-0">
               <p className="truncate font-bold">{user.name}</p>
               <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-              <span className="mt-1 inline-block rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">{t(`roles.${user.role}`)}</span>
+              {user.role === 'admin' && (
+                <span className="mt-1 inline-block rounded-full bg-danger-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-danger">{t('roles.admin')}</span>
+              )}
             </div>
           </div>
           <M.Separator className="my-1 h-px bg-border" />
-          {cabinetLinks(user.role).map(({ to, key, icon: Icon }) => (
+          {cabinetLinks(user).map(({ to, key, icon: Icon }) => (
             <M.Item key={to} asChild>
               <Link to={to} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium outline-none data-[highlighted]:bg-primary-soft data-[highlighted]:text-primary">
                 <Icon className="size-4" />{t(`cabinet.${key}`)}
               </Link>
             </M.Item>
           ))}
-          {user.role === 'participant' && (
-            <M.Item asChild>
-              <Link to="/tournaments" className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium outline-none data-[highlighted]:bg-primary-soft data-[highlighted]:text-primary">
-                <ClipboardList className="size-4" />{t('home.audience.partCta')}
-              </Link>
-            </M.Item>
-          )}
           <M.Separator className="my-1 h-px bg-border" />
           <M.Item onSelect={logout}
             className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-danger outline-none data-[highlighted]:bg-danger-soft">

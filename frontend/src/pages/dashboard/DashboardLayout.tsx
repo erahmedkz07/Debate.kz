@@ -4,17 +4,18 @@ import { Globe, Plus } from 'lucide-react'
 import { Logo } from '@/components/brand'
 import { LangSwitch, ThemeToggle } from '@/components/layout/Header'
 import { UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
+import { EmailBanner } from '@/components/auth/EmailBanner'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
-// App shell for every cabinet (participant, organizer, judge, admin); nav depends on the role
+// App shell for every cabinet; nav depends on what the user does (organizes, judges, admin)
 export default function DashboardLayout() {
   const { t } = useTranslation()
   const { user } = useAuth()
   if (!user) return null
-  const links = cabinetLinks(user.role)
-  const canCreate = user.role === 'organizer' || user.role === 'admin'
+  const links = cabinetLinks(user)
+  const canCreate = true // anyone can create a tournament
 
   return (
     <div className="min-h-dvh bg-muted/40">
@@ -50,6 +51,7 @@ export default function DashboardLayout() {
           <Link to="/" className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground"><Globe className="size-4" />{t('cabinet.site')}</Link>
         </nav>
       </header>
+      <EmailBanner />
       <Outlet />
     </div>
   )

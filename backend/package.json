@@ -13,7 +13,8 @@
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio",
-    "test:e2e": "node scripts/e2e.mjs"
+    "test:e2e": "node scripts/e2e.mjs",
+    "admin:grant": "tsx scripts/make-admin.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
