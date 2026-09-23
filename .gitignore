@@ -1,0 +1,16 @@
+# dependencies & builds
+node_modules/
+dist/
+*.local
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# local tooling
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
