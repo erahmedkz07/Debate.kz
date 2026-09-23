@@ -8,9 +8,8 @@ import { toast } from 'sonner'
 import { AlertCircle, Eye, EyeOff, Gavel, LayoutGrid, Loader2, ShieldCheck, UserRound } from 'lucide-react'
 import { AuthError, login } from '@/api'
 import type { Role } from '@/types'
-import { useAuth } from '@/lib/auth'
+import { roleHome, useAuth } from '@/lib/auth'
 import { images } from '@/mocks/images'
-import { DEMO_PASSWORD, roleHome } from '@/mocks/users'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
@@ -21,6 +20,9 @@ const demo: { role: Role; email: string; icon: typeof UserRound }[] = [
   { role: 'judge', email: 'judge@debate.kz', icon: Gavel },
   { role: 'admin', email: 'admin@debate.kz', icon: ShieldCheck },
 ]
+
+// demo accounts exist only in the dev seed; the hint is hidden in production builds
+const DEMO_PASSWORD = 'demo1234'
 
 // only allow in-app redirects (no open redirect to other sites)
 export const safeNext = (next: string | null) => (next && next.startsWith('/') && !next.startsWith('//') ? next : null)
@@ -92,7 +94,7 @@ export default function Login() {
         </Button>
       </form>
 
-      <div className="mt-8 rounded-2xl border border-dashed border-primary/40 bg-primary-soft/40 p-4">
+      {import.meta.env.DEV && <div className="mt-8 rounded-2xl border border-dashed border-primary/40 bg-primary-soft/40 p-4">
         <p className="text-xs font-bold uppercase tracking-wider text-primary">{t('auth.demoTitle')}</p>
         <p className="mt-1 text-xs text-muted-foreground">{t('auth.demoText', { password: DEMO_PASSWORD })}</p>
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -103,7 +105,7 @@ export default function Login() {
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
       <p className="mt-8 text-center text-sm text-muted-foreground">
         {t('auth.noAccount')} <Link to={`/register${next ? `?next=${encodeURIComponent(next)}` : ''}`} className="font-bold text-primary hover:underline">{t('auth.toRegister')}</Link>

@@ -7,6 +7,7 @@ import { AlertCircle, ArrowLeft, CheckCircle2, DoorOpen, Loader2, Minus, Plus, T
 import { getBallot, NotFoundError, submitBallot } from '@/api'
 import type { Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
+import { errorMessage } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -85,18 +86,25 @@ export default function Ballot() {
   }
   const send = async () => {
     setSending(true)
-    await submitBallot({
-      debateId, winner: winner!,
-      replySpeakers: {
-        proposition: replyBy.proposition ?? data.proposition.speakers[0].id,
-        opposition: replyBy.opposition ?? data.opposition.speakers[0].id,
-      },
-      scores: Object.fromEntries([...Object.entries(scores).map(([k, v]) => [k, Number(v)]), ['reply-prop', Number(reply.proposition)], ['reply-opp', Number(reply.opposition)]]),
-    })
-    setSending(false)
-    setConfirm(false)
-    setDone(true)
-    toast.success(t('ballot.success'))
+    try {
+      await submitBallot(debateId, {
+        winner: winner!,
+        replySpeakers: {
+          proposition: replyBy.proposition ?? data.proposition.speakers[0].id,
+          opposition: replyBy.opposition ?? data.opposition.speakers[0].id,
+        },
+        scores: Object.fromEntries(allSpeakers.map(s => [s.id, Number(scores[s.id])])),
+        reply: { proposition: Number(reply.proposition), opposition: Number(reply.opposition) },
+      })
+      setConfirm(false)
+      setDone(true)
+      toast.success(t('ballot.success'))
+    } catch (e) {
+      // the server re-validates every WSDC rule; show its verdict
+      toast.error(errorMessage(e, t))
+    } finally {
+      setSending(false)
+    }
   }
 
   if (done) {

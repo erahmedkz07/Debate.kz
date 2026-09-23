@@ -33,8 +33,8 @@ export function UserMenu({ onDark }: { onDark?: boolean }) {
   const navigate = useNavigate()
   if (!user) return null
 
-  const logout = () => {
-    signOut()
+  const logout = async () => {
+    await signOut()
     toast(t('authGate.loggedOut'))
     navigate('/')
   }

@@ -7,7 +7,8 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Loader2, PartyPopper, Trophy } from 'lucide-react'
-import { getCities } from '@/api'
+import { createTournament, getCities } from '@/api'
+import { errorMessage } from '@/lib/errors'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDateRange } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -60,10 +61,20 @@ export default function CreateTournament() {
   const next = async () => {
     if (await trigger(fieldsByStep[step])) setStep(s => s + 1)
   }
-  const onSubmit = async () => {
-    await new Promise(r => setTimeout(r, 900))
-    toast.success(t('wizard.created'))
-    navigate('/dashboard/tournaments/t1')
+  const onSubmit = async (f: Form) => {
+    try {
+      const created = await createTournament({
+        name: f.name.trim(), city: f.city, startDate: f.startDate, endDate: f.endDate, level: f.level,
+        description: f.description?.trim() ?? '', preliminaryRounds: Number(f.prelims), breakSize: Number(f.breakSize),
+        maxTeams: Number(f.maxTeams), registrationOpen: f.regOpen, requireApproval: f.approval,
+        registrationDeadline: f.regDeadline || undefined,
+        languages: [...(f.langKz ? ['kz' as const] : []), ...(f.langRu ? ['ru' as const] : [])],
+      })
+      toast.success(t('wizard.created'))
+      navigate(`/dashboard/tournaments/${created.id}/teams`)
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    }
   }
 
   const pickFile = (file?: File) => {
