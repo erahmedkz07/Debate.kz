@@ -130,6 +130,16 @@ function buildRounds(t: Tournament): Round[] {
 
 const rooms = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
 
+// every judge sits in at most one room per round: chairs first, spare judges become wings;
+// the pool is rotated each round so panels change
+function panel(d: number, rooms: number, round: number, judges: Judge[]): string[] {
+  const n = judges.length
+  const at = (i: number) => judges[(i + round * 3) % n].id
+  const ids = [at(d)]
+  for (const w of [rooms + d * 2, rooms + d * 2 + 1]) if (w < n) ids.push(at(w))
+  return ids
+}
+
 function buildDebates(rounds: Round[], teams: Team[], judges: Judge[]): Debate[] {
   const debates: Debate[] = []
   rounds.filter(r => r.status !== 'draft').forEach(r => {
@@ -139,9 +149,9 @@ function buildDebates(rounds: Round[], teams: Team[], judges: Judge[]): Debate[]
       debates.push({
         id: `${r.id}-d${d + 1}`, roundId: r.id, room: rooms[d % rooms.length],
         propositionTeamId: teams[order[i]].id, oppositionTeamId: teams[order[i + 1]].id,
-        judgeIds: [judges[d % judges.length].id, judges[(d + 3) % judges.length].id, judges[(d + 5) % judges.length].id].filter((v, k, a) => a.indexOf(v) === k),
+        judgeIds: panel(d, Math.floor(teams.length / 2), r.number, judges),
         winner: r.status === 'completed' ? ((order[i] + r.number) % 3 === 0 ? 'opposition' : 'proposition') : undefined,
-        ballotStatus: r.status === 'completed' ? 'confirmed' : d % 3 === 0 ? 'submitted' : 'pending',
+        ballotStatus: r.status === 'completed' ? 'confirmed' : d % 3 === 1 ? 'submitted' : 'pending',
       })
     }
   })
