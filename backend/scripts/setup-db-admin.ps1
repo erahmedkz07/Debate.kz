@@ -21,6 +21,7 @@ $psql    = Join-Path $pgRoot 'bin\psql.exe'
 $hba     = Join-Path $pgRoot 'data\pg_hba.conf'
 $service = 'postgresql-x64-16'
 $backup  = "$hba.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+$newPass = $null
 
 # --- read app credentials from .env ---
 $envFile = Join-Path $PSScriptRoot '..\.env'
@@ -82,17 +83,27 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$appDb')\gexec
     # --- optional: new password for postgres ---
     $answer = Read-Host 'Set a NEW password for the "postgres" superuser now? (y/n)'
     if ($answer -match '^(y|yes)$') {
-        $p1 = Read-Host 'New password' -AsSecureString
-        $p2 = Read-Host 'Repeat password' -AsSecureString
-        $plain1 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p1))
-        $plain2 = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p2))
-        if ($plain1 -ne $plain2) { throw 'Passwords do not match - postgres password NOT changed.' }
-        if ($plain1.Length -lt 8) { throw 'Password too short (min 8) - postgres password NOT changed.' }
-        # sent through stdin, not the command line, so it does not show up in the process list
-        ("ALTER ROLE postgres WITH PASSWORD '" + $plain1.Replace("'", "''") + "';") | & $psql -U postgres -h localhost -d postgres -v ON_ERROR_STOP=1 -q
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to change postgres password' }
+        $toSecure = { param($s) [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)) }
+        # up to 3 attempts instead of failing on the first typo
+        for ($try = 1; $try -le 3 -and -not $newPass; $try++) {
+            Write-Host 'Requirements: at least 12 characters, letters AND digits.' -ForegroundColor DarkGray
+            $plain1 = & $toSecure (Read-Host 'New password' -AsSecureString)
+            $plain2 = & $toSecure (Read-Host 'Repeat password' -AsSecureString)
+            if ($plain1 -ne $plain2) { Write-Host 'Passwords do not match, try again.' -ForegroundColor Red; continue }
+            if ($plain1.Length -lt 12 -or $plain1 -notmatch '\d' -or $plain1 -notmatch '[A-Za-z]') {
+                Write-Host 'Too weak: need 12+ characters with letters and digits, try again.' -ForegroundColor Red; continue
+            }
+            $newPass = $plain1
+        }
         $plain1 = $null; $plain2 = $null
-        Write-Host 'Password for "postgres" changed. Save it in your password manager (KeePassXC).' -ForegroundColor Green
+        if (-not $newPass) {
+            Write-Host 'postgres password NOT changed (3 failed attempts). Run the script again when ready.' -ForegroundColor Red
+        } else {
+            # sent through stdin, not the command line, so it does not show up in the process list
+            ("ALTER ROLE postgres WITH PASSWORD '" + $newPass.Replace("'", "''") + "';") | & $psql -U postgres -h localhost -d postgres -v ON_ERROR_STOP=1 -q
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to change postgres password' }
+            Write-Host 'Password for "postgres" changed.' -ForegroundColor Green
+        }
     }
 }
 finally {
@@ -100,4 +111,21 @@ finally {
     Copy-Item $backup $hba -Force
     Restart-Pg
     Write-Host 'pg_hba.conf restored, password authentication is back on.' -ForegroundColor Cyan
+}
+
+# prove the new password works through normal (password) authentication
+if ($newPass) {
+    $env:PGPASSWORD = $newPass
+    try {
+        $who = & $psql -U postgres -h localhost -d postgres -w -t -A -c 'SELECT current_user' 2>&1
+        if ($LASTEXITCODE -eq 0 -and "$who".Trim() -eq 'postgres') {
+            Write-Host 'Verified: you can now log in as "postgres" with the new password.' -ForegroundColor Green
+            Write-Host 'Save it in KeePassXC now (entry: "PostgreSQL 16 local - postgres").' -ForegroundColor Yellow
+        } else {
+            Write-Host "Verification FAILED: $who" -ForegroundColor Red
+        }
+    } finally {
+        Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        $newPass = $null
+    }
 }
