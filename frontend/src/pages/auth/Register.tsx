@@ -1,11 +1,15 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Gavel, Loader2, Mic, Trophy } from 'lucide-react'
-import { register as registerUser } from '@/api'
+import { AlertCircle, Gavel, Loader2, Mic, Trophy } from 'lucide-react'
+import { AuthError, register as registerUser } from '@/api'
+import { useAuth } from '@/lib/auth'
+import { roleHome } from '@/mocks/users'
+import { safeNext } from './Login'
 import { images } from '@/mocks/images'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -13,14 +17,18 @@ import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
 
 const roles = [
-  { value: 'organizer', icon: Trophy },
   { value: 'participant', icon: Mic },
+  { value: 'organizer', icon: Trophy },
   { value: 'judge', icon: Gavel },
 ] as const
 
 export default function Register() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const { user, signIn } = useAuth()
+  const [formError, setFormError] = useState<string | null>(null)
+  const next = safeNext(params.get('next'))
   const schema = z.object({
     name: z.string().trim().min(3, t('auth.errors.name')).refine(v => v.includes(' '), t('auth.errors.name')),
     email: z.string().trim().min(1, t('auth.errors.required')).email(t('auth.errors.email')),
@@ -31,19 +39,32 @@ export default function Register() {
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { role: 'organizer' },
+    defaultValues: { role: 'participant' },
   })
   const role = watch('role')
 
+  if (user) return <Navigate to={next ?? roleHome[user.role]} replace />
+
   const onSubmit = async (v: Form) => {
-    await registerUser({ name: v.name, email: v.email, role: v.role })
-    toast.success(t('auth.registerSuccess'))
-    navigate(v.role === 'organizer' ? '/dashboard' : '/tournaments')
+    setFormError(null)
+    try {
+      const u = await registerUser(v)
+      signIn(u)
+      toast.success(t('auth.registerSuccess'))
+      navigate(next ?? roleHome[u.role], { replace: true })
+    } catch (e) {
+      setFormError(e instanceof AuthError ? t(`auth.errors.${e.code}`) : t('common.error'))
+    }
   }
 
   return (
     <AuthLayout title={t('auth.registerTitle')} subtitle={t('auth.registerSubtitle')} image={images.studentsLaugh}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        {formError && (
+          <p role="alert" className="flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm font-medium text-danger">
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />{formError}
+          </p>
+        )}
         <div>
           <Label>{t('auth.role')}</Label>
           <div className="grid grid-cols-3 gap-2" role="radiogroup">
@@ -85,7 +106,7 @@ export default function Register() {
         </Button>
       </form>
       <p className="mt-8 text-center text-sm text-muted-foreground">
-        {t('auth.hasAccount')} <Link to="/login" className="font-bold text-primary hover:underline">{t('auth.toLogin')}</Link>
+        {t('auth.hasAccount')} <Link to={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} className="font-bold text-primary hover:underline">{t('auth.toLogin')}</Link>
       </p>
     </AuthLayout>
   )

@@ -1,8 +1,10 @@
 // Data access layer. Components must use ONLY these functions.
 // Today they return mock data with a fake delay; later each body becomes a fetch() to the Express API.
 import type {
-  RatingSpeaker, RatingTeam, SpeakerStanding, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters,
+  AdminTournament, JudgeAssignment, RatingSpeaker, RatingTeam, Role, SpeakerStanding, TeamRegistration, TeamStanding, Testimonial,
+  Tournament, TournamentDetails, TournamentFilters, User,
 } from '@/types'
+import { DEMO_PASSWORD, initialRegistrations, judgeLinks, participantTeams, users } from '@/mocks/users'
 import { cities, ratingSpeakers, ratingTeams, schedule, stats, testimonials, tournamentData, tournaments } from '@/mocks/data'
 
 const delay = (ms = 450) => new Promise(r => setTimeout(r, ms + Math.random() * 250))
@@ -125,12 +127,118 @@ export async function submitBallot(payload: BallotPayload): Promise<{ ok: true }
   return { ok: true }
 }
 
-export async function login(email: string, _password: string) {
-  await delay(700)
-  return { id: 'u1', name: 'Аргын', email, role: 'organizer' as const }
+// ---------- Auth (mock) ----------
+// Registered demo users live in localStorage until the real backend (JWT) exists.
+export class AuthError extends Error {
+  constructor(public code: 'invalid' | 'exists' | 'blocked') { super(code) }
 }
 
-export async function register(data: { name: string; email: string; role: string }) {
-  await delay(800)
-  return { id: 'u2', ...data }
+type StoredUser = User & { password: string }
+
+const read = <T,>(key: string, fallback: T): T => {
+  try { return JSON.parse(localStorage.getItem(key) ?? '') as T } catch { return fallback }
+}
+const write = (key: string, value: unknown) => {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* private mode */ }
+}
+
+const allUsers = (): StoredUser[] => [
+  ...users.map(u => ({ ...u, password: DEMO_PASSWORD })),
+  ...read<StoredUser[]>('mock-users', []),
+]
+const strip = ({ password: _p, ...u }: StoredUser): User => u
+
+export async function login(email: string, password: string): Promise<User> {
+  await delay(600)
+  const u = allUsers().find(x => x.email.toLowerCase() === email.trim().toLowerCase())
+  if (!u || u.password !== password) throw new AuthError('invalid')
+  if (u.blocked) throw new AuthError('blocked')
+  return strip(u)
+}
+
+export async function register(data: { name: string; email: string; phone: string; password: string; role: Exclude<Role, 'admin'> }): Promise<User> {
+  await delay(700)
+  if (allUsers().some(x => x.email.toLowerCase() === data.email.trim().toLowerCase())) throw new AuthError('exists')
+  const user: StoredUser = { id: `u-${Date.now()}`, createdAt: new Date().toISOString().slice(0, 10), ...data, email: data.email.trim() }
+  write('mock-users', [...read<StoredUser[]>('mock-users', []), user])
+  return strip(user)
+}
+
+// ---------- Participant ----------
+export async function getMyRegistrations(userId: string): Promise<(TeamRegistration & { tournament: Tournament })[]> {
+  await delay(400)
+  const list = [...(initialRegistrations[userId] ?? []), ...read<TeamRegistration[]>(`mock-regs-${userId}`, [])]
+  return clone(list.map(r => ({ ...r, tournament: tournaments.find(t => t.id === r.tournamentId)! })).filter(r => r.tournament))
+}
+
+export async function registerTeam(userId: string, data: Omit<TeamRegistration, 'id' | 'status' | 'createdAt'>): Promise<TeamRegistration> {
+  await delay(700)
+  const reg: TeamRegistration = { ...data, id: `reg-${Date.now()}`, status: 'pending', createdAt: new Date().toISOString().slice(0, 10) }
+  write(`mock-regs-${userId}`, [...read<TeamRegistration[]>(`mock-regs-${userId}`, []), reg])
+  return reg
+}
+
+export async function getMyDebates(userId: string) {
+  await delay(400)
+  return clone((participantTeams[userId] ?? []).flatMap(teamId => {
+    const tId = teamId.split('-')[0]
+    const t = tournaments.find(x => x.id === tId)!
+    const d = tournamentData[tId]
+    return d.debates.filter(x => x.propositionTeamId === teamId || x.oppositionTeamId === teamId).map(debate => {
+      const side = debate.propositionTeamId === teamId ? 'proposition' as const : 'opposition' as const
+      const opponentId = side === 'proposition' ? debate.oppositionTeamId : debate.propositionTeamId
+      return {
+        debate, side, tournament: { id: t.id, name: t.name },
+        round: d.rounds.find(r => r.id === debate.roundId)!,
+        opponent: d.teams.find(x => x.id === opponentId)!,
+        result: debate.winner ? (debate.winner === side ? 'win' as const : 'loss' as const) : null,
+      }
+    })
+  }))
+}
+
+// ---------- Judge ----------
+export async function getJudgeAssignments(userId: string): Promise<JudgeAssignment[]> {
+  await delay(450)
+  const ids = judgeLinks[userId] ?? []
+  const result: JudgeAssignment[] = []
+  for (const judgeId of ids) {
+    const tId = judgeId.split('-')[0]
+    const t = tournaments.find(x => x.id === tId)!
+    const d = tournamentData[tId]
+    d.debates.filter(x => x.judgeIds.includes(judgeId)).forEach(debate => {
+      result.push({
+        debate, round: d.rounds.find(r => r.id === debate.roundId)!,
+        tournament: { id: t.id, name: t.name, city: t.city },
+        proposition: d.teams.find(x => x.id === debate.propositionTeamId)!,
+        opposition: d.teams.find(x => x.id === debate.oppositionTeamId)!,
+        isChair: debate.judgeIds[0] === judgeId,
+      })
+    })
+  }
+  return clone(result)
+}
+
+// ---------- Admin ----------
+export async function getAdminTournaments(): Promise<AdminTournament[]> {
+  await delay(450)
+  return clone(tournaments.map(t => ({ ...t, plan: t.maxTeams > 12 ? 'pro' : 'free', paid: t.maxTeams <= 12 || t.status !== 'registration', visible: true })))
+}
+
+export async function getUsers(): Promise<User[]> {
+  await delay(450)
+  return clone(allUsers().map(strip))
+}
+
+export async function getAdminStats() {
+  await delay(300)
+  const list = allUsers()
+  return {
+    users: list.length,
+    organizers: list.filter(u => u.role === 'organizer').length,
+    judges: list.filter(u => u.role === 'judge').length,
+    tournaments: tournaments.length,
+    active: tournaments.filter(t => t.status !== 'finished').length,
+    unpaid: tournaments.filter(t => t.maxTeams > 12 && t.status === 'registration').length,
+  }
 }

@@ -4,7 +4,7 @@
 
 ## Стек
 
-React 19 · Vite 8 · TypeScript · Tailwind CSS 4 · React Router 7 · framer-motion · react-i18next (RU/KZ) · react-hook-form + zod · Radix UI · lucide-react · sonner
+React 19 · Vite 8 · TypeScript · Tailwind CSS 4 · React Router 7 · framer-motion · react-i18next (RU/KZ) · react-hook-form + zod · Radix UI (Dialog, Select, Dropdown, Tabs) · lucide-react · sonner
 
 ## Запуск
 
@@ -23,11 +23,28 @@ npm run build    # проверка типов + production-сборка в dist
 | `/tournaments/:id` | Публичная страница турнира: обзор, команды, жеребьёвка, результаты, спикеры, судьи |
 | `/rating` | Рейтинг команд и спикеров |
 | `/about`, `/pricing` | О платформе, тарифы + FAQ |
-| `/login`, `/register` | Вход и регистрация (пока только UI) |
-| `/ballot/:debateId` | Бюллетень судьи (например, `/ballot/t4-r3-d1`) |
-| `/dashboard` | Кабинет организатора: мои турниры |
-| `/dashboard/tournaments/new` | Мастер создания турнира |
+| `/login`, `/register` | Вход и регистрация (демо: сессия в localStorage) |
+| `/me` | Профиль: мои заявки, мои дебаты, настройки — любой вошедший |
+| `/judge` | Кабинет судьи: назначения и история — судья, админ |
+| `/ballot/:debateId` | Бюллетень судьи (например, `/ballot/t4-r3-d1`) — судья, организатор, админ |
+| `/dashboard` | Кабинет организатора: мои турниры — организатор, админ |
+| `/dashboard/tournaments/new` | Мастер создания турнира — организатор, админ |
 | `/dashboard/tournaments/:id/:section?` | Управление: команды, судьи, раунды, жеребьёвка, бюллетени, результаты, настройки |
+| `/admin` | Админ-панель: оплата тарифов, скрытие турниров, роли и блокировка — админ |
+
+Публичные страницы видны всем. Действия (регистрация команды, создание турнира, бюллетени,
+кабинеты) требуют входа: гостя отправляет на `/login?next=…` и после входа возвращает обратно.
+
+## Демо-доступ
+
+Пароль для всех: `demo1234` (на странице входа есть кнопки быстрого заполнения).
+
+| Роль | Email |
+|---|---|
+| Участник | `student@debate.kz` |
+| Организатор | `org@debate.kz` |
+| Судья | `judge@debate.kz` |
+| Администратор | `admin@debate.kz` |
 
 ## Структура
 

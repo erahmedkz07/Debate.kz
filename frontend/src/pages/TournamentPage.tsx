@@ -8,7 +8,9 @@ import { toast } from 'sonner'
 import {
   ArrowLeft, Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users,
 } from 'lucide-react'
-import { getStandings, getTournamentById, NotFoundError } from '@/api'
+import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
+import { useAuth } from '@/lib/auth'
+import { LoginRequiredDialog } from '@/components/auth/guards'
 import type { Debate, Round, TournamentDetails } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
@@ -26,6 +28,8 @@ const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [gate, setGate] = useState(false)
+  const { user } = useAuth()
   const schema = z.object({
     team: z.string().trim().min(2, t('auth.errors.required')),
     institution: z.string().trim().min(2, t('auth.errors.required')),
@@ -35,13 +39,23 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     phone: z.string().trim().regex(phoneRe, t('auth.errors.phone')),
   })
   type Form = z.infer<typeof schema>
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Form>({
+    resolver: zodResolver(schema),
+    values: { team: '', institution: user?.institution ?? '', s1: user?.role === 'participant' ? user.name : '', s2: '', s3: '', phone: user?.phone ?? '' },
+  })
 
-  const onSubmit = async () => {
-    await new Promise(r => setTimeout(r, 700))
+  const onSubmit = async (v: Form) => {
+    await registerTeam(user!.id, { tournamentId: tournament.id, teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3] })
     toast.success(t('tournament.registerDialog.success'))
     reset()
     setOpen(false)
+  }
+
+  // guests must sign in first; only participants register teams
+  const onOpenChange = (v: boolean) => {
+    if (v && !user) return setGate(true)
+    if (v && user?.role !== 'participant') return void toast.info(t('authGate.onlyParticipants'))
+    setOpen(v)
   }
 
   if (tournament.status !== 'registration') {
@@ -49,42 +63,45 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="lg" variant="accent"><UserPlus className="size-5" />{t('tournament.register')}</Button>
-      </DialogTrigger>
-      <DialogContent heading={t('tournament.registerDialog.title')} description={`${tournament.name} · ${t('tournament.registerDialog.text')}`}>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-          <div className="grid gap-4 sm:grid-cols-2">
+    <>
+      <LoginRequiredDialog open={gate} onOpenChange={setGate} text={t('authGate.registerTeamText')} />
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogTrigger asChild>
+          <Button size="lg" variant="accent"><UserPlus className="size-5" />{t('tournament.register')}</Button>
+        </DialogTrigger>
+        <DialogContent heading={t('tournament.registerDialog.title')} description={`${tournament.name} · ${t('tournament.registerDialog.text')}`}>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="r-team">{t('tournament.registerDialog.teamName')}</Label>
+                <Input id="r-team" aria-invalid={!!errors.team} {...register('team')} />
+                <FieldError message={errors.team?.message} />
+              </div>
+              <div>
+                <Label htmlFor="r-inst">{t('tournament.registerDialog.institution')}</Label>
+                <Input id="r-inst" aria-invalid={!!errors.institution} {...register('institution')} />
+                <FieldError message={errors.institution?.message} />
+              </div>
+            </div>
+            {(['s1', 's2', 's3'] as const).map((k, i) => (
+              <div key={k}>
+                <Label htmlFor={`r-${k}`}>{t('tournament.registerDialog.speaker', { n: i + 1 })}</Label>
+                <Input id={`r-${k}`} aria-invalid={!!errors[k]} {...register(k)} />
+                <FieldError message={errors[k]?.message} />
+              </div>
+            ))}
             <div>
-              <Label htmlFor="r-team">{t('tournament.registerDialog.teamName')}</Label>
-              <Input id="r-team" aria-invalid={!!errors.team} {...register('team')} />
-              <FieldError message={errors.team?.message} />
+              <Label htmlFor="r-phone">{t('tournament.registerDialog.contact')}</Label>
+              <Input id="r-phone" type="tel" placeholder="+7 7XX XXX XX XX" aria-invalid={!!errors.phone} {...register('phone')} />
+              <FieldError message={errors.phone?.message} />
             </div>
-            <div>
-              <Label htmlFor="r-inst">{t('tournament.registerDialog.institution')}</Label>
-              <Input id="r-inst" aria-invalid={!!errors.institution} {...register('institution')} />
-              <FieldError message={errors.institution?.message} />
-            </div>
-          </div>
-          {(['s1', 's2', 's3'] as const).map((k, i) => (
-            <div key={k}>
-              <Label htmlFor={`r-${k}`}>{t('tournament.registerDialog.speaker', { n: i + 1 })}</Label>
-              <Input id={`r-${k}`} aria-invalid={!!errors[k]} {...register(k)} />
-              <FieldError message={errors[k]?.message} />
-            </div>
-          ))}
-          <div>
-            <Label htmlFor="r-phone">{t('tournament.registerDialog.contact')}</Label>
-            <Input id="r-phone" type="tel" placeholder="+7 7XX XXX XX XX" aria-invalid={!!errors.phone} {...register('phone')} />
-            <FieldError message={errors.phone?.message} />
-          </div>
-          <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? t('common.loading') : t('tournament.registerDialog.submit')}
-          </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
+            <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? t('common.loading') : t('tournament.registerDialog.submit')}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

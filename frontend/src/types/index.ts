@@ -135,3 +135,43 @@ export interface TournamentFilters {
   status?: TournamentStatus | 'all'
   sort?: 'date-asc' | 'date-desc' | 'teams'
 }
+
+// ---------- Auth & roles ----------
+export type Role = 'participant' | 'organizer' | 'judge' | 'admin'
+
+export interface User {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  role: Role
+  institution?: string
+  city?: string
+  createdAt: string
+  blocked?: boolean
+}
+
+export interface TeamRegistration {
+  id: string
+  tournamentId: string
+  teamName: string
+  institution: string
+  speakers: string[]
+  status: 'pending' | 'confirmed' | 'rejected'
+  createdAt: string
+}
+
+export interface JudgeAssignment {
+  debate: Debate
+  round: Round
+  tournament: Pick<Tournament, 'id' | 'name' | 'city'>
+  proposition: Team
+  opposition: Team
+  isChair: boolean
+}
+
+export interface AdminTournament extends Tournament {
+  plan: 'free' | 'pro'
+  paid: boolean
+  visible: boolean
+}

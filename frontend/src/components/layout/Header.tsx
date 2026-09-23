@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Menu, Moon, Plus, Sun } from 'lucide-react'
+import { LayoutGrid, LogOut, Menu, Moon, Plus, Sun } from 'lucide-react'
 import { Logo } from '@/components/brand'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogTrigger, SheetContent } from '@/components/ui/dialog'
 import { useTheme } from '@/lib/hooks'
+import { useAuth } from '@/lib/auth'
+import { roleHome } from '@/mocks/users'
+import { Avatar, UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
 import { cn } from '@/lib/utils'
 
 const links = [
@@ -49,6 +52,9 @@ export function Header() {
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
+  const { user, signOut } = useAuth()
+  // guests and organizers see "create tournament"; other roles get a shortcut to their cabinet
+  const canCreate = !user || user.role === 'organizer' || user.role === 'admin'
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8)
@@ -88,8 +94,12 @@ export function Header() {
         <div className="hidden items-center gap-2 lg:flex">
           <LangSwitch onDark={onDark} />
           <ThemeToggle onDark={onDark} />
-          <Button asChild variant="ghost" className={cn(onDark && 'text-white hover:bg-white/10')}><Link to="/login">{t('nav.login')}</Link></Button>
-          <Button asChild><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>
+          {canCreate
+            ? <Button asChild><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>
+            : <Button asChild><Link to={roleHome[user!.role]}><LayoutGrid className="size-4" />{t('nav.dashboard')}</Link></Button>}
+          {user
+            ? <UserMenu onDark={onDark} />
+            : <Button asChild variant="ghost" className={cn(onDark && 'text-white hover:bg-white/10')}><Link to="/login">{t('nav.login')}</Link></Button>}
         </div>
 
         <div className="flex items-center gap-1 lg:hidden">
@@ -110,11 +120,25 @@ export function Header() {
                     {t(`nav.${l.key}`)}
                   </NavLink>
                 ))}
-                <NavLink to="/dashboard" className="rounded-xl px-4 py-3 text-base font-semibold hover:bg-muted">{t('nav.dashboard')}</NavLink>
               </nav>
+              {user && (
+                <div className="mt-6 border-t border-border pt-6">
+                  <div className="flex items-center gap-3 px-2">
+                    <Avatar name={user.name} role={user.role} className="size-11" />
+                    <div className="min-w-0"><p className="truncate font-bold">{user.name}</p><p className="text-xs text-muted-foreground">{t(`roles.${user.role}`)}</p></div>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-1">
+                    {cabinetLinks(user.role).map(({ to, key, icon: Icon }) => (
+                      <NavLink key={to} to={to} className="flex items-center gap-3 rounded-xl px-4 py-3 font-semibold hover:bg-muted"><Icon className="size-5 text-primary" />{t(`cabinet.${key}`)}</NavLink>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mt-6 flex flex-col gap-3 border-t border-border pt-6">
-                <Button asChild size="lg"><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>
-                <Button asChild variant="outline" size="lg"><Link to="/login">{t('nav.login')}</Link></Button>
+                {canCreate && <Button asChild size="lg"><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>}
+                {user
+                  ? <Button variant="outline" size="lg" className="text-danger" onClick={() => { signOut(); setOpen(false) }}><LogOut className="size-4" />{t('authGate.logout')}</Button>
+                  : <Button asChild variant="outline" size="lg"><Link to="/login">{t('nav.login')}</Link></Button>}
                 <div className="flex items-center justify-between pt-2">
                   <span className="text-sm font-semibold text-muted-foreground">{t('nav.toggleTheme')}</span>
                   <ThemeToggle />
