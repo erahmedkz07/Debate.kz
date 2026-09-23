@@ -1,0 +1,137 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Brand tokens — colors taken from the logo (#009BC9 / #FFDE00) */
+:root {
+  --background: #f7fbfd;
+  --foreground: #0b2a3c;
+  --card: #ffffff;
+  --muted: #eaf4f8;
+  --muted-foreground: #5b7384;
+  --border: #d7e6ee;
+  --primary: #009bc9;
+  --primary-hover: #0086ae;
+  --primary-soft: #e6f5fa;
+  --primary-foreground: #ffffff;
+  --accent: #ffde00;
+  --accent-soft: #fff8cc;
+  --accent-foreground: #0b2a3c;
+  --navy: #0b2a3c;
+  --success: #16a34a;
+  --success-soft: #dcfce7;
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+}
+
+.dark {
+  --background: #071c28;
+  --foreground: #e8f3f8;
+  --card: #0c2636;
+  --muted: #113143;
+  --muted-foreground: #8fb0c2;
+  --border: #1a3d52;
+  --primary: #1db4e0;
+  --primary-hover: #3fc3ea;
+  --primary-soft: #0d3346;
+  --primary-foreground: #04151f;
+  --accent: #ffde00;
+  --accent-soft: #3a3510;
+  --accent-foreground: #0b2a3c;
+  --success: #4ade80;
+  --success-soft: #0f3a22;
+  --danger: #f87171;
+  --danger-soft: #3f1515;
+}
+
+@theme inline {
+  --font-sans: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-navy: var(--navy);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--navy);
+  }
+}
+
+@layer components {
+  .container-page {
+    width: 100%;
+    max-width: 80rem;
+    margin-inline: auto;
+    padding-inline: 1rem;
+  }
+  @media (min-width: 640px) {
+    .container-page {
+      padding-inline: 1.5rem;
+    }
+  }
+  .skeleton {
+    background: linear-gradient(90deg, var(--muted) 25%, var(--border) 50%, var(--muted) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+    border-radius: 0.75rem;
+  }
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-14px) rotate(4deg); }
+}
+.animate-float-slow {
+  animation: float-slow 7s ease-in-out infinite;
+}
+
+@keyframes fade-in { from { opacity: 0 } }
+@keyframes pop-in { from { opacity: 0; transform: translate(-50%, -48%) scale(0.96) } }
+@keyframes slide-in-right { from { transform: translateX(100%) } }
+@keyframes slide-in-left { from { transform: translateX(-100%) } }
+
+/* Ram-horn ornament as a recolorable mask (uses currentColor via bg) */
+.ornament {
+  -webkit-mask: url('/brand/debate-logo-mark.svg') center / contain no-repeat;
+  mask: url('/brand/debate-logo-mark.svg') center / contain no-repeat;
+  background-color: currentColor;
+}
+.ornament-pattern {
+  -webkit-mask: url('/brand/debate-logo-mark.svg') 0 0 / 72px 40px repeat space;
+  mask: url('/brand/debate-logo-mark.svg') 0 0 / 72px 40px repeat space;
+  background-color: currentColor;
+}
