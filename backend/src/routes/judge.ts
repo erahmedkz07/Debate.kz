@@ -122,7 +122,13 @@ judgeRouter.post('/ballots/:debateId', requireAuth('judge', 'organizer', 'admin'
     await tx.ballot.deleteMany({ where: { debateId: d.id, judgeId } })
     await tx.ballot.create({ data: { debateId: d.id, judgeId, winner: data.winner, scores: { create: rows } } })
 
-    // when the whole panel has voted, the majority decides the debate
+    // an organizer typing in the panel's (paper) ballot decides the debate right away
+    if (!myJudge) {
+      await tx.debate.update({ where: { id: d.id }, data: { ballotStatus: 'submitted', winner: data.winner } })
+      return
+    }
+
+    // judges vote individually: when the whole panel has voted, the majority decides
     const ballots = await tx.ballot.findMany({ where: { debateId: d.id }, select: { winner: true, judgeId: true } })
     if (ballots.length >= d.judges.length) {
       const prop = ballots.filter(b => b.winner === 'proposition').length
