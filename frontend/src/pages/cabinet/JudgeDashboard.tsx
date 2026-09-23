@@ -63,7 +63,7 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
 export default function JudgeDashboard() {
   const { t } = useTranslation()
   const { user } = useAuth()
-  const { data, loading, error, reload } = useAsync(() => getJudgeAssignments(user!.id), [user?.id])
+  const { data, loading, error, reload } = useAsync(getJudgeAssignments, [user?.id])
 
   const active = data?.filter(a => a.debate.ballotStatus !== 'confirmed') ?? []
   const history = data?.filter(a => a.debate.ballotStatus === 'confirmed') ?? []

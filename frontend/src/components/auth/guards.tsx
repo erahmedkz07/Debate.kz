@@ -3,8 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { LockKeyhole, LogIn, ShieldAlert, UserPlus } from 'lucide-react'
 import type { Role } from '@/types'
-import { useAuth } from '@/lib/auth'
-import { roleHome } from '@/mocks/users'
+import { roleHome, useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 
@@ -12,8 +11,10 @@ export const loginUrl = (next: string) => `/login?next=${encodeURIComponent(next
 
 // Route guard: guests go to /login?next=..., wrong role sees a friendly 403
 export function RequireAuth({ roles, children }: { roles?: Role[]; children: ReactNode }) {
-  const { user } = useAuth()
+  const { user, ready } = useAuth()
   const location = useLocation()
+  // wait for the session check before deciding
+  if (!ready) return <div className="grid min-h-[60vh] place-items-center"><span className="ornament block w-16 animate-pulse text-primary" style={{ aspectRatio: '560/308' }} /></div>
   if (!user) return <Navigate to={loginUrl(location.pathname + location.search)} replace />
   if (roles && !roles.includes(user.role)) return <Forbidden />
   return <>{children}</>

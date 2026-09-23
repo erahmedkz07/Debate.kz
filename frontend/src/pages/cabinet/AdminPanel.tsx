@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { AlertTriangle, Ban, CheckCircle2, CircleDollarSign, ExternalLink, Eye, EyeOff, Gavel, LayoutGrid, Search, Trophy, Unlock, Users } from 'lucide-react'
-import { getAdminStats, getAdminTournaments, getUsers } from '@/api'
+import { getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
+import { errorMessage } from '@/lib/errors'
 import type { AdminTournament, Role, User } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
@@ -65,7 +66,17 @@ function Overview({ tournaments, setTab }: { tournaments: AdminTournament[]; set
 function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (l: AdminTournament[]) => void }) {
   const { t } = useTranslation()
   const [confirm, setConfirm] = useState<AdminTournament | null>(null)
-  const patch = (id: string, p: Partial<AdminTournament>) => setList(list.map(x => (x.id === id ? { ...x, ...p } : x)))
+  // server first, then local list; returns false on error
+  const patch = async (id: string, p: { paid?: boolean; visible?: boolean }) => {
+    try {
+      const updated = await updateAdminTournament(id, p)
+      setList(list.map(x => (x.id === id ? updated : x)))
+      return true
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+      return false
+    }
+  }
   return (
     <>
       <Card className="overflow-x-auto">
@@ -98,7 +109,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
                   <div className="flex justify-end gap-1">
                     {x.plan === 'pro' && !x.paid && <Button size="sm" variant="accent" onClick={() => setConfirm(x)}>{t('admin.markPaid')}</Button>}
                     <Button variant="ghost" size="icon" title={x.visible ? t('admin.hide') : t('admin.show')} aria-label={x.visible ? t('admin.hide') : t('admin.show')}
-                      onClick={() => { patch(x.id, { visible: !x.visible }); toast(x.visible ? t('admin.hidden') : t('admin.shown')) }}>
+                      onClick={async () => { if (await patch(x.id, { visible: !x.visible })) toast(x.visible ? t('admin.hidden') : t('admin.shown')) }}>
                       {x.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
                     </Button>
                     <Button asChild variant="ghost" size="icon" aria-label={t('dashboard.public')} title={t('dashboard.public')}>
@@ -116,7 +127,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
           <p className="text-sm text-muted-foreground">{t('admin.markPaidText')}</p>
           <div className="mt-5 flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
-            <Button onClick={() => { patch(confirm!.id, { paid: true }); setConfirm(null); toast.success(t('admin.paidDone')) }}>
+            <Button onClick={async () => { if (await patch(confirm!.id, { paid: true })) { setConfirm(null); toast.success(t('admin.paidDone')) } }}>
               <CheckCircle2 className="size-4" />{t('admin.markPaid')}
             </Button>
           </div>
@@ -140,7 +151,16 @@ function UsersTab() {
 
   const shown = list.filter(u => (role === 'all' || u.role === role) &&
     (!q || u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase())))
-  const patch = (id: string, p: Partial<User>) => setList(list.map(u => (u.id === id ? { ...u, ...p } : u)))
+  const patch = async (id: string, p: { role?: Role; blocked?: boolean }) => {
+    try {
+      const updated = await updateUser(id, p)
+      setList(list.map(u => (u.id === id ? updated : u)))
+      return true
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+      return false
+    }
+  }
 
   return (
     <>
@@ -180,13 +200,13 @@ function UsersTab() {
                   <td className="px-5 py-3 text-muted-foreground">{formatDate(u.createdAt, { day: 'numeric', month: 'short', year: 'numeric' })}</td>
                   <td className="px-5 py-3">
                     <Select size="sm" className="w-40" value={u.role} disabled={u.id === me?.id} aria-label={t('auth.role')}
-                      onValueChange={v => { patch(u.id, { role: v as Role }); toast.success(t('admin.roleChanged', { name: u.name, role: t(`roles.${v}`) })) }}
+                      onValueChange={async v => { if (await patch(u.id, { role: v as Role })) toast.success(t('admin.roleChanged', { name: u.name, role: t(`roles.${v}`) })) }}
                       options={roles.map(r => ({ value: r, label: t(`roles.${r}`) }))} />
                   </td>
                   <td className="px-5 py-3 text-right">
                     {u.id !== me?.id && (
                       <Button size="sm" variant="ghost" className={u.blocked ? 'text-success' : 'text-danger'}
-                        onClick={() => { patch(u.id, { blocked: !u.blocked }); toast(u.blocked ? t('admin.unblockedToast') : t('admin.blockedToast')) }}>
+                        onClick={async () => { if (await patch(u.id, { blocked: !u.blocked })) toast(u.blocked ? t('admin.unblockedToast') : t('admin.blockedToast')) }}>
                         {u.blocked ? <><Unlock className="size-4" />{t('admin.unblock')}</> : <><Ban className="size-4" />{t('admin.block')}</>}
                       </Button>
                     )}

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
+import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
 import type { Debate, Round, TournamentDetails } from '@/types'
 import { useAsync } from '@/lib/hooks'
@@ -45,10 +46,14 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   })
 
   const onSubmit = async (v: Form) => {
-    await registerTeam(user!.id, { tournamentId: tournament.id, teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3] })
-    toast.success(t('tournament.registerDialog.success'))
-    reset()
-    setOpen(false)
+    try {
+      await registerTeam(tournament.id, { teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3], phone: v.phone })
+      toast.success(t('tournament.registerDialog.success'))
+      reset()
+      setOpen(false)
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    }
   }
 
   // guests must sign in first; only participants register teams

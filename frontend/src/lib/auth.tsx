@@ -1,38 +1,42 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Role, User } from '@/types'
+import { getMe, logout } from '@/api'
 
-// Mock session in localStorage; with the real backend this becomes an httpOnly JWT cookie + /me request
-const KEY = 'session'
+// The session is an httpOnly cookie set by the API; the page only keeps the user object in memory.
+
+export const roleHome: Record<Role, string> = {
+  participant: '/me',
+  organizer: '/dashboard',
+  judge: '/judge',
+  admin: '/admin',
+}
 
 interface AuthState {
   user: User | null
+  ready: boolean // true once /auth/me has answered
   signIn: (user: User) => void
-  signOut: () => void
+  signOut: () => Promise<void>
   hasRole: (...roles: Role[]) => boolean
 }
 
 const AuthContext = createContext<AuthState | null>(null)
 
-const load = (): User | null => {
-  try { return JSON.parse(localStorage.getItem(KEY) ?? 'null') } catch { return null }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(load)
+  const [user, setUser] = useState<User | null>(null)
+  const [ready, setReady] = useState(false)
 
-  const signIn = useCallback((u: User) => {
-    setUser(u)
-    try { localStorage.setItem(KEY, JSON.stringify(u)) } catch { /* private mode */ }
+  useEffect(() => {
+    getMe().then(setUser).catch(() => setUser(null)).finally(() => setReady(true))
   }, [])
 
-  const signOut = useCallback(() => {
+  const signIn = useCallback((u: User) => setUser(u), [])
+  const signOut = useCallback(async () => {
+    await logout().catch(() => undefined)
     setUser(null)
-    try { localStorage.removeItem(KEY) } catch { /* private mode */ }
   }, [])
-
   const hasRole = useCallback((...roles: Role[]) => !!user && roles.includes(user.role), [user])
 
-  const value = useMemo(() => ({ user, signIn, signOut, hasRole }), [user, signIn, signOut, hasRole])
+  const value = useMemo(() => ({ user, ready, signIn, signOut, hasRole }), [user, ready, signIn, signOut, hasRole])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

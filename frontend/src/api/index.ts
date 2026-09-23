@@ -1,244 +1,157 @@
 // Data access layer. Components must use ONLY these functions.
-// Today they return mock data with a fake delay; later each body becomes a fetch() to the Express API.
+// Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  AdminTournament, JudgeAssignment, RatingSpeaker, RatingTeam, Role, SpeakerStanding, TeamRegistration, TeamStanding, Testimonial,
-  Tournament, TournamentDetails, TournamentFilters, User,
+  AdminTournament, Debate, Judge, JudgeAssignment, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration,
+  TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, User,
 } from '@/types'
-import { DEMO_PASSWORD, initialRegistrations, judgeLinks, participantTeams, users } from '@/mocks/users'
-import { cities, ratingSpeakers, ratingTeams, schedule, stats, testimonials, tournamentData, tournaments } from '@/mocks/data'
+import { ApiError, http, qs } from './http'
 
-const delay = (ms = 450) => new Promise(r => setTimeout(r, ms + Math.random() * 250))
-const clone = <T,>(v: T): T => structuredClone(v)
+export { ApiError }
 
 export class NotFoundError extends Error {}
 
-export async function getTournaments(filters: TournamentFilters = {}): Promise<Tournament[]> {
-  await delay()
-  const q = filters.search?.trim().toLowerCase()
-  let list = tournaments.filter(t =>
-    (!q || t.name.toLowerCase().includes(q) || t.organizer.toLowerCase().includes(q)) &&
-    (!filters.city || filters.city === 'all' || t.city === filters.city) &&
-    (!filters.level || filters.level === 'all' || t.level === filters.level) &&
-    (!filters.status || filters.status === 'all' || t.status === filters.status))
-  const sort = filters.sort ?? 'date-asc'
-  // "nearest first": live and upcoming tournaments by date, finished ones at the end
-  const statusRank = { ongoing: 0, registration: 1, finished: 2 }
-  list = [...list].sort((a, b) =>
-    sort === 'teams' ? b.teamsCount - a.teamsCount
-      : sort === 'date-desc' ? b.startDate.localeCompare(a.startDate)
-        : statusRank[a.status] - statusRank[b.status] || a.startDate.localeCompare(b.startDate))
-  return clone(list)
-}
-
-export async function getUpcomingTournaments(limit = 3): Promise<Tournament[]> {
-  const list = await getTournaments({ status: 'registration', sort: 'date-asc' })
-  return list.slice(0, limit)
-}
-
-export async function getTournamentById(id: string): Promise<TournamentDetails> {
-  await delay()
-  const t = tournaments.find(x => x.id === id)
-  if (!t) throw new NotFoundError(`Tournament ${id} not found`)
-  return clone({ ...t, schedule, ...tournamentData[id] })
-}
-
-export async function getMyTournaments(): Promise<Tournament[]> {
-  await delay()
-  return clone(tournaments.filter(t => ['t1', 't4', 't7'].includes(t.id)))
-}
-
-export async function getCities(): Promise<string[]> {
-  return cities
-}
-
-export async function getPlatformStats() {
-  await delay(200)
-  return { ...stats }
-}
-
-export async function getTestimonials(): Promise<Testimonial[]> {
-  await delay(200)
-  return clone(testimonials)
-}
-
-// deterministic pseudo score so the same speaker always gets the same points
-const score = (seed: string, round: number) => {
-  let h = 0
-  for (const c of seed + round) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  return 68 + (h % 110) / 10 // 68.0 .. 78.9
-}
-
-export async function getStandings(id: string): Promise<{ teams: TeamStanding[]; speakers: SpeakerStanding[] }> {
-  const t = await getTournamentById(id)
-  const done = new Set(t.rounds.filter(r => r.status === 'completed').map(r => r.id))
-  const rows = t.teams.map(team => {
-    let wins = 0, losses = 0, sp = 0
-    t.debates.filter(d => done.has(d.roundId)).forEach(d => {
-      const side = d.propositionTeamId === team.id ? 'proposition' : d.oppositionTeamId === team.id ? 'opposition' : null
-      if (!side) return
-      if (d.winner === side) wins++; else losses++
-      const rn = Number(d.roundId.split('-r')[1])
-      sp += team.speakers.reduce((s, spk) => s + score(spk.id, rn), 0)
-    })
-    return { team, wins, losses, speakerPoints: Math.round(sp * 10) / 10, margins: Math.round((wins - losses) * 3.5 * 10) / 10 }
-  })
-  rows.sort((a, b) => b.wins - a.wins || b.speakerPoints - a.speakerPoints)
-  const rounds = t.rounds.filter(r => r.status === 'completed').map(r => r.number)
-  const speakers = t.teams.flatMap(team => team.speakers.map(speaker => {
-    const total = rounds.reduce((s, n) => s + score(speaker.id, n), 0)
-    return { speaker, team, total: Math.round(total * 10) / 10, average: rounds.length ? Math.round((total / rounds.length) * 10) / 10 : 0 }
-  })).sort((a, b) => b.total - a.total)
-  return {
-    teams: rows.map((r, i) => ({ rank: i + 1, ...r })),
-    speakers: speakers.map((s, i) => ({ rank: i + 1, ...s })),
+// map 404 to NotFoundError so pages can show the 404 screen
+const or404 = async <T,>(p: Promise<T>) => {
+  try {
+    return await p
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) throw new NotFoundError(e.code)
+    throw e
   }
 }
 
-export async function getRating(): Promise<{ teams: RatingTeam[]; speakers: RatingSpeaker[] }> {
-  await delay()
-  return clone({ teams: ratingTeams, speakers: ratingSpeakers })
-}
+// ---------- public ----------
 
-export async function getBallot(debateId: string) {
-  const tournamentId = debateId.split('-')[0]
-  const t = await getTournamentById(tournamentId)
-  const debate = t.debates.find(d => d.id === debateId)
-  if (!debate) throw new NotFoundError(`Debate ${debateId} not found`)
-  const round = t.rounds.find(r => r.id === debate.roundId)!
-  return {
-    tournament: { id: t.id, name: t.name },
-    round, debate,
-    proposition: t.teams.find(x => x.id === debate.propositionTeamId)!,
-    opposition: t.teams.find(x => x.id === debate.oppositionTeamId)!,
-    judges: t.judges.filter(j => debate.judgeIds.includes(j.id)),
-  }
-}
+export const getTournaments = (f: TournamentFilters = {}) =>
+  http<Tournament[]>('GET', `/tournaments${qs({ search: f.search, city: f.city, level: f.level, status: f.status, sort: f.sort })}`)
 
-export interface BallotPayload {
-  debateId: string
-  winner: 'proposition' | 'opposition'
-  replySpeakers: Record<'proposition' | 'opposition', string>
-  scores: Record<string, number>
-}
+export const getUpcomingTournaments = (limit = 3) =>
+  http<Tournament[]>('GET', `/tournaments${qs({ status: 'registration', sort: 'date-asc', limit })}`)
 
-export async function submitBallot(payload: BallotPayload): Promise<{ ok: true }> {
-  await delay(700)
-  console.info('[mock] ballot submitted', payload)
-  return { ok: true }
-}
+export const getTournamentById = (id: string) => or404(http<TournamentDetails>('GET', `/tournaments/${encodeURIComponent(id)}`))
 
-// ---------- Auth (mock) ----------
-// Registered demo users live in localStorage until the real backend (JWT) exists.
+export const getStandings = (id: string) =>
+  or404(http<{ teams: TeamStanding[]; speakers: SpeakerStanding[] }>('GET', `/tournaments/${encodeURIComponent(id)}/standings`))
+
+export const getCities = () => http<string[]>('GET', '/cities')
+export const getPlatformStats = () => http<{ tournaments: number; teams: number; debaters: number; cities: number }>('GET', '/stats')
+export const getTestimonials = () => http<Testimonial[]>('GET', '/testimonials')
+export const getRating = () => http<{ teams: RatingTeam[]; speakers: RatingSpeaker[] }>('GET', '/rating')
+
+// ---------- auth ----------
+
+// codes the UI translates: invalid | exists | blocked
 export class AuthError extends Error {
   constructor(public code: 'invalid' | 'exists' | 'blocked') { super(code) }
 }
 
-type StoredUser = User & { password: string }
-
-const read = <T,>(key: string, fallback: T): T => {
-  try { return JSON.parse(localStorage.getItem(key) ?? '') as T } catch { return fallback }
-}
-const write = (key: string, value: unknown) => {
-  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* private mode */ }
-}
-
-const allUsers = (): StoredUser[] => [
-  ...users.map(u => ({ ...u, password: DEMO_PASSWORD })),
-  ...read<StoredUser[]>('mock-users', []),
-]
-const strip = ({ password: _p, ...u }: StoredUser): User => u
-
-export async function login(email: string, password: string): Promise<User> {
-  await delay(600)
-  const u = allUsers().find(x => x.email.toLowerCase() === email.trim().toLowerCase())
-  if (!u || u.password !== password) throw new AuthError('invalid')
-  if (u.blocked) throw new AuthError('blocked')
-  return strip(u)
-}
-
-export async function register(data: { name: string; email: string; phone: string; password: string; role: Exclude<Role, 'admin'> }): Promise<User> {
-  await delay(700)
-  if (allUsers().some(x => x.email.toLowerCase() === data.email.trim().toLowerCase())) throw new AuthError('exists')
-  const user: StoredUser = { id: `u-${Date.now()}`, createdAt: new Date().toISOString().slice(0, 10), ...data, email: data.email.trim() }
-  write('mock-users', [...read<StoredUser[]>('mock-users', []), user])
-  return strip(user)
-}
-
-// ---------- Participant ----------
-export async function getMyRegistrations(userId: string): Promise<(TeamRegistration & { tournament: Tournament })[]> {
-  await delay(400)
-  const list = [...(initialRegistrations[userId] ?? []), ...read<TeamRegistration[]>(`mock-regs-${userId}`, [])]
-  return clone(list.map(r => ({ ...r, tournament: tournaments.find(t => t.id === r.tournamentId)! })).filter(r => r.tournament))
-}
-
-export async function registerTeam(userId: string, data: Omit<TeamRegistration, 'id' | 'status' | 'createdAt'>): Promise<TeamRegistration> {
-  await delay(700)
-  const reg: TeamRegistration = { ...data, id: `reg-${Date.now()}`, status: 'pending', createdAt: new Date().toISOString().slice(0, 10) }
-  write(`mock-regs-${userId}`, [...read<TeamRegistration[]>(`mock-regs-${userId}`, []), reg])
-  return reg
-}
-
-export async function getMyDebates(userId: string) {
-  await delay(400)
-  return clone((participantTeams[userId] ?? []).flatMap(teamId => {
-    const tId = teamId.split('-')[0]
-    const t = tournaments.find(x => x.id === tId)!
-    const d = tournamentData[tId]
-    return d.debates.filter(x => x.propositionTeamId === teamId || x.oppositionTeamId === teamId).map(debate => {
-      const side = debate.propositionTeamId === teamId ? 'proposition' as const : 'opposition' as const
-      const opponentId = side === 'proposition' ? debate.oppositionTeamId : debate.propositionTeamId
-      return {
-        debate, side, tournament: { id: t.id, name: t.name },
-        round: d.rounds.find(r => r.id === debate.roundId)!,
-        opponent: d.teams.find(x => x.id === opponentId)!,
-        result: debate.winner ? (debate.winner === side ? 'win' as const : 'loss' as const) : null,
-      }
-    })
-  }))
-}
-
-// ---------- Judge ----------
-export async function getJudgeAssignments(userId: string): Promise<JudgeAssignment[]> {
-  await delay(450)
-  const ids = judgeLinks[userId] ?? []
-  const result: JudgeAssignment[] = []
-  for (const judgeId of ids) {
-    const tId = judgeId.split('-')[0]
-    const t = tournaments.find(x => x.id === tId)!
-    const d = tournamentData[tId]
-    d.debates.filter(x => x.judgeIds.includes(judgeId)).forEach(debate => {
-      result.push({
-        debate, round: d.rounds.find(r => r.id === debate.roundId)!,
-        tournament: { id: t.id, name: t.name, city: t.city },
-        proposition: d.teams.find(x => x.id === debate.propositionTeamId)!,
-        opposition: d.teams.find(x => x.id === debate.oppositionTeamId)!,
-        isChair: debate.judgeIds[0] === judgeId,
-      })
-    })
-  }
-  return clone(result)
-}
-
-// ---------- Admin ----------
-export async function getAdminTournaments(): Promise<AdminTournament[]> {
-  await delay(450)
-  return clone(tournaments.map(t => ({ ...t, plan: t.maxTeams > 12 ? 'pro' : 'free', paid: t.maxTeams <= 12 || t.status !== 'registration', visible: true })))
-}
-
-export async function getUsers(): Promise<User[]> {
-  await delay(450)
-  return clone(allUsers().map(strip))
-}
-
-export async function getAdminStats() {
-  await delay(300)
-  const list = allUsers()
-  return {
-    users: list.length,
-    organizers: list.filter(u => u.role === 'organizer').length,
-    judges: list.filter(u => u.role === 'judge').length,
-    tournaments: tournaments.length,
-    active: tournaments.filter(t => t.status !== 'finished').length,
-    unpaid: tournaments.filter(t => t.maxTeams > 12 && t.status === 'registration').length,
+const authCall = async (p: Promise<{ user: User }>) => {
+  try {
+    return (await p).user
+  } catch (e) {
+    if (e instanceof ApiError && ['invalid', 'exists', 'blocked'].includes(e.code)) throw new AuthError(e.code as AuthError['code'])
+    throw e
   }
 }
+
+export const login = (email: string, password: string) => authCall(http('POST', '/auth/login', { email, password }))
+
+export const register = (data: { name: string; email: string; phone: string; password: string; role: Exclude<Role, 'admin'> }) =>
+  authCall(http('POST', '/auth/register', data))
+
+export const logout = () => http<void>('POST', '/auth/logout')
+
+export async function getMe(): Promise<User | null> {
+  try {
+    return (await http<{ user: User }>('GET', '/auth/me')).user
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) return null
+    throw e
+  }
+}
+
+export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
+  http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
+
+// ---------- participant ----------
+
+export const getMyRegistrations = () => http<(TeamRegistration & { tournament: Tournament })[]>('GET', '/me/registrations')
+
+export const registerTeam = (tournamentId: string, data: { teamName: string; institution: string; speakers: string[]; phone: string }) =>
+  http<TeamRegistration>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/registrations`, data)
+
+export interface MyDebate {
+  debate: Pick<Debate, 'id' | 'roundId' | 'room' | 'ballotStatus' | 'winner'>
+  side: 'proposition' | 'opposition'
+  tournament: { id: string; name: string }
+  round: Pick<Round, 'id' | 'number' | 'name' | 'motion' | 'status' | 'date'>
+  opponent: { id: string; name: string }
+  result: 'win' | 'loss' | null
+}
+export const getMyDebates = () => http<MyDebate[]>('GET', '/me/debates')
+
+// ---------- judge ----------
+
+export const getJudgeAssignments = () => http<JudgeAssignment[]>('GET', '/judge/assignments')
+
+export interface BallotData {
+  tournament: { id: string; name: string }
+  round: Round
+  debate: Debate
+  proposition: Team
+  opposition: Team
+  judges: Judge[]
+}
+export const getBallot = (debateId: string) => or404(http<BallotData>('GET', `/ballots/${encodeURIComponent(debateId)}`))
+
+export interface BallotPayload {
+  winner: 'proposition' | 'opposition'
+  scores: Record<string, number> // speakerId -> substantive speech score
+  reply: Record<'proposition' | 'opposition', number>
+  replySpeakers: Record<'proposition' | 'opposition', string>
+}
+export const submitBallot = (debateId: string, payload: BallotPayload) =>
+  http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload)
+
+// ---------- organizer ----------
+
+export const getMyTournaments = () => http<Tournament[]>('GET', '/organizer/tournaments')
+
+export interface CreateTournamentInput {
+  name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university'; description: string
+  preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
+  registrationDeadline?: string; languages: ('ru' | 'kz')[]
+}
+export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
+export const updateTournament = (id: string, data: Partial<{ name: string; description: string; visible: boolean; registrationOpen: boolean }>) =>
+  http<Tournament>('PATCH', `/tournaments/${id}`, data)
+export const deleteTournament = (id: string) => http<void>('DELETE', `/tournaments/${id}`)
+
+export interface TeamInput { name: string; institution: string; speakers: string[] }
+export const addTeam = (tournamentId: string, data: TeamInput) => http<Team>('POST', `/tournaments/${tournamentId}/teams`, data)
+export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH', `/teams/${teamId}`, data)
+export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${teamId}`)
+
+export const addJudge = (tournamentId: string, data: { name: string; institution?: string; rating: number }) =>
+  http<Judge>('POST', `/tournaments/${tournamentId}/judges`, data)
+
+export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
+  http<Round>('PATCH', `/rounds/${roundId}`, data)
+export const generateDraw = (roundId: string) => http<Debate[]>('POST', `/rounds/${roundId}/draw`)
+export const updateDebate = (debateId: string, data: Partial<{ room: string; swapSides: boolean; chairJudgeId: string }>) =>
+  http<Debate>('PATCH', `/debates/${debateId}`, data)
+
+export type OrganizerRegistration = TeamRegistration & { contactPhone: string; user: { id: string; name: string; email: string } }
+export const getRegistrations = (tournamentId: string) => http<OrganizerRegistration[]>('GET', `/tournaments/${tournamentId}/registrations`)
+export const setRegistrationStatus = (regId: string, status: 'confirmed' | 'rejected') =>
+  http<{ id: string; status: string }>('PATCH', `/registrations/${regId}`, { status })
+
+// ---------- admin ----------
+
+export const getAdminStats = () =>
+  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number }>('GET', '/admin/stats')
+export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/tournaments')
+export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean }>) =>
+  http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
+export const getUsers = () => http<User[]>('GET', '/admin/users')
+export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)

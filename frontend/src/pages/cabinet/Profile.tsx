@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Building2, CalendarDays, DoorOpen, Mail, MapPin, Phone, Search, Swords, Trophy, Users } from 'lucide-react'
-import { getMyDebates, getMyRegistrations } from '@/api'
+import { getMyDebates, getMyRegistrations, updateProfile } from '@/api'
+import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
@@ -22,8 +23,8 @@ const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'dan
 export default function Profile() {
   const { t } = useTranslation()
   const { user, signIn } = useAuth()
-  const regs = useAsync(() => getMyRegistrations(user!.id), [user?.id])
-  const debates = useAsync(() => getMyDebates(user!.id), [user?.id])
+  const regs = useAsync(getMyRegistrations, [user?.id])
+  const debates = useAsync(getMyDebates, [user?.id])
   const [form, setForm] = useState({ name: user!.name, phone: user!.phone ?? '', institution: user!.institution ?? '', city: user!.city ?? '' })
   if (!user) return null
 
@@ -132,10 +133,14 @@ export default function Profile() {
 
         <TabsContent value="settings">
           <Card className="max-w-2xl p-6">
-            <form className="grid gap-4 sm:grid-cols-2" onSubmit={e => {
+            <form className="grid gap-4 sm:grid-cols-2" onSubmit={async e => {
               e.preventDefault()
-              signIn({ ...user, ...form })
-              toast.success(t('dashboard.teams.saved'))
+              try {
+                signIn(await updateProfile(form))
+                toast.success(t('dashboard.teams.saved'))
+              } catch (err) {
+                toast.error(errorMessage(err, t))
+              }
             }}>
               <div className="sm:col-span-2"><Label htmlFor="p-name">{t('auth.name')}</Label><Input id="p-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
               <div><Label htmlFor="p-phone">{t('auth.phone')}</Label><Input id="p-phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>

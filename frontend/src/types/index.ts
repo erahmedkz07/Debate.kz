@@ -94,6 +94,9 @@ export interface ScheduleItem {
 }
 
 export interface TournamentDetails extends Tournament {
+  visible?: boolean // present for organizers only
+  plan?: 'free' | 'pro'
+  paid?: boolean
   schedule: ScheduleItem[]
   rounds: Round[]
   teams: Team[]
