@@ -20,17 +20,18 @@
 
 | Папка | Что внутри | Статус |
 |---|---|---|
-| [`frontend/`](frontend/) | React + Vite + TypeScript + Tailwind, все страницы на тестовых данных | ✅ готов UI |
+| [`frontend/`](frontend/) | React + Vite + TypeScript + Tailwind, работает через API | ✅ |
 | [`brand/`](brand/) | SVG-логотип (орнамент «қошқар мүйіз»), favicon | ✅ |
-| `backend/` | Express + TypeScript + PostgreSQL 16 + Prisma | ⏳ в планах |
+| [`backend/`](backend/) | Express + TypeScript + PostgreSQL 16 + Prisma 7 — API, авторизация, правила WSDC | ✅ API |
 | Telegram-бот | Уведомления о раундах и результатах | ⏳ в планах |
 
 ## Быстрый старт
 
 ```bash
-cd frontend
-npm install
-npm run dev   # http://localhost:5173
+# 1. backend (PostgreSQL 16 должен быть установлен) — подробно в backend/README.md
+cd backend && npm install && npx prisma migrate dev && npm run db:seed && npm run dev
+# 2. frontend (в другом терминале)
+cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
 Подробности — в [frontend/README.md](frontend/README.md).

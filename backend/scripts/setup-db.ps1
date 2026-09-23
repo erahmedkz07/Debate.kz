@@ -29,6 +29,14 @@ BEGIN
   END IF;
 END
 `$`$;
+-- refuse to reuse a database that belongs to another role (e.g. an older project)
+DO `$`$
+BEGIN
+  IF EXISTS (SELECT FROM pg_database WHERE datname = '$appDb' AND pg_get_userbyid(datdba) <> '$appUser') THEN
+    RAISE EXCEPTION 'Database "$appDb" already exists and belongs to another role. Pick another name in backend/.env';
+  END IF;
+END
+`$`$;
 SELECT 'CREATE DATABASE $appDb OWNER $appUser ENCODING ''UTF8'' TEMPLATE template0'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$appDb')\gexec
 "@
