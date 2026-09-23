@@ -135,3 +135,4 @@
   mask: url('/brand/debate-logo-mark.svg') 0 0 / 72px 40px repeat space;
   background-color: currentColor;
 }
+@keyframes dropdown-in { from { opacity: 0; transform: translateY(-4px) scale(0.98) } }

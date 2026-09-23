@@ -1,5 +1,4 @@
-import { forwardRef, type InputHTMLAttributes, type LabelHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { forwardRef, type InputHTMLAttributes, type LabelHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 
 const field = 'w-full rounded-xl border-2 border-border bg-card px-3.5 text-sm text-foreground placeholder:text-muted-foreground/70 transition-colors focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/15 disabled:opacity-60 aria-[invalid=true]:border-danger aria-[invalid=true]:focus:ring-danger/15'
@@ -13,15 +12,6 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
   <textarea ref={ref} className={cn(field, 'min-h-24 py-2.5', className)} {...props} />
 ))
 Textarea.displayName = 'Textarea'
-
-// width classes (w-*) go to the wrapper so the chevron stays inside the field
-export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement> & { containerClassName?: string }>(({ className, containerClassName, children, ...props }, ref) => (
-  <div className={cn('relative', containerClassName)}>
-    <select ref={ref} className={cn(field, 'h-11 cursor-pointer appearance-none pr-10', className)} {...props}>{children}</select>
-    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-  </div>
-))
-Select.displayName = 'Select'
 
 export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
   return <label className={cn('mb-1.5 block text-sm font-semibold text-foreground', className)} {...props} />

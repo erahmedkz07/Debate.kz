@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { ErrorState, Skeleton } from '@/components/ui/states'
-import { Select } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import NotFound from './NotFound'
 
 type Side = 'proposition' | 'opposition'
@@ -135,10 +135,9 @@ export default function Ballot() {
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-bold text-primary">{t('ballot.reply')}</span>
               <div className="w-40">
-                <Select aria-label={t('ballot.replySpeaker')} className="h-9 text-xs" value={replyBy[side] ?? replyOptions[0].id}
-                  onChange={e => setReplyBy(p => ({ ...p, [side]: e.target.value }))}>
-                  {replyOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </Select>
+                <Select size="sm" aria-label={t('ballot.replySpeaker')} value={replyBy[side] ?? replyOptions[0].id}
+                  onValueChange={v => setReplyBy(p => ({ ...p, [side]: v }))}
+                  options={replyOptions.map(s => ({ value: s.id, label: s.name }))} />
               </div>
             </div>
             <ScoreInput label={team.speakers.find(s => s.id === (replyBy[side] ?? replyOptions[0].id))!.name} value={reply[side]} range={REPLY} invalid={tried && !inRange(reply[side], REPLY)} onChange={v => setReply(p => ({ ...p, [side]: v }))} />

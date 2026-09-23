@@ -14,7 +14,8 @@ import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input, Label, Select, Switch, Textarea } from '@/components/ui/input'
+import { Input, Label, Switch, Textarea } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { ResultsTab } from '@/pages/TournamentPage'
 import NotFound from '@/pages/NotFound'
@@ -280,9 +281,8 @@ function Draw({ rounds, teams, judges, debates, setDebates }: { rounds: Round[];
       <SectionTitle title={t('dashboard.nav.draw')}
         action={
           <div className="flex flex-wrap gap-2">
-            <Select value={roundId} onChange={e => setRoundId(e.target.value)} className="h-10" containerClassName="w-40" aria-label={t('dashboard.draw.round')}>
-              {rounds.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </Select>
+            <Select value={roundId} onValueChange={setRoundId} className="w-40" aria-label={t('dashboard.draw.round')}
+              options={rounds.map(r => ({ value: r.id, label: r.name, hint: t(`tournament.roundStatus.${r.status}`) }))} />
             {editable && <Button variant="outline" onClick={generate}><Shuffle className="size-4" />{current.length ? t('dashboard.draw.regenerate') : t('dashboard.draw.generate')}</Button>}
             {editable && current.length > 0 && <Button onClick={() => toast.success(t('dashboard.draw.published'))}><Megaphone className="size-4" />{t('dashboard.draw.publish')}</Button>}
           </div>
@@ -308,9 +308,8 @@ function Draw({ rounds, teams, judges, debates, setDebates }: { rounds: Round[];
                 {current.map(d => (
                   <tr key={d.id}>
                     <td className="px-4 py-3">
-                      <Select value={d.room} disabled={!editable} onChange={e => patch(d.id, { room: e.target.value })} className="h-9 text-xs" containerClassName="w-36">
-                        {rooms.map(r => <option key={r}>{r}</option>)}
-                      </Select>
+                      <Select size="sm" className="w-36" value={d.room} disabled={!editable} aria-label={t('tournament.room')}
+                        onValueChange={v => patch(d.id, { room: v })} options={rooms.map(r => ({ value: r, label: r }))} />
                     </td>
                     <td className="px-4 py-3 font-bold">{team(d.propositionTeamId)?.name}</td>
                     <td className="px-2 py-3">
@@ -321,9 +320,9 @@ function Draw({ rounds, teams, judges, debates, setDebates }: { rounds: Round[];
                     </td>
                     <td className="px-4 py-3 font-bold">{team(d.oppositionTeamId)?.name}</td>
                     <td className="px-4 py-3">
-                      <Select value={d.judgeIds[0] ?? ''} disabled={!editable} onChange={e => patch(d.id, { judgeIds: [e.target.value, ...d.judgeIds.slice(1)] })} className="h-9 text-xs" containerClassName="w-52">
-                        {judges.map(j => <option key={j.id} value={j.id}>{j.name} ({j.rating})</option>)}
-                      </Select>
+                      <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
+                        onValueChange={v => patch(d.id, { judgeIds: [v, ...d.judgeIds.slice(1).filter(id => id !== v)] })}
+                        options={judges.map(j => ({ value: j.id, label: j.name, hint: `${j.rating}/10` }))} />
                       {d.judgeIds.length > 1 && <p className="mt-1 text-xs text-muted-foreground">+ {d.judgeIds.slice(1).map(id => judges.find(j => j.id === id)?.name).join(', ')}</p>}
                     </td>
                   </tr>
@@ -349,7 +348,7 @@ function Ballots({ rounds, teams, debates }: { rounds: Round[]; teams: Team[]; d
   return (
     <>
       <SectionTitle title={t('dashboard.nav.ballots')}
-        action={<Select value={roundId} onChange={e => setRoundId(e.target.value)} className="h-10" containerClassName="w-40">{active.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</Select>} />
+        action={<Select value={roundId} onValueChange={setRoundId} className="w-40" aria-label={t('dashboard.draw.round')} options={active.map(r => ({ value: r.id, label: r.name }))} />} />
       <Card className="mb-4 p-5">
         <div className="flex justify-between text-sm font-semibold"><span>{t('dashboard.ballots.progress', { done, total: list.length })}</span><span className="text-primary">{list.length ? Math.round((done / list.length) * 100) : 0}%</span></div>
         <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-gradient-to-r from-primary to-success transition-all" style={{ width: `${list.length ? (done / list.length) * 100 : 0}%` }} /></div>

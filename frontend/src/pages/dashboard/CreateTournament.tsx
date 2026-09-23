@@ -12,7 +12,8 @@ import { useAsync } from '@/lib/hooks'
 import { cn, formatDateRange } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { FieldError, Input, Label, Select, Switch, Textarea } from '@/components/ui/input'
+import { FieldError, Input, Label, Switch, Textarea } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 
 const FREE_LIMIT = 12
 const steps = ['basic', 'format', 'registration', 'summary'] as const
@@ -104,10 +105,8 @@ export default function CreateTournament() {
                   <div className="grid gap-5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="city">{t('wizard.city')}</Label>
-                      <Select id="city" aria-invalid={!!errors.city} {...register('city')}>
-                        <option value="" disabled>—</option>
-                        {cities.map(c => <option key={c}>{c}</option>)}
-                      </Select>
+                      <Select id="city" invalid={!!errors.city} value={v.city ?? ''} placeholder={t('wizard.cityPlaceholder')}
+                        onValueChange={c => setValue('city', c, { shouldValidate: true })} options={cities.map(c => ({ value: c, label: c }))} />
                       <FieldError message={errors.city?.message} />
                     </div>
                     <div>
@@ -174,11 +173,13 @@ export default function CreateTournament() {
                   <div className="grid gap-5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="prelims">{t('wizard.prelims')}</Label>
-                      <Select id="prelims" {...register('prelims')}>{[2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n}</option>)}</Select>
+                      <Select id="prelims" value={String(v.prelims)} onValueChange={n => setValue('prelims', Number(n))}
+                        options={[2, 3, 4, 5, 6, 7, 8].map(n => ({ value: String(n), label: String(n) }))} />
                     </div>
                     <div>
                       <Label htmlFor="break">{t('wizard.breakSize')}</Label>
-                      <Select id="break" {...register('breakSize')}>{[2, 4, 8, 16].map(n => <option key={n} value={n}>{n}</option>)}</Select>
+                      <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
+                        options={[2, 4, 8, 16].map(n => ({ value: String(n), label: String(n) }))} />
                     </div>
                   </div>
                 </>
