@@ -62,6 +62,44 @@ publicRouter.get('/stats', async (_req, res) => {
   res.json({ tournaments, teams, debaters, cities: cities.length })
 })
 
+// Live round for the home page hero.
+// Signed-in user: the running round of a tournament where they speak, judge or organize.
+// Everyone else: the latest running round on the platform. null when nothing is running.
+publicRouter.get('/live', async (req, res) => {
+  const running = { status: 'released' as const, tournament: { status: 'ongoing' as const, visible: true } }
+  const pick = { include: { tournament: true, debates: { select: { ballotStatus: true } } }, orderBy: [{ date: 'desc' as const }, { number: 'desc' as const }] }
+
+  let round = null
+  let personal = false
+  if (req.user) {
+    const uid = req.user.id
+    round = await prisma.round.findFirst({
+      ...pick,
+      where: {
+        ...running,
+        tournament: {
+          ...running.tournament,
+          OR: [
+            { teams: { some: { speakers: { some: { userId: uid } } } } },
+            { judges: { some: { userId: uid } } },
+            { organizers: { some: { userId: uid } } },
+          ],
+        },
+      },
+    })
+    personal = !!round
+  }
+  round ??= await prisma.round.findFirst({ ...pick, where: running })
+  if (!round) return void res.json(null)
+
+  res.json({
+    personal,
+    tournament: { id: round.tournament.id, name: round.tournament.name },
+    round: { number: round.number, motion: round.motion },
+    ballots: { submitted: round.debates.filter(d => d.ballotStatus !== 'pending').length, total: round.debates.length },
+  })
+})
+
 publicRouter.get('/testimonials', async (_req, res) => {
   res.json(await prisma.testimonial.findMany({ orderBy: { order: 'asc' }, select: { name: true, role: true, text: true } }))
 })

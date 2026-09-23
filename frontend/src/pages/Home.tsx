@@ -5,7 +5,8 @@ import { animate, motion, useInView } from 'framer-motion'
 import {
   ArrowRight, Bell, CheckCircle2, ClipboardCheck, Gavel, Languages, Plus, Quote, Radio, Shuffle, Sparkles, Trophy, UserPlus, Users,
 } from 'lucide-react'
-import { getPlatformStats, getTestimonials, getUpcomingTournaments } from '@/api'
+import { getLive, getPlatformStats, getTestimonials, getUpcomingTournaments } from '@/api'
+import { useAuth } from '@/lib/auth'
 import { images } from '@/mocks/images'
 import { useAsync } from '@/lib/hooks'
 import { formatNumber, initials } from '@/lib/utils'
@@ -26,6 +27,9 @@ function SectionTitle({ title, subtitle, center = true }: { title: string; subti
 
 function Hero() {
   const { t } = useTranslation()
+  const { user, ready } = useAuth()
+  // real running round: the user's own tournament if any, otherwise the platform's; hidden when nothing runs
+  const { data: live } = useAsync(getLive, [ready, user?.id])
   return (
     <section className="relative -mt-16 overflow-hidden pt-16 lg:-mt-18 lg:pt-18">
       {/* animated background shapes */}
@@ -69,20 +73,31 @@ function Hero() {
             <div className="absolute inset-0 bg-gradient-to-t from-navy/40 to-transparent" />
           </div>
 
-          {/* floating live cards */}
-          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.8 }}
-            className="absolute -left-4 top-8 max-w-[15rem] rounded-2xl border border-border bg-card/95 p-3.5 shadow-xl backdrop-blur sm:-left-10">
-            <div className="flex items-center gap-2 text-xs font-bold text-danger"><Radio className="size-3.5 animate-pulse" />{t('home.hero.liveRound')}</div>
-            <p className="mt-1.5 text-sm font-semibold leading-snug">{t('home.hero.liveMotion')}</p>
-          </motion.div>
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1 }}
-            className="absolute -bottom-5 -right-2 flex items-center gap-3 rounded-2xl border border-border bg-card/95 p-3.5 shadow-xl backdrop-blur sm:-right-6">
-            <span className="grid size-10 place-items-center rounded-xl bg-success-soft text-success"><ClipboardCheck className="size-5" /></span>
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground">{t('home.hero.ballots')}</p>
-              <p className="text-sm font-bold">{t('home.hero.ballotsDone')}</p>
-            </div>
-          </motion.div>
+          {/* live cards: real data, links to the tournament */}
+          {live && (
+            <>
+              <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }}
+                className="absolute -left-4 top-8 max-w-[17rem] sm:-left-10">
+                <Link to={`/tournaments/${live.tournament.id}`}
+                  className="block rounded-2xl border border-border bg-card/95 p-3.5 shadow-xl backdrop-blur transition-transform hover:-translate-y-0.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-danger">
+                    <Radio className="size-3.5 animate-pulse" />{t('home.hero.liveRound', { n: live.round.number })}
+                    <span className="ml-auto rounded-full bg-primary-soft px-2 py-0.5 text-[10px] text-primary">{live.personal ? t('home.hero.yours') : t('home.hero.nowLive')}</span>
+                  </div>
+                  <p className="mt-1 truncate text-xs font-semibold text-muted-foreground">{live.tournament.name}</p>
+                  <p className="mt-1 line-clamp-3 text-sm font-semibold leading-snug">«{live.round.motion}»</p>
+                </Link>
+              </motion.div>
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.6 }}
+                className="absolute -bottom-5 -right-2 flex items-center gap-3 rounded-2xl border border-border bg-card/95 p-3.5 shadow-xl backdrop-blur sm:-right-6">
+                <span className="grid size-10 place-items-center rounded-xl bg-success-soft text-success"><ClipboardCheck className="size-5" /></span>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground">{t('home.hero.ballots')}</p>
+                  <p className="text-sm font-bold">{t('home.hero.ballotsDone', { done: live.ballots.submitted, total: live.ballots.total })}</p>
+                </div>
+              </motion.div>
+            </>
+          )}
         </motion.div>
       </div>
     </section>

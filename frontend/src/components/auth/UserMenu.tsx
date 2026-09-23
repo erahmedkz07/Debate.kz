@@ -23,7 +23,11 @@ export function cabinetLinks(role: Role) {
   return links
 }
 
-export function Avatar({ name, role, className }: { name: string; role: Role; className?: string }) {
+// Photo when the user uploaded one, otherwise initials on a role-coloured circle
+export function Avatar({ name, role, src, className }: { name: string; role: Role; src?: string; className?: string }) {
+  if (src) {
+    return <img src={src} alt={name} loading="lazy" className={cn('size-9 shrink-0 rounded-full bg-muted object-cover', className)} />
+  }
   return <span className={cn('grid size-9 shrink-0 place-items-center rounded-full text-sm font-extrabold', avatarColor[role], className)}>{initials(name)}</span>
 }
 
@@ -43,14 +47,14 @@ export function UserMenu({ onDark }: { onDark?: boolean }) {
     <M.Root>
       <M.Trigger className={cn('flex cursor-pointer items-center gap-2 rounded-full p-1 pr-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
         onDark ? 'hover:bg-white/10' : 'hover:bg-muted')} aria-label={user.name}>
-        <Avatar name={user.name} role={user.role} />
+        <Avatar name={user.name} role={user.role} src={user.avatarUrl} />
         <ChevronDown className={cn('size-4', onDark ? 'text-white' : 'text-muted-foreground')} />
       </M.Trigger>
       <M.Portal>
         <M.Content align="end" sideOffset={8}
           className="z-[60] w-64 rounded-2xl border border-border bg-card p-1.5 text-foreground shadow-xl shadow-navy/10 data-[state=open]:animate-[dropdown-in_150ms_ease-out]">
           <div className="flex items-center gap-3 px-3 py-3">
-            <Avatar name={user.name} role={user.role} className="size-11" />
+            <Avatar name={user.name} role={user.role} src={user.avatarUrl} className="size-11" />
             <div className="min-w-0">
               <p className="truncate font-bold">{user.name}</p>
               <p className="truncate text-xs text-muted-foreground">{user.email}</p>

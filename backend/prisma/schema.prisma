@@ -72,6 +72,7 @@ model User {
   role         Role     @default(participant)
   institution  String?
   city         String?
+  avatarUrl    String?  @map("avatar_url") // /uploads/avatars/<file>.webp
   blocked      Boolean  @default(false)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")

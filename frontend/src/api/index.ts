@@ -4,7 +4,7 @@ import type {
   AdminTournament, Debate, Judge, JudgeAssignment, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration,
   TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, User,
 } from '@/types'
-import { ApiError, http, qs } from './http'
+import { ApiError, http, qs, upload } from './http'
 
 export { ApiError }
 
@@ -35,6 +35,13 @@ export const getStandings = (id: string) =>
 
 export const getCities = () => http<string[]>('GET', '/cities')
 export const getPlatformStats = () => http<{ tournaments: number; teams: number; debaters: number; cities: number }>('GET', '/stats')
+export interface LiveRound {
+  personal: boolean // true = a tournament where the signed-in user speaks, judges or organizes
+  tournament: { id: string; name: string }
+  round: { number: number; motion: string }
+  ballots: { submitted: number; total: number }
+}
+export const getLive = () => http<LiveRound | null>('GET', '/live')
 export const getTestimonials = () => http<Testimonial[]>('GET', '/testimonials')
 export const getRating = () => http<{ teams: RatingTeam[]; speakers: RatingSpeaker[] }>('GET', '/rating')
 
@@ -72,6 +79,13 @@ export async function getMe(): Promise<User | null> {
 
 export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
+
+export function uploadAvatar(file: File) {
+  const form = new FormData()
+  form.append('avatar', file)
+  return upload<{ user: User }>('/me/avatar', form).then(r => r.user)
+}
+export const deleteAvatar = () => http<{ user: User }>('DELETE', '/me/avatar').then(r => r.user)
 
 // ---------- participant ----------
 

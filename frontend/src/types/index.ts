@@ -150,6 +150,7 @@ export interface User {
   role: Role
   institution?: string
   city?: string
+  avatarUrl?: string
   createdAt: string
   blocked?: boolean
 }

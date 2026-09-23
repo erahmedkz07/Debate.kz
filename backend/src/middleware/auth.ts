@@ -52,6 +52,6 @@ export const requireAuth = (...roles: Role[]) => (req: Request, _res: Response, 
 // Public shape of a user (never leak passwordHash)
 export const publicUser = (u: User) => ({
   id: u.id, name: u.name, email: u.email, phone: u.phone ?? undefined, role: u.role,
-  institution: u.institution ?? undefined, city: u.city ?? undefined,
+  institution: u.institution ?? undefined, city: u.city ?? undefined, avatarUrl: u.avatarUrl ?? undefined,
   createdAt: u.createdAt.toISOString().slice(0, 10), blocked: u.blocked,
 })

@@ -123,7 +123,7 @@ export function Header() {
               {user && (
                 <div className="mt-6 border-t border-border pt-6">
                   <div className="flex items-center gap-3 px-2">
-                    <Avatar name={user.name} role={user.role} className="size-11" />
+                    <Avatar name={user.name} role={user.role} src={user.avatarUrl} className="size-11" />
                     <div className="min-w-0"><p className="truncate font-bold">{user.name}</p><p className="text-xs text-muted-foreground">{t(`roles.${user.role}`)}</p></div>
                   </div>
                   <div className="mt-3 flex flex-col gap-1">

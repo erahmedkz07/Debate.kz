@@ -189,7 +189,7 @@ function UsersTab() {
                 <tr key={u.id} className={cn('hover:bg-muted/40', u.blocked && 'bg-danger-soft/40')}>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
-                      <Avatar name={u.name} role={u.role} />
+                      <Avatar name={u.name} role={u.role} src={u.avatarUrl} />
                       <div className="min-w-0">
                         <p className="flex items-center gap-2 font-bold">{u.name}{u.blocked && <Badge variant="danger">{t('admin.blocked')}</Badge>}</p>
                         <p className="text-xs text-muted-foreground">{u.email}</p>
