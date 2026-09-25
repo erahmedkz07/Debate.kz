@@ -220,7 +220,6 @@ organizerRouter.post('/tournaments/:id/judges', org, async (req, res) => {
   const d = body(req, z.object({
     name: z.string().trim().min(3).max(100),
     institution: z.string().trim().max(150).optional(),
-    rating: z.number().int().min(1).max(10),
     email: z.string().trim().toLowerCase().email().optional(), // links the judge to an existing account
   }))
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') } })
@@ -228,7 +227,8 @@ organizerRouter.post('/tournaments/:id/judges', org, async (req, res) => {
   if (user && (await participationIn(user.id, t.id)).competitor) throw forbidden('conflict_of_interest')
   const j = await prisma.judge.create({
     data: {
-      tournamentId: t.id, name: d.name, rating: d.rating, userId: user?.id,
+      // organizers do not rate judges (tournament rules); the stored rating keeps its neutral default
+      tournamentId: t.id, name: d.name, userId: user?.id,
       institutionId: d.institution ? await institutionId(d.institution, 'university') : undefined,
     },
     include: { institution: true },

@@ -20,9 +20,15 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
     institution: z.string().trim().max(150).optional(),
     city: z.string().trim().max(60).optional(),
   }))
+  // a phone confirmed through the Telegram bot stays confirmed only while it is not changed by hand
+  const digits = (p?: string | null) => (p ?? '').replace(/\D/g, '').replace(/^8(?=\d{10}$)/, '7')
+  const changedPhone = !!req.user!.verifiedPhone && digits(data.phone) !== digits(req.user!.verifiedPhone)
   const user = await prisma.user.update({
     where: { id: req.user!.id },
-    data: { name: data.name, phone: data.phone || null, institution: data.institution || null, city: data.city || null },
+    data: {
+      name: data.name, phone: data.phone || null, institution: data.institution || null, city: data.city || null,
+      ...(changedPhone && { verifiedPhone: null, phoneVerifiedAt: null }),
+    },
   })
   res.json({ user: await sessionUser(user) })
 })

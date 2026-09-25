@@ -54,6 +54,25 @@ adminRouter.get('/admin/tournaments', async (_req, res) => {
 })
 
 // manual payment confirmation (no online payments in MVP) and moderation
+// an admin can remove any tournament (spam, duplicates, fakes); the reason goes to the owner and the audit log
+adminRouter.delete('/admin/tournaments/:id', async (req, res) => {
+  const { reason } = body(req, z.object({ reason: z.string().trim().min(5).max(500) }))
+  const t = await prisma.tournament.findUnique({
+    where: { id: param(req, 'id') },
+    include: { organizers: { where: { role: 'owner' }, include: { user: true } } },
+  })
+  if (!t) throw notFound('tournament_not_found')
+  // notify first: after deletion the owner link is gone
+  const owner = t.organizers[0]?.user
+  await notifyModeration(t.id, `🗑 Турнир «${t.name}» удалён администратором. Причина: ${reason}`).catch(() => undefined)
+  await prisma.tournament.delete({ where: { id: t.id } })
+  await logAction(req.user!, 'tournament.delete', { type: 'tournament', id: t.id, label: t.name }, reason)
+  if (owner) {
+    await sendMail({ to: owner.email, subject: `Турнир «${t.name}» удалён`, text: `Администратор удалил турнир «${t.name}». Причина: ${reason}` })
+  }
+  res.status(204).end()
+})
+
 adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
   const d = body(req, z.object({
     paid: z.boolean().optional(),

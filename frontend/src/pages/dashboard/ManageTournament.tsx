@@ -269,15 +269,15 @@ function Judges({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', institution: '', rating: 7 })
+  const [form, setForm] = useState({ name: '', institution: '' })
   const [toDelete, setToDelete] = useState<Judge | null>(null)
   const remove = async () => {
     if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
   }
   const submit = async () => {
     if (form.name.trim().length < 3) return
-    const ok = await run('add', () => addJudge(data.id, { name: form.name, institution: form.institution || undefined, rating: form.rating }), t('dashboard.teams.saved'))
-    if (ok) { setForm({ name: '', institution: '', rating: 7 }); setOpen(false); reload() }
+    const ok = await run('add', () => addJudge(data.id, { name: form.name, institution: form.institution || undefined }), t('dashboard.teams.saved'))
+    if (ok) { setForm({ name: '', institution: '' }); setOpen(false); reload() }
   }
   return (
     <>
@@ -298,10 +298,6 @@ function Judges({ data, reload }: SectionProps) {
               <p className="truncate font-bold">{j.name}</p>
               <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">{t('tournament.rating')}</p>
-              <p className="font-extrabold text-primary">{j.rating}/10</p>
-            </div>
             <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(j)}>
               <Trash2 className="size-4" />
             </Button>
@@ -313,10 +309,6 @@ function Judges({ data, reload }: SectionProps) {
           <form className="space-y-4" onSubmit={e => { e.preventDefault(); submit() }}>
             <div><Label htmlFor="jn">{t('auth.name')}</Label><Input id="jn" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label htmlFor="ji">{t('common.institution')}</Label><Input id="ji" value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} /></div>
-            <div>
-              <Label htmlFor="jr">{t('tournament.rating')}: <b className="text-primary">{form.rating}</b></Label>
-              <input id="jr" type="range" min={1} max={10} value={form.rating} onChange={e => setForm({ ...form, rating: Number(e.target.value) })} className="w-full accent-[var(--primary)]" />
-            </div>
             <div className="flex justify-end gap-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
               <Button type="submit" disabled={busy === 'add' || form.name.trim().length < 3}>{t('common.save')}</Button>
@@ -469,7 +461,7 @@ function Draw({ data, reload }: SectionProps) {
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
                         onValueChange={v => patch(d, { chairJudgeId: v })}
-                        options={data.judges.map(j => ({ value: j.id, label: j.name, hint: `${j.rating}/10` }))} />
+                        options={data.judges.map(j => ({ value: j.id, label: j.name, hint: j.institution || undefined }))} />
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                         {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
                         {editable && d.ballotStatus === 'pending' && (
@@ -522,7 +514,6 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
                     <span className="block truncate font-semibold">{j.name}</span>
                     <span className="block truncate text-xs text-muted-foreground">{busyThere ? t('dashboard.draw.busyElsewhere') : j.institution || '—'}</span>
                   </span>
-                  <span className="text-xs font-bold text-primary">{j.rating}/10</span>
                 </button>
               </li>
             )

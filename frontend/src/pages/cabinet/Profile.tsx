@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Swords, Trash2, Trophy, Unlink, Users } from 'lucide-react'
+import { BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, Trophy, Unlink, UserRound, Users } from 'lucide-react'
 import { changePassword, createTelegramLink, deleteAccount, getMe, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Input, Label } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SideTabsList, SideTabsTrigger, Tabs, TabsContent } from '@/components/ui/tabs'
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
 
@@ -86,7 +86,7 @@ function TelegramCard() {
   )
 }
 
-function PasswordCard() {
+function PasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { t } = useTranslation()
   const { signIn } = useAuth()
   const empty = { current: '', next: '', repeat: '' }
@@ -95,16 +95,16 @@ function PasswordCard() {
   const mismatch = !!f.repeat && f.next !== f.repeat
   const valid = !!f.current && f.next.length >= 8 && f.next === f.repeat
   return (
-    <Card className="p-6">
-      <h3 className="flex items-center gap-2 font-bold"><KeyRound className="size-4 text-primary" />{t('profile.password.title')}</h3>
-      <p className="mt-1 text-sm text-muted-foreground">{t('profile.password.text')}</p>
-      <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={async e => {
+    <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) setF(empty) }}>
+      <DialogContent heading={t('profile.password.title')} description={t('profile.password.text')}>
+      <form className="grid gap-4 sm:grid-cols-2" onSubmit={async e => {
         e.preventDefault()
         if (!valid) return
         setBusy(true)
         try {
           signIn(await changePassword(f.current, f.next))
           setF(empty)
+          onOpenChange(false)
           toast.success(t('profile.password.changed'))
         } catch (err) {
           toast.error(errorMessage(err, t))
@@ -126,55 +126,84 @@ function PasswordCard() {
           {mismatch && <p className="mt-1 text-xs text-danger">{t('profile.password.mismatch')}</p>}
         </div>
         <p className="text-xs text-muted-foreground sm:col-span-2">{t('profile.password.hint')}</p>
-        <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!valid || busy}>{t('profile.password.submit')}</Button></div>
+        <div className="flex justify-end gap-2 sm:col-span-2">
+          <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+          <Button type="submit" disabled={!valid || busy}>{t('profile.password.submit')}</Button>
+        </div>
       </form>
-    </Card>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 // personal data law: a user can delete their account; confirmed with the password
-function DeleteAccountCard() {
+function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { t } = useTranslation()
   const { signOut } = useAuth()
   const navigate = useNavigate()
-  const [open, setOpen] = useState(false)
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   return (
-    <Card className="border-danger/40 p-6">
-      <h3 className="font-bold text-danger">{t('profile.deleteAccount.title')}</h3>
-      <p className="mt-1 text-sm text-muted-foreground">{t('profile.deleteAccount.text')}</p>
-      <Button variant="danger" className="mt-4" onClick={() => { setPassword(''); setOpen(true) }}><Trash2 className="size-4" />{t('profile.deleteAccount.button')}</Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent heading={t('profile.deleteAccount.confirmTitle')} description={t('profile.deleteAccount.confirmText')}>
-          <form className="space-y-4" onSubmit={async e => {
-            e.preventDefault()
-            if (!password) return
-            setBusy(true)
-            try {
-              await deleteAccount(password)
-              await signOut()
-              toast(t('profile.deleteAccount.deleted'))
-              navigate('/', { replace: true })
-            } catch (err) {
-              toast.error(errorMessage(err, t))
-              setBusy(false)
-            }
-          }}>
-            <div>
-              <Label htmlFor="del-pw">{t('profile.deleteAccount.password')}</Label>
-              <Input id="del-pw" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} />
-            </div>
-            <div className="flex justify-end gap-2">
-              <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
-              <Button type="submit" variant="danger" disabled={!password || busy}><Trash2 className="size-4" />{t('profile.deleteAccount.button')}</Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+    <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) setPassword('') }}>
+      <DialogContent heading={t('profile.deleteAccount.confirmTitle')} description={t('profile.deleteAccount.confirmText')}>
+        <p className="mb-4 text-sm text-muted-foreground">{t('profile.deleteAccount.text')}</p>
+        <form className="space-y-4" onSubmit={async e => {
+          e.preventDefault()
+          if (!password) return
+          setBusy(true)
+          try {
+            await deleteAccount(password)
+            await signOut()
+            toast(t('profile.deleteAccount.deleted'))
+            navigate('/', { replace: true })
+          } catch (err) {
+            toast.error(errorMessage(err, t))
+            setBusy(false)
+          }
+        }}>
+          <div>
+            <Label htmlFor="del-pw">{t('profile.deleteAccount.password')}</Label>
+            <Input id="del-pw" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} />
+          </div>
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button type="submit" variant="danger" disabled={!password || busy}><Trash2 className="size-4" />{t('profile.deleteAccount.button')}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// password and account removal live here as compact rows; the forms open in dialogs
+function SecurityCard({ canDelete }: { canDelete: boolean }) {
+  const { t } = useTranslation()
+  const [pwOpen, setPwOpen] = useState(false)
+  const [delOpen, setDelOpen] = useState(false)
+  return (
+    <Card className="p-6">
+      <h3 className="flex items-center gap-2 font-bold"><ShieldCheck className="size-4 text-primary" />{t('profile.security.title')}</h3>
+      <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-border p-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{t('profile.security.password')}</p>
+          <p className="text-xs tracking-widest text-muted-foreground">••••••••</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => setPwOpen(true)}><KeyRound className="size-4" />{t('profile.security.change')}</Button>
+      </div>
+      {canDelete && (
+        <div className="mt-3 flex items-center justify-between gap-3 px-1">
+          <p className="text-xs text-muted-foreground">{t('profile.security.deleteHint')}</p>
+          <Button size="sm" variant="ghost" className="shrink-0 text-danger" onClick={() => setDelOpen(true)}><Trash2 className="size-4" />{t('profile.security.delete')}</Button>
+        </div>
+      )}
+      <PasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+      {canDelete && <DeleteAccountDialog open={delOpen} onOpenChange={setDelOpen} />}
     </Card>
   )
 }
+
+// small counter inside a section tab
+const Count = ({ n }: { n?: number }) => (n ? <span className="ml-auto pl-2 text-xs tabular-nums opacity-70">{n}</span> : null)
 
 export default function Profile() {
   const { t } = useTranslation()
@@ -238,13 +267,18 @@ export default function Profile() {
       </div>}
 
       <Tabs defaultValue={isAdmin ? 'settings' : 'registrations'} className="mt-8">
-        <TabsList className="w-fit">
-          {!isAdmin && <TabsTrigger value="registrations">{t('profile.tabs.registrations')}</TabsTrigger>}
-          {!isAdmin && <TabsTrigger value="debates">{t('profile.tabs.debates')}</TabsTrigger>}
-          <TabsTrigger value="settings">{t('profile.tabs.settings')}</TabsTrigger>
-        </TabsList>
+        {/* laptops: sections in a sticky sidebar, content on the right; phones: tabs on top */}
+        <div className={cn('grid gap-6', !isAdmin && 'lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start')}>
+        {!isAdmin && (
+          <SideTabsList aria-label={t('profile.tabs.label')}>
+            <SideTabsTrigger value="registrations"><Users className="size-4" />{t('profile.tabs.registrations')}<Count n={regs.data?.length} /></SideTabsTrigger>
+            <SideTabsTrigger value="debates"><Swords className="size-4" />{t('profile.tabs.debates')}<Count n={debates.data?.length} /></SideTabsTrigger>
+            <SideTabsTrigger value="settings"><Settings className="size-4" />{t('profile.tabs.settings')}</SideTabsTrigger>
+          </SideTabsList>
+        )}
+        <div className="min-w-0">
 
-        <TabsContent value="registrations">
+        <TabsContent value="registrations" className="mt-0">
           {regs.loading || !regs.data ? <Skeleton className="h-40" /> : regs.data.length === 0 ? (
             <EmptyState icon={<Users className="size-7" />} title={t('profile.noRegs')} text={t('profile.noRegsText')}
               action={<Button asChild><Link to="/tournaments">{t('home.audience.partCta')}</Link></Button>} />
@@ -270,7 +304,7 @@ export default function Profile() {
           )}
         </TabsContent>
 
-        <TabsContent value="debates">
+        <TabsContent value="debates" className="mt-0">
           {debates.loading || !debates.data ? <Skeleton className="h-40" /> : debates.data.length === 0 ? (
             <EmptyState icon={<Swords className="size-7" />} title={t('profile.noDebates')} />
           ) : (
@@ -301,8 +335,11 @@ export default function Profile() {
           )}
         </TabsContent>
 
-        <TabsContent value="settings" className="max-w-2xl space-y-5">
+        <TabsContent value="settings" className="mt-0">
+          {/* two columns on wide screens: personal data | Telegram + security */}
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
           <Card className="p-6">
+            <h3 className="mb-4 flex items-center gap-2 font-bold"><UserRound className="size-4 text-primary" />{t('profile.personal')}</h3>
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={async e => {
               e.preventDefault()
               try {
@@ -313,17 +350,25 @@ export default function Profile() {
               }
             }}>
               <div className="sm:col-span-2"><Label htmlFor="p-name">{t('auth.name')}</Label><Input id="p-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
-              <div><Label htmlFor="p-phone">{t('auth.phone')}</Label><Input id="p-phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
+              <div>
+                <Label htmlFor="p-phone">{t('auth.phone')}</Label>
+                <Input id="p-phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+                {user.phoneVerified && <p className="mt-1 flex items-center gap-1 text-xs text-success"><BadgeCheck className="size-3.5" />{t('profile.phoneVerifiedHint')}</p>}
+              </div>
               <div><Label htmlFor="p-city">{t('common.city')}</Label><Input id="p-city" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} /></div>
               <div className="sm:col-span-2"><Label htmlFor="p-inst">{t('common.institution')}</Label><Input id="p-inst" value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} /></div>
               <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!form.name.trim()}>{t('common.save')}</Button></div>
             </form>
           </Card>
-          <TelegramCard />
-          <PasswordCard />
-          {/* admins are demoted by another admin before they can leave */}
-          {!isAdmin && <DeleteAccountCard />}
+          <div className="space-y-5">
+            <TelegramCard />
+            {/* admins are demoted by another admin before they can leave */}
+            <SecurityCard canDelete={!isAdmin} />
+          </div>
+          </div>
         </TabsContent>
+        </div>
+        </div>
       </Tabs>
     </div>
   )

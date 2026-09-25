@@ -439,4 +439,25 @@ ok(await waitFor(444, /отклонён.*Проверка уведомлений
 r = await student('DELETE', '/me/telegram')
 ok(r.status === 200 && r.data.user.telegramLinked === false && r.data.user.phoneVerified === true, 'unlinking keeps the verified phone')
 
+// ---------- 16. admin deletes a tournament ----------
+const doomed = (await fresh('GET', '/organizer/tournaments')).data.find(x => x.moderation === 'pending')
+ok((await fresh('DELETE', `/admin/tournaments/${doomed.id}`, { reason: 'Дубликат турнира' })).status === 403, 'only admins use the admin delete')
+r = await admin('DELETE', `/admin/tournaments/${doomed.id}`, {})
+ok(r.status === 400, 'deleting needs a reason')
+r = await admin('DELETE', `/admin/tournaments/${doomed.id}`, { reason: 'Дубликат турнира' })
+ok(r.status === 204 && (await admin('GET', `/tournaments/${doomed.id}`)).status === 404, 'admin deletes any tournament')
+ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'tournament.delete' && a.targetId === doomed.id && a.note === 'Дубликат турнира'), 'the deletion and its reason are in the audit log')
+ok(await waitFor(444, /удалён администратором.*Дубликат/s), 'the owner is told why in Telegram')
+
+// ---------- 17. a verified phone stays verified only while unchanged ----------
+const stNow = (await student('GET', '/auth/me')).data.user
+r = await student('PATCH', '/me', { name: stNow.name, phone: '+77011234567' })
+ok(r.data.user.phoneVerified === true, 'the same number in another format keeps the verification')
+r = await student('PATCH', '/me', { name: stNow.name, phone: '+7 702 000 00 00' })
+ok(r.data.user.phoneVerified === false, 'changing the number by hand removes the verification')
+r = await client()('POST', `/tournaments/${t1.id}/judges`, { name: 'Проверка Рейтинга' })
+ok(r.status === 401, 'judges are added by organizers only')
+r = await org('POST', `/tournaments/${t1.id}/judges`, { name: 'Судья Без Рейтинга', rating: 10 })
+ok(r.status === 201 && r.data.rating === 5, 'organizers cannot set a judge rating (ignored, neutral default)')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
