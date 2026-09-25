@@ -1,10 +1,12 @@
 import { Router } from 'express'
+import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
-import { requireAuth, requireVerified, sessionUser } from '../middleware/auth.js'
+import { clearSession, requireAuth, requireVerified, sessionUser, setSession } from '../middleware/auth.js'
+import { removeOld } from './avatar.js'
 import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 
 export const meRouter = Router()
@@ -23,6 +25,35 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
     data: { name: data.name, phone: data.phone || null, institution: data.institution || null, city: data.city || null },
   })
   res.json({ user: await sessionUser(user) })
+})
+
+// password change from the profile; every other session is signed out
+meRouter.post('/me/password', requireAuth(), async (req, res) => {
+  const d = body(req, z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(8).max(128) }))
+  if (!(await bcrypt.compare(d.currentPassword, req.user!.passwordHash))) throw badRequest('wrong_password')
+  if (d.currentPassword === d.newPassword) throw badRequest('same_password')
+  const user = await prisma.user.update({
+    where: { id: req.user!.id },
+    data: { passwordHash: await bcrypt.hash(d.newPassword, 12), passwordChangedAt: new Date() },
+  })
+  setSession(res, user.id) // this device stays signed in
+  res.json({ user: await sessionUser(user) })
+})
+
+// account deletion (personal data law): confirmed by password.
+// Owners of unfinished tournaments must finish or delete them first; admins are demoted by another admin first.
+meRouter.delete('/me', requireAuth(), async (req, res) => {
+  const { password } = body(req, z.object({ password: z.string().min(1).max(128) }))
+  const me = req.user!
+  if (!(await bcrypt.compare(password, me.passwordHash))) throw badRequest('wrong_password')
+  if (me.role === 'admin') throw forbidden('admin_cannot_delete_self')
+  const active = await prisma.tournament.count({ where: { status: { not: 'finished' }, organizers: { some: { userId: me.id, role: 'owner' } } } })
+  if (active) throw badRequest('owns_active_tournaments')
+  // teams, judges and ballots stay in tournament history (links become empty); registrations and tokens are removed
+  await prisma.user.delete({ where: { id: me.id } })
+  await removeOld(me.avatarUrl)
+  clearSession(res)
+  res.status(204).end()
 })
 
 meRouter.get('/me/registrations', requireAuth(), async (req, res) => {

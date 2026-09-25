@@ -305,4 +305,73 @@ ok(r.status === 403, 'outsiders cannot remove judges')
 r = await admin('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'Команда админа', institution: 'Лицей №1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
 ok(r.status === 403 && r.data.error === 'admins_cannot_compete', 'an admin cannot register a team')
 
+// ---------- 12. editing details, rooms, wing judges ----------
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { startDate: '2026-12-20', endDate: '2026-12-19' })
+ok(r.status === 400 && r.data.error === 'end_before_start', 'end date before start rejected')
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { city: 'Алматы', startDate: '2026-12-20', endDate: '2026-12-21', registrationDeadline: '2026-12-15' })
+let po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
+ok(r.status === 200 && po.city === 'Алматы' && po.startDate === '2026-12-20' && po.registrationDeadline === '2026-12-15', 'city, dates and deadline updated')
+ok(po.rounds.every(x => x.date === '2026-12-20' || x.date === '2026-12-21'), 'unreleased rounds moved to the new dates')
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 16 })
+po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
+ok(r.status === 200 && po.plan === 'pro' && po.paid === false, 'raising the limit above 12 switches to unpaid Pro')
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 8 })
+po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
+ok(po.plan === 'free' && po.paid === true, 'lowering back to 12 or less returns to Free')
+for (const n of ['Альфа', 'Бета']) await fresh('POST', `/tournaments/${pendingOwn.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 4 })
+ok(r.status === 200, 'limit can equal the minimum')
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { rooms: ['Зал A', 'Зал A', 'Зал B'] })
+po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
+ok(r.status === 200 && po.rooms.join('|') === 'Зал A|Зал B', 'own rooms saved without duplicates')
+const js = []
+for (const n of ['Первый Судья', 'Второй Судья', 'Третий Судья']) js.push((await fresh('POST', `/tournaments/${pendingOwn.id}/judges`, { name: n, rating: 7 })).data.id)
+r = await fresh('POST', `/rounds/${po.rounds[0].id}/draw`)
+ok(r.status === 201 && r.data[0].room === 'Зал A', 'the draw uses the organizer\'s rooms')
+const deb = r.data[0]
+const wing = js.find(id => id !== deb.judgeIds[0])
+r = await fresh('PATCH', `/debates/${deb.id}`, { wingJudgeIds: [] })
+ok(r.status === 200 && r.data.judgeIds.length === 1, 'wings can be cleared')
+r = await fresh('PATCH', `/debates/${deb.id}`, { wingJudgeIds: [wing] })
+ok(r.status === 200 && r.data.judgeIds.length === 2 && r.data.judgeIds[1] === wing, 'organizer sets a wing judge')
+r = await fresh('PATCH', `/debates/${deb.id}`, { wingJudgeIds: [deb.judgeIds[0]] })
+ok(r.status === 400 && r.data.error === 'invalid_judge', 'the chair cannot also be a wing')
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 2 })
+ok(r.status === 400, 'limit below 4 rejected')
+const t1n = (await org('GET', `/tournaments/${t1.id}`)).data.teams.length
+if (t1n > 4) {
+  r = await org('PATCH', `/tournaments/${t1.id}`, { maxTeams: t1n - 1 })
+  ok(r.status === 400 && r.data.error === 'below_team_count', 'limit cannot go below the teams already in')
+}
+
+// ---------- 13. password change, account deletion ----------
+const freshEmail = `new.${uniq}@mail.kz`
+const otherDevice = client()
+await otherDevice('POST', '/auth/login', { email: freshEmail, password: 'secret123' })
+r = await fresh('POST', '/me/password', { currentPassword: 'wrong-pass', newPassword: 'another123' })
+ok(r.status === 400 && r.data.error === 'wrong_password', 'password change requires the current password')
+r = await fresh('POST', '/me/password', { currentPassword: 'secret123', newPassword: 'another123' })
+ok(r.status === 200, 'password changed from the profile')
+ok((await fresh('GET', '/auth/me')).data.user?.email === freshEmail, 'this device stays signed in')
+ok((await otherDevice('GET', '/auth/me')).data.user === null, 'other devices are signed out')
+r = await fresh('DELETE', '/me', { password: 'another123' })
+ok(r.status === 400 && r.data.error === 'owns_active_tournaments', 'owner of active tournaments cannot delete the account')
+r = await admin('DELETE', '/me', { password: 'demo1234' })
+ok(r.status === 403 && r.data.error === 'admin_cannot_delete_self', 'an admin cannot delete their own account')
+const leaver = client()
+const leaverEmail = `bye.${uniq}@mail.kz`
+await leaver('POST', '/auth/register', { name: 'Уходящий Пользователь', email: leaverEmail, phone: '+7 707 111 22 33', password: 'secret123', consent: true })
+r = await leaver('DELETE', '/me', { password: 'nope' })
+ok(r.status === 400 && r.data.error === 'wrong_password', 'account deletion requires the password')
+r = await leaver('DELETE', '/me', { password: 'secret123' })
+ok(r.status === 204, 'user deletes their account')
+ok((await client()('POST', '/auth/login', { email: leaverEmail, password: 'secret123' })).status === 401, 'deleted account cannot sign in')
+
+// ---------- 14. admin audit log ----------
+const log = (await admin('GET', '/admin/actions')).data
+ok(log.some(a => a.action === 'tournament.approve' && a.targetId === own1.id) && log.some(a => a.action === 'user.block' && a.targetId === aruzhan.id),
+  'admin decisions are in the audit log')
+ok(log.some(a => a.action === 'tournament.paid' && a.targetId === unpaid.id && a.adminName), 'payment confirmation is logged with the admin name')
+ok((await student('GET', '/admin/actions')).status === 403, 'only admins can read the audit log')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

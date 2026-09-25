@@ -3,7 +3,9 @@ import { prisma } from '../lib/prisma.js'
 import { getStandings } from './tournaments.js'
 
 const ROOMS = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
-export const roomName = (i: number) => ROOMS[i] ?? `Ауд. ${601 + i - ROOMS.length}`
+export const DEFAULT_ROOMS = ROOMS
+// the organizer's own rooms first; when they run out, numbered rooms continue
+export const roomName = (i: number, rooms: string[] = ROOMS) => rooms[i] ?? `Ауд. ${601 + i - rooms.length}`
 
 // Power-paired WSDC draw:
 // 1) teams ordered by wins, then speaker points (round 1: random)
@@ -76,7 +78,7 @@ export async function generateDraw(roundId: string) {
     for (let i = 0; i < pairs.length; i++) {
       await tx.debate.create({
         data: {
-          roundId, room: roomName(i), propositionTeamId: pairs[i][0], oppositionTeamId: pairs[i][1],
+          roundId, room: roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS), propositionTeamId: pairs[i][0], oppositionTeamId: pairs[i][1],
           judges: { create: panels[i] },
         },
       })

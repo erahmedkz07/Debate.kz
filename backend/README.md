@@ -44,7 +44,7 @@ npm run dev                 # http://localhost:4000, перезапуск при
 | `npm run typecheck` | проверка типов |
 | `npm run db:migrate` | новая миграция после изменения `prisma/schema.prisma` |
 | `npm run db:seed` / `db:seed:force` / `db:reset` | демо-данные в пустую базу / принудительный сброс к демо / сброс схемы |
-| `npm run test:e2e` | сквозной сценарий API (95 проверок) на **отдельной базе `debatekz_test`** и своём сервере :4100 — dev-база не трогается |
+| `npm run test:e2e` | сквозной сценарий API (120 проверок) на **отдельной базе `debatekz_test`** и своём сервере :4100 — dev-база не трогается |
 | `npm run admin:grant -- <email>` | выдать роль админа существующему пользователю |
 
 ## Роли и права

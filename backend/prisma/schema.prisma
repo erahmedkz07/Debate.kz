@@ -107,6 +107,7 @@ model User {
   emailTokens          EmailToken[]
   createdInvites       TournamentInvite[]    @relation("InviteCreatedBy")
   usedInvites          TournamentInvite[]    @relation("InviteUsedBy")
+  adminActions         AdminAction[]
 
   @@map("users")
 }
@@ -164,6 +165,7 @@ model Tournament {
   registrationDeadline DateTime?        @map("registration_deadline") @db.Date
   moderation           ModerationStatus @default(pending) // public only after admin approval
   moderationNote       String?          @map("moderation_note")
+  rooms                String[]         @default([]) // organizer's own room names for the draw; empty = default list
   createdAt            DateTime         @default(now()) @map("created_at")
   updatedAt            DateTime         @updatedAt @map("updated_at")
 
@@ -377,6 +379,23 @@ model TeamRegistration {
   @@unique([tournamentId, teamName])
   @@index([userId])
   @@map("team_registrations")
+}
+
+// audit log of admin decisions (moderation, payments, visibility, roles, blocks)
+model AdminAction {
+  id          String   @id @default(cuid())
+  adminId     String?  @map("admin_id")
+  adminName   String   @map("admin_name") // kept even if the admin account is deleted
+  action      String // e.g. tournament.approve, user.block
+  targetType  String   @map("target_type") // tournament | user
+  targetId    String   @map("target_id")
+  targetLabel String   @map("target_label")
+  note        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  admin       User?    @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@map("admin_actions")
 }
 
 model Testimonial {

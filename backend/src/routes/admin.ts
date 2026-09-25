@@ -7,9 +7,25 @@ import { publicUser, requireAuth } from '../middleware/auth.js'
 import { sendMail } from '../lib/mail.js'
 import { env } from '../lib/env.js'
 import { summaryInclude, toSummary } from '../services/tournaments.js'
+import type { User } from '../generated/prisma/client.js'
 
 export const adminRouter = Router()
 adminRouter.use('/admin', requireAuth('admin'))
+
+// every admin decision is written to the audit log
+function logAction(admin: User, action: string, target: { type: 'tournament' | 'user'; id: string; label: string }, note?: string | null) {
+  return prisma.adminAction.create({
+    data: { adminId: admin.id, adminName: admin.name, action, targetType: target.type, targetId: target.id, targetLabel: target.label, note: note ?? null },
+  })
+}
+
+adminRouter.get('/admin/actions', async (_req, res) => {
+  const rows = await prisma.adminAction.findMany({ orderBy: { createdAt: 'desc' }, take: 300 })
+  res.json(rows.map(a => ({
+    id: a.id, adminName: a.adminName, action: a.action, targetType: a.targetType, targetId: a.targetId,
+    targetLabel: a.targetLabel, note: a.note ?? undefined, createdAt: a.createdAt.toISOString(),
+  })))
+})
 
 adminRouter.get('/admin/stats', async (_req, res) => {
   const [users, organizers, judges, tournaments, active, unpaid, pendingModeration] = await Promise.all([
@@ -55,6 +71,10 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
     data: { ...d, ...(d.moderation === 'approved' && { moderationNote: null }) },
     include: summaryInclude,
   })
+  const target = { type: 'tournament' as const, id: t.id, label: t.name }
+  if (d.moderation) await logAction(req.user!, `tournament.${d.moderation === 'approved' ? 'approve' : 'reject'}`, target, d.moderationNote)
+  if (d.paid !== undefined && d.paid !== t.paid) await logAction(req.user!, d.paid ? 'tournament.paid' : 'tournament.unpaid', target)
+  if (d.visible !== undefined && d.visible !== t.visible) await logAction(req.user!, d.visible ? 'tournament.show' : 'tournament.hide', target)
   // tell the owner about the moderation decision
   const owner = t.organizers[0]?.user
   if (d.moderation && owner) {
@@ -84,5 +104,9 @@ adminRouter.patch('/admin/users/:id', async (req, res) => {
   if (param(req, 'id') === req.user!.id) throw badRequest('cannot_change_self')
   const u = await prisma.user.findUnique({ where: { id: param(req, 'id') } })
   if (!u) throw notFound('user_not_found')
-  res.json(publicUser(await prisma.user.update({ where: { id: u.id }, data: d })))
+  const updated = await prisma.user.update({ where: { id: u.id }, data: d })
+  const target = { type: 'user' as const, id: u.id, label: `${u.name} (${u.email})` }
+  if (d.role && d.role !== u.role) await logAction(req.user!, 'user.role', target, d.role)
+  if (d.blocked !== undefined && d.blocked !== u.blocked) await logAction(req.user!, d.blocked ? 'user.block' : 'user.unblock', target)
+  res.json(publicUser(updated))
 })
