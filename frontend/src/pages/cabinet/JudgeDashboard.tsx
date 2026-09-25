@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, ClipboardList, ClipboardPen, DoorOpen, Gavel, History, Star, Trophy } from 'lucide-react'
+import { CheckCircle2, ClipboardList, ClipboardPen, DoorOpen, Gavel, History, Timer, Star, Trophy } from 'lucide-react'
 import { getJudgeAssignments } from '@/api'
 import type { JudgeAssignment } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -77,7 +77,8 @@ export default function JudgeDashboard() {
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
-      <CabinetHeader title={t('judge.title')} subtitle={t('judge.subtitle')} />
+      <CabinetHeader title={t('judge.title')} subtitle={t('judge.subtitle')}
+        action={<Button asChild variant="outline"><Link to="/timer"><Timer className="size-4" />{t('timer.title')}</Link></Button>} />
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[

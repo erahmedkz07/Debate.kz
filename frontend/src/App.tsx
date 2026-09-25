@@ -29,6 +29,7 @@ const ResetPassword = lazy(() => import('@/pages/auth/ResetPassword'))
 const InvitePage = lazy(() => import('@/pages/InvitePage'))
 const Notifications = lazy(() => import('@/pages/cabinet/Notifications'))
 const Motions = lazy(() => import('@/pages/Motions'))
+const Timer = lazy(() => import('@/pages/Timer'))
 
 function PageLoader() {
   return (
@@ -52,6 +53,7 @@ export default function App() {
                 <Route path="tournaments/:id" element={<TournamentPage />} />
                 <Route path="rating" element={<Rating />} />
                 <Route path="motions" element={<Motions />} />
+                <Route path="timer" element={<Timer />} />
                 <Route path="about" element={<About />} />
                 <Route path="pricing" element={<Pricing />} />
                 <Route path="ballot/:debateId" element={<RequireAuth><Ballot /></RequireAuth>} />

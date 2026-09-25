@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { AlertCircle, ArrowLeft, CheckCircle2, DoorOpen, Loader2, Minus, Plus, Trophy } from 'lucide-react'
+import { AlertCircle, ArrowLeft, CheckCircle2, DoorOpen, Loader2, Minus, Plus, Timer, Trophy } from 'lucide-react'
 import { getBallot, NotFoundError, submitBallot } from '@/api'
 import type { Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
@@ -157,7 +157,11 @@ export default function Ballot() {
 
   return (
     <div className="container-page max-w-3xl py-8">
-      <Link to={`/tournaments/${data.tournament.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{data.tournament.name}</Link>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link to={`/tournaments/${data.tournament.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{data.tournament.name}</Link>
+        {/* the timekeeper's timer opens in a new tab so the ballot keeps its entered scores */}
+        <a href="/timer" target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"><Timer className="size-4" />{t('timer.title')}</a>
+      </div>
       <div className="mt-4 rounded-2xl bg-gradient-to-br from-primary to-navy p-5 text-white sm:p-6">
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-navy">{t('ballot.round', { n: data.round.number })}</span>

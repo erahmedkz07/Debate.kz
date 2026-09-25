@@ -26,6 +26,8 @@ export function Footer() {
           <ul className="space-y-2.5 text-sm">
             <li><Link className="hover:text-accent" to="/tournaments">{t('nav.tournaments')}</Link></li>
             <li><Link className="hover:text-accent" to="/rating">{t('nav.rating')}</Link></li>
+            <li><Link className="hover:text-accent" to="/motions">{t('nav.motions')}</Link></li>
+            <li><Link className="hover:text-accent" to="/timer">{t('timer.title')}</Link></li>
             <li><Link className="hover:text-accent" to="/pricing">{t('nav.pricing')}</Link></li>
             <li><Link className="hover:text-accent" to="/dashboard/tournaments/new">{t('nav.createTournament')}</Link></li>
           </ul>
