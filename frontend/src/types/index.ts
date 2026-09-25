@@ -101,6 +101,9 @@ export interface TournamentDetails extends Tournament {
   moderation?: ModerationStatus
   moderationNote?: string
   registrationOpen?: boolean
+  registrationDeadline?: string
+  rooms?: string[]
+  pendingRegistrations?: number
   myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]
   rounds: Round[]
@@ -192,6 +195,17 @@ export interface AdminTournament extends Tournament {
   moderation: ModerationStatus
   moderationNote?: string
   owner?: { name: string; email: string }
+}
+
+export interface AdminAction {
+  id: string
+  adminName: string
+  action: string
+  targetType: 'tournament' | 'user'
+  targetId: string
+  targetLabel: string
+  note?: string
+  createdAt: string
 }
 
 export interface MyTournament extends Tournament {
