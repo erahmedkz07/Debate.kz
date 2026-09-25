@@ -34,6 +34,7 @@ enum InviteKind {
 enum TokenPurpose {
   verify_email
   reset_password
+  telegram_link // one-time deep link t.me/<bot>?start=<token>
 }
 
 enum ModerationStatus {
@@ -97,6 +98,11 @@ model User {
   emailVerifiedAt   DateTime? @map("email_verified_at")
   consentAt         DateTime? @map("consent_at") // consent to personal data processing
   passwordChangedAt DateTime? @map("password_changed_at") // sessions issued before this are rejected
+  telegramChatId    String?   @unique @map("telegram_chat_id") // private chat with the bot (= Telegram user id)
+  telegramUsername  String?   @map("telegram_username")
+  telegramNotify    Boolean   @default(true) @map("telegram_notify")
+  verifiedPhone     String?   @unique @map("verified_phone") // shared via the bot's "share contact": one phone, one account
+  phoneVerifiedAt   DateTime? @map("phone_verified_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 

@@ -7,6 +7,7 @@ import { publicUser, requireAuth } from '../middleware/auth.js'
 import { sendMail } from '../lib/mail.js'
 import { env } from '../lib/env.js'
 import { summaryInclude, toSummary } from '../services/tournaments.js'
+import { background, notifyModeration } from '../services/notify.js'
 import type { User } from '../generated/prisma/client.js'
 
 export const adminRouter = Router()
@@ -77,6 +78,11 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
   if (d.visible !== undefined && d.visible !== t.visible) await logAction(req.user!, d.visible ? 'tournament.show' : 'tournament.hide', target)
   // tell the owner about the moderation decision
   const owner = t.organizers[0]?.user
+  if (d.moderation) {
+    background(notifyModeration(t.id, d.moderation === 'approved'
+      ? `✅ Турнир «${t.name}» одобрен и опубликован.`
+      : `❌ Турнир «${t.name}» отклонён. Причина: ${d.moderationNote}`))
+  }
   if (d.moderation && owner) {
     const approved = d.moderation === 'approved'
     await sendMail({

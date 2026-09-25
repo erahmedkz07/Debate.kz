@@ -374,4 +374,69 @@ ok(log.some(a => a.action === 'tournament.approve' && a.targetId === own1.id) &&
 ok(log.some(a => a.action === 'tournament.paid' && a.targetId === unpaid.id && a.adminName), 'payment confirmation is logged with the admin name')
 ok((await student('GET', '/admin/actions')).status === 403, 'only admins can read the audit log')
 
+// ---------- 15. Telegram bot (test mode: e2e plays Telegram, the bot writes to an outbox) ----------
+const bot = client()
+let upd = 1000
+const tgSend = (chatId, fields, type = 'private') => bot('POST', '/telegram/test/update', {
+  update_id: ++upd, message: { message_id: upd, from: { id: chatId, username: `u${chatId}` }, chat: { id: chatId, type }, ...fields },
+})
+const inbox = async (chatId) => (await bot('GET', `/telegram/test/outbox?chat=${chatId}`)).data
+const lastText = async (chatId) => (await inbox(String(chatId))).filter(m => m.method === 'sendMessage').at(-1)?.text ?? ''
+// notifications are sent in the background: wait until the expected message arrives
+const waitFor = async (chatId, re) => { for (let i = 0; i < 20; i++) { if ((await inbox(String(chatId))).some(m => re.test(m.text ?? ''))) return true; await new Promise(r => setTimeout(r, 100)) } return false }
+const linkToken = async c => (await c('POST', '/me/telegram/link')).data.url.split('start=')[1]
+
+const tgConf = (await client()('GET', '/telegram/config')).data
+ok(tgConf.enabled && tgConf.username === 'DebateKzTestBot', 'bot config is public')
+ok((await client()('POST', '/me/telegram/link')).status === 401, 'guests cannot create a link')
+r = await student('POST', '/me/telegram/link')
+ok(r.status === 201 && r.data.url.startsWith('https://t.me/DebateKzTestBot?start='), 'user gets a one-time deep link')
+const stTok = r.data.url.split('start=')[1]
+await tgSend(111, { text: `/start ${stTok}` })
+const hello = await inbox('111')
+ok(hello.some(m => /Готово/.test(m.text)) && hello.some(m => m.reply_markup?.keyboard?.[0]?.[0]?.request_contact), 'the bot links the account and asks for the phone')
+let meTg = (await student('GET', '/auth/me')).data.user
+ok(meTg.telegramLinked && meTg.telegramUsername === 'u111' && !meTg.phoneVerified, 'the site shows Telegram as connected')
+await tgSend(112, { text: `/start ${stTok}` })
+ok(/устарела|использована/.test(await lastText(112)), 'a link works only once')
+await tgSend(111, { text: `/start ${await linkToken(timur)}` })
+ok(/уже подключ[её]н/.test(await lastText(111)), 'one Telegram account cannot be linked to two site accounts')
+await tgSend(555, { text: '/start' }, 'group')
+ok((await inbox('555')).length === 0, 'group chats are ignored')
+await tgSend(111, { contact: { phone_number: '+77015550000', user_id: 999 } })
+ok(/свой номер/.test(await lastText(111)) && !(await student('GET', '/auth/me')).data.user.phoneVerified, "someone else's contact card is not accepted")
+await tgSend(111, { contact: { phone_number: '+79161234567', user_id: 111 } })
+ok(/Казахстана/.test(await lastText(111)), 'only Kazakhstan numbers are accepted')
+await tgSend(111, { contact: { phone_number: '87011234567', user_id: 111 } })
+meTg = (await student('GET', '/auth/me')).data.user
+ok(meTg.phoneVerified && meTg.phone === '+7 701 123 45 67', 'own contact verifies the phone')
+await tgSend(222, { text: `/start ${await linkToken(timur)}` })
+await tgSend(222, { contact: { phone_number: '+7 701 123 45 67', user_id: 222 } })
+ok(/другом аккаунте/.test(await lastText(222)), 'one phone number, one account')
+await tgSend(111, { text: '/stop' })
+ok((await student('GET', '/auth/me')).data.user.telegramNotify === false, '/stop turns notifications off')
+await tgSend(111, { text: '/on' })
+await tgSend(111, { text: '/me' })
+ok(/подтверждён/.test(await lastText(111)), '/me shows the account')
+await tgSend(333, { text: 'привет' })
+ok(/не подключён/.test(await lastText(333)), 'unknown chats get instructions')
+
+// notifications
+const logosReg = (await org('GET', `/tournaments/${t1.id}/registrations`)).data.find(x => x.status === 'pending' && x.user.email === 'student@debate.kz')
+await org('PATCH', `/registrations/${logosReg.id}`, { status: 'rejected' })
+ok(await waitFor(111, /отклонена/), 'registration decision arrives in Telegram')
+await tgSend(333, { text: `/start ${await linkToken(judge)}` })
+// a judge with an account gets their room when the draw is published
+await fresh('POST', `/tournaments/${pendingOwn.id}/judges`, { name: 'Алихан Ахметов', rating: 9, email: 'judge@debate.kz' })
+const round1 = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data.rounds[0]
+await fresh('POST', `/rounds/${round1.id}/draw`)
+await fresh('PATCH', `/rounds/${round1.id}`, { motion: 'Эта палата поддерживает уведомления в Telegram' })
+r = await fresh('PATCH', `/rounds/${round1.id}`, { status: 'released' })
+ok(r.status === 200 && await waitFor(333, /председатель/) && await waitFor(333, /уведомления в Telegram/), 'a released draw tells the judge their room, role and motion')
+await tgSend(444, { text: `/start ${await linkToken(fresh)}` })
+await admin('PATCH', `/admin/tournaments/${pendingOwn.id}`, { moderation: 'rejected', moderationNote: 'Проверка уведомлений' })
+ok(await waitFor(444, /отклонён.*Проверка уведомлений/s), 'moderation decisions arrive to the owner')
+r = await student('DELETE', '/me/telegram')
+ok(r.status === 200 && r.data.user.telegramLinked === false && r.data.user.phoneVerified === true, 'unlinking keeps the verified phone')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

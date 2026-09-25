@@ -7,6 +7,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
+import { background, notifyRegistration, notifyRoundReleased } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
 export const organizerRouter = Router()
@@ -269,6 +270,8 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
     if (d.status === 'completed') await tx.debate.updateMany({ where: { roundId: round.id }, data: { ballotStatus: 'confirmed' } })
     return tx.round.update({ where: { id: round.id }, data: d })
   })
+  // participants and judges learn their rooms in Telegram
+  if (d.status === 'released') background(notifyRoundReleased(round.id))
   res.json({ ...updated, date: toDay(updated.date), infoSlide: updated.infoSlide ?? undefined })
 })
 
@@ -370,5 +373,6 @@ organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
   } else {
     await prisma.teamRegistration.update({ where: { id: reg.id }, data: { status } })
   }
+  background(notifyRegistration(reg.id))
   res.json({ id: reg.id, status })
 })
