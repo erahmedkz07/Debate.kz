@@ -24,7 +24,7 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
 // In development the raw token is also returned so automated tests can verify without a mailbox.
 async function sendVerification(user: User) {
   const { token, hash } = newToken()
-  await prisma.emailToken.create({ data: { userId: user.id, tokenHash: hash, expiresAt: new Date(Date.now() + VERIFY_TTL_MS) } })
+  await prisma.emailToken.create({ data: { userId: user.id, purpose: 'verify_email', tokenHash: hash, expiresAt: new Date(Date.now() + VERIFY_TTL_MS) } })
   const link = `${env.CLIENT_ORIGIN}/verify-email?token=${token}`
   await sendMail({
     to: user.email,
@@ -80,11 +80,11 @@ authRouter.get('/me', async (req, res) => {
 authRouter.post('/verify-email', limiter, async (req, res) => {
   const { token } = body(req, z.object({ token: z.string().min(20).max(200) }))
   const row = await prisma.emailToken.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: true } })
-  if (!row || row.usedAt || row.expiresAt < new Date()) throw badRequest('invalid_or_expired_token')
+  if (!row || row.purpose !== 'verify_email' || row.usedAt || row.expiresAt < new Date()) throw badRequest('invalid_or_expired_token')
   const [user] = await prisma.$transaction([
     prisma.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: row.user.emailVerifiedAt ?? new Date() } }),
-    // one click verifies; every other pending link of this user is burned too
-    prisma.emailToken.updateMany({ where: { userId: row.userId, usedAt: null }, data: { usedAt: new Date() } }),
+    // one click verifies; every other pending verification link of this user is burned too
+    prisma.emailToken.updateMany({ where: { userId: row.userId, purpose: 'verify_email', usedAt: null }, data: { usedAt: new Date() } }),
   ])
   res.json({ user: await sessionUser(user) })
 })
@@ -93,4 +93,48 @@ authRouter.post('/resend-verification', mailLimiter, requireAuth(), async (req, 
   if (req.user!.emailVerifiedAt) throw badRequest('already_verified')
   const devToken = await sendVerification(req.user!)
   res.json({ ok: true, ...(devToken && { devVerificationToken: devToken }) })
+})
+
+// ---------- password reset ----------
+const RESET_TTL_MS = 60 * 60 * 1000
+
+// Always answers the same way, so nobody can probe which emails are registered.
+authRouter.post('/forgot-password', mailLimiter, async (req, res) => {
+  const { email } = body(req, z.object({ email: z.string().trim().toLowerCase().email().max(200) }))
+  const user = await prisma.user.findUnique({ where: { email } })
+  let devToken: string | undefined
+  if (user && !user.blocked) {
+    const { token, hash } = newToken()
+    await prisma.emailToken.create({ data: { userId: user.id, purpose: 'reset_password', tokenHash: hash, expiresAt: new Date(Date.now() + RESET_TTL_MS) } })
+    await sendMail({
+      to: user.email,
+      subject: 'Debate.kz — восстановление пароля',
+      text: `Здравствуйте, ${user.name}!\n\nЧтобы задать новый пароль, перейдите по ссылке:\n${env.CLIENT_ORIGIN}/reset-password?token=${token}\n\nСсылка действует 1 час и работает один раз. Если вы не запрашивали восстановление, просто проигнорируйте письмо — ваш пароль не изменится.`,
+    })
+    if (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') devToken = token
+  }
+  res.json({ ok: true, ...(devToken && { devResetToken: devToken }) })
+})
+
+authRouter.post('/reset-password', limiter, async (req, res) => {
+  const { token, password } = body(req, z.object({ token: z.string().min(20).max(200), password: z.string().min(8).max(128) }))
+  const row = await prisma.emailToken.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: true } })
+  if (!row || row.purpose !== 'reset_password' || row.usedAt || row.expiresAt < new Date()) throw badRequest('invalid_or_expired_token')
+  if (row.user.blocked) throw new HttpError(403, 'blocked')
+  const now = new Date()
+  const [user] = await prisma.$transaction([
+    prisma.user.update({
+      where: { id: row.userId },
+      data: {
+        passwordHash: await bcrypt.hash(password, 12),
+        // every session issued before now stops working (e.g. a stolen cookie)
+        passwordChangedAt: now,
+        // the link came to this mailbox, so the address is confirmed as well
+        emailVerifiedAt: row.user.emailVerifiedAt ?? now,
+      },
+    }),
+    prisma.emailToken.updateMany({ where: { userId: row.userId, purpose: 'reset_password', usedAt: null }, data: { usedAt: now } }),
+  ])
+  setSession(res, user.id)
+  res.json({ user: await sessionUser(user) })
 })

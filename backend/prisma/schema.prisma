@@ -31,6 +31,11 @@ enum InviteKind {
   co_organizer
 }
 
+enum TokenPurpose {
+  verify_email
+  reset_password
+}
+
 enum ModerationStatus {
   pending
   approved
@@ -79,20 +84,21 @@ enum Plan {
 // ---------- people ----------
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  name         String
-  phone        String?
-  role         Role     @default(user)
-  institution  String?
-  city         String?
-  avatarUrl    String?  @map("avatar_url") // /uploads/avatars/<file>.webp
-  blocked         Boolean   @default(false)
-  emailVerifiedAt DateTime? @map("email_verified_at")
-  consentAt       DateTime? @map("consent_at") // consent to personal data processing
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String    @map("password_hash")
+  name              String
+  phone             String?
+  role              Role      @default(user)
+  institution       String?
+  city              String?
+  avatarUrl         String?   @map("avatar_url") // /uploads/avatars/<file>.webp
+  blocked           Boolean   @default(false)
+  emailVerifiedAt   DateTime? @map("email_verified_at")
+  consentAt         DateTime? @map("consent_at") // consent to personal data processing
+  passwordChangedAt DateTime? @map("password_changed_at") // sessions issued before this are rejected
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   organizedTournaments TournamentOrganizer[]
   judgeProfiles        Judge[]
@@ -105,15 +111,16 @@ model User {
   @@map("users")
 }
 
-// one-time email verification tokens; only the SHA-256 hash is stored
+// one-time email links (verification, password reset); only the SHA-256 hash is stored
 model EmailToken {
-  id        String    @id @default(cuid())
-  userId    String    @map("user_id")
-  tokenHash String    @unique @map("token_hash")
-  expiresAt DateTime  @map("expires_at")
-  usedAt    DateTime? @map("used_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String       @id @default(cuid())
+  userId    String       @map("user_id")
+  purpose   TokenPurpose @default(verify_email)
+  tokenHash String       @unique @map("token_hash")
+  expiresAt DateTime     @map("expires_at")
+  usedAt    DateTime?    @map("used_at")
+  createdAt DateTime     @default(now()) @map("created_at")
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("email_tokens")
@@ -178,8 +185,8 @@ model TournamentOrganizer {
   tournamentId String        @map("tournament_id")
   userId       String        @map("user_id")
   role         OrganizerRole @default(owner)
-  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([tournamentId, userId])
   @@map("tournament_organizers")

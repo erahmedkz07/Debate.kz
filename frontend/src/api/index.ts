@@ -70,6 +70,11 @@ export const register = (data: { name: string; email: string; phone: string; pas
 export const verifyEmail = (token: string) => http<{ user: User }>('POST', '/auth/verify-email', { token }).then(r => r.user)
 export const resendVerification = () => http<{ ok: true }>('POST', '/auth/resend-verification')
 
+// password recovery: the server answers the same for any email (no account probing)
+export const forgotPassword = (email: string) => http<{ ok: true }>('POST', '/auth/forgot-password', { email })
+export const resetPassword = (token: string, password: string) =>
+  http<{ user: User }>('POST', '/auth/reset-password', { token, password }).then(r => r.user)
+
 export const logout = () => http<void>('POST', '/auth/logout')
 
 export const getMe = () => http<{ user: User | null }>('GET', '/auth/me').then(r => r.user)

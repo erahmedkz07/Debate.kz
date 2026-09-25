@@ -43,7 +43,7 @@ npm run dev                 # http://localhost:4000, перезапуск при
 | `npm run typecheck` | проверка типов |
 | `npm run db:migrate` | новая миграция после изменения `prisma/schema.prisma` |
 | `npm run db:seed` / `db:reset` | демо-данные / сброс базы |
-| `npm run test:e2e` | сквозной сценарий API (72 проверки; **меняет dev-базу** — после него `npm run db:seed`) |
+| `npm run test:e2e` | сквозной сценарий API (83 проверки; **меняет dev-базу** — после него `npm run db:seed`) |
 | `npm run admin:grant -- <email>` | выдать роль админа существующему пользователю |
 
 ## Роли и права
@@ -87,6 +87,7 @@ npm run dev                 # http://localhost:4000, перезапуск при
 | `GET /health` | все | сервер и БД живы |
 | `POST /auth/register`, `/auth/login`, `/auth/logout`, `GET /auth/me` | все / вошедший | сессия в httpOnly-cookie `dkz_token`, лимит попыток; роль не выбирается |
 | `POST /auth/verify-email`, `/auth/resend-verification` | все / вошедший | подтверждение email одноразовой ссылкой (хранится только SHA-256 токена) |
+| `POST /auth/forgot-password`, `/auth/reset-password` | все | восстановление пароля: одинаковый ответ для любого email, ссылка на 1 час, одноразовая; после смены пароля все старые сессии отзываются |
 | `GET /live` | все | идущий раунд для главной: свой турнир пользователя или любой на платформе |
 | `GET /tournaments`, `/tournaments/:id`, `/tournaments/:id/standings` | все | список с фильтрами, детали (неопубликованные темы и жеребьёвки скрыты), таблица из бюллетеней |
 | `GET /cities`, `/stats`, `/testimonials`, `/rating` | все | справочники, статистика, рейтинг сезона |

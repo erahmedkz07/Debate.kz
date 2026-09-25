@@ -24,6 +24,8 @@ const Profile = lazy(() => import('@/pages/cabinet/Profile'))
 const JudgeDashboard = lazy(() => import('@/pages/cabinet/JudgeDashboard'))
 const AdminPanel = lazy(() => import('@/pages/cabinet/AdminPanel'))
 const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'))
+const ForgotPassword = lazy(() => import('@/pages/auth/ForgotPassword'))
+const ResetPassword = lazy(() => import('@/pages/auth/ResetPassword'))
 const InvitePage = lazy(() => import('@/pages/InvitePage'))
 
 function PageLoader() {
@@ -56,6 +58,8 @@ export default function App() {
               </Route>
               <Route path="login" element={<Login />} />
               <Route path="register" element={<Register />} />
+              <Route path="forgot-password" element={<ForgotPassword />} />
+              <Route path="reset-password" element={<ResetPassword />} />
               {/* cabinets: every route needs a signed-in user; organizer/judge rights are checked per tournament by the API */}
               <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
                 <Route path="me" element={<Profile />} />
