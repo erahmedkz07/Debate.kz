@@ -36,22 +36,27 @@ export default function Profile() {
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
       {/* profile card */}
       <Card className="relative overflow-hidden">
-        <div className="relative h-28 bg-gradient-to-r from-primary to-navy sm:h-32"><OrnamentPattern className="text-white/[0.07]" /></div>
-        <div className="flex flex-col gap-4 px-6 pb-6 sm:flex-row sm:items-end">
+        {/* cover: taller, soft fade at the bottom so the card body doesn't feel glued to it */}
+        <div className="relative h-36 bg-gradient-to-r from-primary via-[#0088b5] to-navy sm:h-44">
+          <OrnamentPattern className="text-white/[0.07]" />
+          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-navy/25 to-transparent" />
+        </div>
+        <div className="flex flex-col items-center gap-5 px-6 pb-7 text-center sm:flex-row sm:items-start sm:gap-6 sm:px-8 sm:text-left">
+          {/* the avatar overlaps the cover by half; the text starts below the cover with its own spacing */}
           <AvatarEditor className="-mt-14 sm:-mt-16" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 flex-1 sm:pt-5">
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">{user.name}</h1>
               {user.role === 'admin' && <Badge variant="danger">{t('roles.admin')}</Badge>}
             </div>
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5"><Mail className="size-4" />{user.email}</span>
-              {user.phone && <span className="flex items-center gap-1.5"><Phone className="size-4" />{user.phone}</span>}
-              {user.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4" />{user.institution}</span>}
-              {user.city && <span className="flex items-center gap-1.5"><MapPin className="size-4" />{user.city}</span>}
+            <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground sm:justify-start">
+              <span className="flex items-center gap-1.5"><Mail className="size-4 text-primary" />{user.email}</span>
+              {user.phone && <span className="flex items-center gap-1.5"><Phone className="size-4 text-primary" />{user.phone}</span>}
+              {user.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{user.institution}</span>}
+              {user.city && <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{user.city}</span>}
             </div>
           </div>
-          <Button asChild variant="outline"><Link to="/tournaments"><Search className="size-4" />{t('home.audience.partCta')}</Link></Button>
+          <Button asChild variant="outline" className="sm:mt-6"><Link to="/tournaments"><Search className="size-4" />{t('home.audience.partCta')}</Link></Button>
         </div>
       </Card>
 

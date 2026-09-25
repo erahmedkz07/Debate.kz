@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { LayoutGrid, LogOut, Menu, Moon, Plus, Sun } from 'lucide-react'
+import { LogOut, Menu, Moon, Plus, Sun } from 'lucide-react'
 import { Logo } from '@/components/brand'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogTrigger, SheetContent } from '@/components/ui/dialog'
 import { useTheme } from '@/lib/hooks'
-import { roleHome, useAuth } from '@/lib/auth'
+import { useAuth } from '@/lib/auth'
 import { Avatar, UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
 import { cn } from '@/lib/utils'
 
@@ -52,8 +52,9 @@ export function Header() {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
   const { user, signOut } = useAuth()
-  // anyone can create a tournament (guests are sent to login first)
-  const canCreate = true
+  // guests see "create tournament" + "login"; a signed-in user sees only their avatar
+  // (the avatar menu leads to the cabinet; creating is in "My tournaments" and on the home page)
+  const canCreate = !user
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8)
@@ -93,12 +94,14 @@ export function Header() {
         <div className="hidden items-center gap-2 lg:flex">
           <LangSwitch onDark={onDark} />
           <ThemeToggle onDark={onDark} />
-          {canCreate
-            ? <Button asChild><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>
-            : <Button asChild><Link to={roleHome[user!.role]}><LayoutGrid className="size-4" />{t('nav.dashboard')}</Link></Button>}
           {user
             ? <UserMenu onDark={onDark} />
-            : <Button asChild variant="ghost" className={cn(onDark && 'text-white hover:bg-white/10')}><Link to="/login">{t('nav.login')}</Link></Button>}
+            : (
+              <>
+                <Button asChild variant="ghost" className={cn(onDark && 'text-white hover:bg-white/10')}><Link to="/login">{t('nav.login')}</Link></Button>
+                <Button asChild><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>
+              </>
+            )}
         </div>
 
         <div className="flex items-center gap-1 lg:hidden">
