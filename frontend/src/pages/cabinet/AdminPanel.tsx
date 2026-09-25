@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Gavel, History, LayoutGrid, Search, ShieldCheck, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
-import { getAdminActions, getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
+import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Gavel, History, LayoutDashboard, LayoutGrid, Search, ShieldCheck, Trash2, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
+import { adminDeleteTournament, getAdminActions, getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { AdminTournament, Role, User } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -17,7 +17,7 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Input, Label, Textarea } from '@/components/ui/input'
 import { ModerationBadge } from '@/components/tournament/ModerationBadge'
 import { Select } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SideTabsList, SideTabsTrigger, Tabs, TabsContent } from '@/components/ui/tabs'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { CabinetHeader } from '@/pages/dashboard/DashboardLayout'
 
@@ -80,6 +80,22 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
   const [confirm, setConfirm] = useState<AdminTournament | null>(null)
   const [rejecting, setRejecting] = useState<AdminTournament | null>(null)
   const [reason, setReason] = useState('')
+  const [deleting, setDeleting] = useState<AdminTournament | null>(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [busyDelete, setBusyDelete] = useState(false)
+  const remove = async () => {
+    setBusyDelete(true)
+    try {
+      await adminDeleteTournament(deleting!.id, deleteReason.trim())
+      setList(list.filter(x => x.id !== deleting!.id))
+      setDeleting(null)
+      toast(t('admin.deletedToast'))
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    } finally {
+      setBusyDelete(false)
+    }
+  }
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'unpaid'>('all')
   const query = q.trim().toLowerCase()
@@ -169,6 +185,10 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
                     <Button asChild variant="ghost" size="icon" aria-label={t('dashboard.public')} title={t('dashboard.public')}>
                       <Link to={`/tournaments/${x.id}`}><ExternalLink className="size-4" /></Link>
                     </Button>
+                    <Button variant="ghost" size="icon" className="hover:text-danger" aria-label={t('admin.deleteTournament')} title={t('admin.deleteTournament')}
+                      onClick={() => { setDeleteReason(''); setDeleting(x) }}>
+                      <Trash2 className="size-4" />
+                    </Button>
                   </div>
                 </td>
               </tr>
@@ -191,6 +211,20 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
             <div className="flex justify-end gap-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
               <Button type="submit" variant="danger" disabled={reason.trim().length < 5}><X className="size-4" />{t('admin.reject')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!deleting} onOpenChange={o => !o && setDeleting(null)}>
+        <DialogContent heading={t('admin.deleteTitle', { name: deleting?.name })} description={t('admin.deleteText')}>
+          <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (deleteReason.trim().length >= 5) remove() }}>
+            <div>
+              <Label htmlFor="delete-reason">{t('admin.rejectReason')}</Label>
+              <Textarea id="delete-reason" rows={3} value={deleteReason} onChange={e => setDeleteReason(e.target.value)} placeholder={t('admin.deletePlaceholder')} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+              <Button type="submit" variant="danger" disabled={deleteReason.trim().length < 5 || busyDelete}><Trash2 className="size-4" />{t('common.delete')}</Button>
             </div>
           </form>
         </DialogContent>
@@ -297,9 +331,9 @@ function UsersTab() {
 // audit log: who approved, rejected, marked paid, hid, blocked or changed a role
 const actionIcon: Record<string, typeof Check> = {
   'tournament.approve': CheckCircle2, 'tournament.reject': X, 'tournament.paid': CircleDollarSign, 'tournament.unpaid': CircleDollarSign,
-  'tournament.show': Eye, 'tournament.hide': EyeOff, 'user.role': UserCog, 'user.block': Ban, 'user.unblock': Unlock,
+  'tournament.show': Eye, 'tournament.hide': EyeOff, 'tournament.delete': Trash2, 'user.role': UserCog, 'user.block': Ban, 'user.unblock': Unlock,
 }
-const actionColor = (a: string) => (a.endsWith('reject') || a.endsWith('block') || a.endsWith('hide') ? 'bg-danger-soft text-danger'
+const actionColor = (a: string) => (a.endsWith('reject') || a.endsWith('block') || a.endsWith('hide') || a.endsWith('delete') ? 'bg-danger-soft text-danger'
   : a.endsWith('approve') || a.endsWith('paid') || a.endsWith('unblock') || a.endsWith('show') ? 'bg-success-soft text-success' : 'bg-primary-soft text-primary')
 
 function LogTab() {
@@ -323,7 +357,7 @@ function LogTab() {
                   : <span className="font-semibold">{a.targetLabel}</span>}
                 {a.action === 'user.role' && a.note && <> → {t(`roles.${a.note}`)}</>}
               </p>
-              {a.action === 'tournament.reject' && a.note && <p className="mt-1 text-xs text-muted-foreground">{t('admin.log.reason')}: {a.note}</p>}
+              {(a.action === 'tournament.reject' || a.action === 'tournament.delete') && a.note && <p className="mt-1 text-xs text-muted-foreground">{t('admin.log.reason')}: {a.note}</p>}
             </div>
             <time className="shrink-0 text-xs text-muted-foreground" dateTime={a.createdAt}>{formatDateTime(a.createdAt)}</time>
           </div>
@@ -339,25 +373,34 @@ export default function AdminPanel() {
   const [list, setList] = useState<AdminTournament[]>([])
   const [tab, setTab] = useState('overview')
   useEffect(() => { if (data) setList(data) }, [data])
+  const pending = list.filter(x => x.moderation === 'pending').length
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
       <CabinetHeader title={t('admin.title')} subtitle={t('admin.subtitle')} />
       <Tabs value={tab} onValueChange={setTab} className="mt-6">
-        <TabsList className="w-fit">
-          <TabsTrigger value="overview">{t('dashboard.nav.overview')}</TabsTrigger>
-          <TabsTrigger value="tournaments">{t('nav.tournaments')}</TabsTrigger>
-          <TabsTrigger value="users">{t('admin.users')}</TabsTrigger>
-          <TabsTrigger value="log">{t('admin.log.tab')}</TabsTrigger>
-        </TabsList>
-        {error ? <div className="mt-6"><ErrorState onRetry={reload} /></div> : loading || !data ? <Skeleton className="mt-6 h-96" /> : (
-          <>
-            <TabsContent value="overview"><Overview tournaments={list} setTab={setTab} /></TabsContent>
-            <TabsContent value="tournaments"><TournamentsTab list={list} setList={setList} /></TabsContent>
-            <TabsContent value="users"><UsersTab /></TabsContent>
-            <TabsContent value="log"><LogTab /></TabsContent>
-          </>
-        )}
+        {/* laptops: sections in a sticky sidebar next to the content; phones: tabs on top */}
+        <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
+          <SideTabsList aria-label={t('admin.title')}>
+            <SideTabsTrigger value="overview"><LayoutDashboard className="size-4" />{t('dashboard.nav.overview')}</SideTabsTrigger>
+            <SideTabsTrigger value="tournaments">
+              <Trophy className="size-4" />{t('nav.tournaments')}
+              {pending > 0 && <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy" title={t('moderation.pending')}>{pending}</span>}
+            </SideTabsTrigger>
+            <SideTabsTrigger value="users"><Users className="size-4" />{t('admin.users')}</SideTabsTrigger>
+            <SideTabsTrigger value="log"><History className="size-4" />{t('admin.log.tab')}</SideTabsTrigger>
+          </SideTabsList>
+          <div className="min-w-0">
+            {error ? <ErrorState onRetry={reload} /> : loading || !data ? <Skeleton className="h-96" /> : (
+              <>
+                <TabsContent value="overview" className="mt-0"><Overview tournaments={list} setTab={setTab} /></TabsContent>
+                <TabsContent value="tournaments" className="mt-0"><TournamentsTab list={list} setList={setList} /></TabsContent>
+                <TabsContent value="users" className="mt-0"><UsersTab /></TabsContent>
+                <TabsContent value="log" className="mt-0"><LogTab /></TabsContent>
+              </>
+            )}
+          </div>
+        </div>
       </Tabs>
     </div>
   )

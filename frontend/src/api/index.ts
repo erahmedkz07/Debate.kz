@@ -153,13 +153,14 @@ export const updateTournament = (id: string, data: Partial<{
 }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)
 export const deleteTournament = (id: string) => http<void>('DELETE', `/tournaments/${id}`)
+export const adminDeleteTournament = (id: string, reason: string) => http<void>('DELETE', `/admin/tournaments/${id}`, { reason })
 
 export interface TeamInput { name: string; institution: string; speakers: string[] }
 export const addTeam = (tournamentId: string, data: TeamInput) => http<Team>('POST', `/tournaments/${tournamentId}/teams`, data)
 export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH', `/teams/${teamId}`, data)
 export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${teamId}`)
 
-export const addJudge = (tournamentId: string, data: { name: string; institution?: string; rating: number }) =>
+export const addJudge = (tournamentId: string, data: { name: string; institution?: string }) =>
   http<Judge>('POST', `/tournaments/${tournamentId}/judges`, data)
 export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
 
