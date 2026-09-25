@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Gavel, History, LayoutGrid, Search, ShieldCheck, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
-import { getAdminActions, getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
+import { AlertTriangle, BadgeCheck, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Flag, Gavel, History, LayoutGrid, Search, ShieldCheck, ShieldX, Trophy, Unlock, UserCog, Users, X, Zap } from 'lucide-react'
+import { getAdminActions, getAdminStats, getAdminTournaments, getReports, getUsers, resolveReports, updateAdminTournament, updateUser } from '@/api'
 import { errorMessage } from '@/lib/errors'
-import type { AdminTournament, JudgeLevel, Role, User } from '@/types'
+import type { AdminTournament, JudgeLevel, ReportQueueItem, Role, User } from '@/types'
+import { TrustBadge } from '@/components/tournament/TrustBadge'
 import { LevelBadge } from '@/components/judge/LevelBadge'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
@@ -30,6 +31,7 @@ function Overview({ tournaments, setTab }: { tournaments: AdminTournament[]; set
   const { data } = useAsync(getAdminStats)
   const unpaid = tournaments.filter(x => x.plan === 'pro' && !x.paid && x.moderation === 'approved')
   const pending = tournaments.filter(x => x.moderation === 'pending')
+  const held = tournaments.filter(x => x.reportHold)
   const cards = [
     { label: t('admin.stats.users'), value: data?.users, icon: Users, color: 'bg-primary-soft text-primary' },
     { label: t('admin.stats.organizers'), value: data?.organizers, icon: LayoutGrid, color: 'bg-accent-soft text-navy dark:text-accent' },
@@ -49,8 +51,17 @@ function Overview({ tournaments, setTab }: { tournaments: AdminTournament[]; set
       </div>
       <Card className="mt-6 p-6">
         <h3 className="flex items-center gap-2 text-lg font-bold"><AlertTriangle className="size-5 text-accent-foreground dark:text-accent" />{t('admin.attention')}</h3>
-        {unpaid.length === 0 && pending.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">{t('admin.allGood')}</p> : (
+        {unpaid.length === 0 && pending.length === 0 && held.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">{t('admin.allGood')}</p> : (
           <ul className="mt-4 divide-y divide-border">
+            {held.map(x => (
+              <li key={x.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div>
+                  <p className="font-semibold">{x.name}</p>
+                  <p className="text-xs text-danger">{t('admin.reports.heldHint', { count: x.openReports ?? 0 })}</p>
+                </div>
+                <Button size="sm" variant="danger" onClick={() => setTab('reports')}><Flag className="size-4" />{t('admin.reports.review')}</Button>
+              </li>
+            ))}
             {pending.map(x => (
               <li key={x.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div>
@@ -82,10 +93,13 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
   const [rejecting, setRejecting] = useState<AdminTournament | null>(null)
   const [reason, setReason] = useState('')
   const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'unpaid'>('all')
+  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'unpaid' | 'auto' | 'reported'>('all')
   const query = q.trim().toLowerCase()
   const shown = [...list]
-    .filter(x => filter === 'all' || (filter === 'unpaid' ? x.plan === 'pro' && !x.paid : x.moderation === filter))
+    .filter(x => filter === 'all'
+      || (filter === 'unpaid' ? x.plan === 'pro' && !x.paid
+        : filter === 'auto' ? x.autoApproved
+          : filter === 'reported' ? !!x.openReports : x.moderation === filter))
     .filter(x => !query || [x.name, x.city, x.owner?.name, x.owner?.email].some(v => v?.toLowerCase().includes(query)))
     // pending moderation first: that is what the admin has to act on
     .sort((a, b) => Number(b.moderation === 'pending') - Number(a.moderation === 'pending'))
@@ -114,6 +128,8 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
             { value: 'approved', label: t('moderation.approved') },
             { value: 'rejected', label: t('moderation.rejected') },
             { value: 'unpaid', label: t('admin.awaitingPayment') },
+            { value: 'auto', label: t('admin.autoPublished') },
+            { value: 'reported', label: t('admin.reports.withReports') },
           ]} />
       </div>
       {shown.length === 0 ? <EmptyState icon={<Trophy className="size-7" />} title={t('tournaments.emptyTitle')} /> : (
@@ -141,7 +157,11 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
                   {x.owner && <p className="text-xs text-muted-foreground">{x.owner.email}</p>}
                 </td>
                 <td className="px-5 py-3.5">
-                  {x.moderation === 'approved' ? <Badge variant="success"><CheckCircle2 className="size-3" />{t('moderation.approved')}</Badge> : <ModerationBadge status={x.moderation} />}
+                  <div className="flex flex-wrap gap-1">
+                    {x.moderation === 'approved' ? <Badge variant="success"><CheckCircle2 className="size-3" />{t('moderation.approved')}</Badge> : <ModerationBadge status={x.moderation} />}
+                    {x.autoApproved && <Badge variant="outline" title={t('admin.autoPublishedHint')}><Zap className="size-3" />{t('admin.auto')}</Badge>}
+                    {x.reportHold && <Badge variant="danger"><Flag className="size-3" />{t('moderation.hold')}</Badge>}
+                  </div>
                 </td>
                 <td className="px-5 py-3.5 tabular-nums">{x.teamsCount}/{x.maxTeams}</td>
                 <td className="px-5 py-3.5">
@@ -225,7 +245,7 @@ function UsersTab() {
 
   const shown = list.filter(u => (role === 'all' || u.role === role) &&
     (!q || u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase())))
-  const patch = async (id: string, p: { role?: Role; blocked?: boolean; judgeLevelMin?: JudgeLevel | null }) => {
+  const patch = async (id: string, p: { role?: Role; blocked?: boolean; judgeLevelMin?: JudgeLevel | null; organizerTrust?: 'verified' | 'restricted' | null }) => {
     try {
       const updated = await updateUser(id, p)
       setList(list.map(u => (u.id === id ? updated : u)))
@@ -248,7 +268,7 @@ function UsersTab() {
       </div>
       {shown.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('admin.noUsers')} /> : (
         <Card className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-sm">
+          <table className="w-full min-w-[1200px] text-sm">
             <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-5 py-3">{t('admin.user')}</th>
@@ -256,6 +276,7 @@ function UsersTab() {
                 <th className="px-5 py-3">{t('admin.registered')}</th>
                 <th className="px-5 py-3">{t('admin.role')}</th>
                 <th className="px-5 py-3">{t('admin.judgeLevel')}</th>
+                <th className="px-5 py-3">{t('admin.organizerTrust')}</th>
                 <th className="px-5 py-3 text-right">{t('admin.actions')}</th>
               </tr>
             </thead>
@@ -289,6 +310,21 @@ function UsersTab() {
                         options={[{ value: 'auto', label: t('admin.levelAuto') }, ...(['judge', 'experienced', 'chief'] as const).map(l => ({ value: l, label: `≥ ${t(`judgeLevel.${l}`)}` }))]} />
                     </div>
                   </td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <TrustBadge level={u.organizerTrust} />
+                      {/* verified organization publishes at once; restricted is always moderated */}
+                      <Select size="sm" className="w-40" value={u.organizerTrustOverride ?? 'auto'} aria-label={t('admin.organizerTrust')}
+                        onValueChange={async v => {
+                          if (await patch(u.id, { organizerTrust: v === 'auto' ? null : (v as 'verified' | 'restricted') })) toast.success(t('admin.trustChanged', { name: u.name }))
+                        }}
+                        options={[
+                          { value: 'auto', label: t('admin.levelAuto') },
+                          { value: 'verified', label: t('trust.levels.verified') },
+                          { value: 'restricted', label: t('trust.levels.restricted') },
+                        ]} />
+                    </div>
+                  </td>
                   <td className="px-5 py-3 text-right">
                     {u.id !== me?.id && (
                       <Button size="sm" variant="ghost" className={u.blocked ? 'text-success' : 'text-danger'}
@@ -307,13 +343,90 @@ function UsersTab() {
   )
 }
 
+// report queue: dismiss (tournament is fine) or uphold (tournament is rejected, the owner loses trust)
+function ReportsTab({ onChanged }: { onChanged: () => void }) {
+  const { t } = useTranslation()
+  const { data, loading, error, reload } = useAsync(getReports)
+  const [upholding, setUpholding] = useState<ReportQueueItem | null>(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const decide = async (id: string, decision: 'dismiss' | 'uphold', why?: string) => {
+    setBusy(id)
+    try {
+      await resolveReports(id, decision, why)
+      toast.success(t(decision === 'dismiss' ? 'admin.reports.dismissed' : 'admin.reports.upheld'))
+      setUpholding(null)
+      reload()
+      onChanged()
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    } finally {
+      setBusy(null)
+    }
+  }
+  if (error) return <ErrorState onRetry={reload} />
+  if (loading || !data) return <Skeleton className="h-96" />
+  if (data.length === 0) return <EmptyState icon={<Flag className="size-7" />} title={t('admin.reports.empty')} text={t('admin.reports.emptyText')} />
+  return (
+    <div className="space-y-4">
+      {data.map(({ tournament: x, reports }) => (
+        <Card key={x.id} className={cn('p-5', x.reportHold && 'ring-2 ring-danger/40')}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Link to={`/tournaments/${x.id}`} className="font-bold hover:text-primary hover:underline">{x.name}</Link>
+              <p className="text-xs text-muted-foreground">{x.owner?.name} · {x.owner?.email} · {x.city}</p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {x.reportHold && <Badge variant="danger"><Flag className="size-3" />{t('moderation.hold')}</Badge>}
+                {x.autoApproved && <Badge variant="outline"><Zap className="size-3" />{t('admin.auto')}</Badge>}
+                <Badge variant="muted">{t('admin.reports.count', { count: reports.length })}</Badge>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={!!busy} onClick={() => decide(x.id, 'dismiss')}><Check className="size-4" />{t('admin.reports.dismiss')}</Button>
+              <Button size="sm" variant="danger" disabled={!!busy} onClick={() => { setNote(''); setUpholding({ tournament: x, reports }) }}><ShieldX className="size-4" />{t('admin.reports.uphold')}</Button>
+            </div>
+          </div>
+          <ul className="mt-4 space-y-2">
+            {reports.map(r => (
+              <li key={r.id} className="rounded-xl bg-muted/60 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="accent">{t(`report.reasons.${r.reason}`)}</Badge>
+                  <span>{r.reporter ? `${r.reporter.name} · ${r.reporter.email}` : t('admin.reports.deletedUser')}</span>
+                  <span>{formatDateTime(r.createdAt)}</span>
+                </div>
+                {r.text && <p className="mt-2">{r.text}</p>}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ))}
+      <Dialog open={!!upholding} onOpenChange={o => !o && setUpholding(null)}>
+        <DialogContent heading={t('admin.reports.upholdTitle')} description={upholding?.tournament.name}>
+          <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (note.trim().length >= 5) decide(upholding!.tournament.id, 'uphold', note.trim()) }}>
+            <p className="text-sm text-muted-foreground">{t('admin.reports.upholdText')}</p>
+            <div>
+              <Label htmlFor="uphold-note">{t('admin.rejectReason')}</Label>
+              <Textarea id="uphold-note" rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder={t('admin.rejectPlaceholder')} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+              <Button type="submit" variant="danger" disabled={note.trim().length < 5 || !!busy}><ShieldX className="size-4" />{t('admin.reports.uphold')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
 // audit log: who approved, rejected, marked paid, hid, blocked or changed a role
 const actionIcon: Record<string, typeof Check> = {
   'tournament.approve': CheckCircle2, 'tournament.reject': X, 'tournament.paid': CircleDollarSign, 'tournament.unpaid': CircleDollarSign,
   'tournament.show': Eye, 'tournament.hide': EyeOff, 'user.role': UserCog, 'user.block': Ban, 'user.unblock': Unlock, 'user.judgeLevel': Gavel,
+  'tournament.autoHidden': Flag, 'tournament.reportsDismissed': CheckCircle2, 'tournament.reportsUpheld': ShieldX, 'user.organizerTrust': BadgeCheck,
 }
-const actionColor = (a: string) => (a.endsWith('reject') || a.endsWith('block') || a.endsWith('hide') ? 'bg-danger-soft text-danger'
-  : a.endsWith('approve') || a.endsWith('paid') || a.endsWith('unblock') || a.endsWith('show') ? 'bg-success-soft text-success' : 'bg-primary-soft text-primary')
+const actionColor = (a: string) => (a.endsWith('reject') || a.endsWith('block') || a.endsWith('hide') || a.endsWith('Upheld') || a.endsWith('autoHidden') ? 'bg-danger-soft text-danger'
+  : a.endsWith('approve') || a.endsWith('paid') || a.endsWith('unblock') || a.endsWith('show') || a.endsWith('Dismissed') ? 'bg-success-soft text-success' : 'bg-primary-soft text-primary')
 
 function LogTab() {
   const { t } = useTranslation()
@@ -330,14 +443,15 @@ function LogTab() {
             <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', actionColor(a.action))}><Icon className="size-4" /></span>
             <div className="min-w-0 flex-1">
               <p className="text-sm">
-                <b>{a.adminName}</b> {t(`admin.log.actions.${a.action}`, { defaultValue: a.action })}{' '}
+                <b>{a.adminName === 'system' ? t('admin.log.system') : a.adminName}</b> {t(`admin.log.actions.${a.action}`, { defaultValue: a.action })}{' '}
                 {a.targetType === 'tournament'
                   ? <Link to={`/tournaments/${a.targetId}`} className="font-semibold text-primary hover:underline">«{a.targetLabel}»</Link>
                   : <span className="font-semibold">{a.targetLabel}</span>}
                 {a.action === 'user.role' && a.note && <> → {t(`roles.${a.note}`)}</>}
                 {a.action === 'user.judgeLevel' && a.note && <> → {a.note === 'auto' ? t('admin.levelAuto') : `≥ ${t(`judgeLevel.${a.note}`)}`}</>}
+                {a.action === 'user.organizerTrust' && a.note && <> → {a.note === 'auto' ? t('admin.levelAuto') : t(`trust.levels.${a.note}`)}</>}
               </p>
-              {a.action === 'tournament.reject' && a.note && <p className="mt-1 text-xs text-muted-foreground">{t('admin.log.reason')}: {a.note}</p>}
+              {(a.action === 'tournament.reject' || a.action === 'tournament.reportsUpheld') && a.note && <p className="mt-1 text-xs text-muted-foreground">{t('admin.log.reason')}: {a.note}</p>}
             </div>
             <time className="shrink-0 text-xs text-muted-foreground" dateTime={a.createdAt}>{formatDateTime(a.createdAt)}</time>
           </div>
@@ -353,6 +467,7 @@ export default function AdminPanel() {
   const [list, setList] = useState<AdminTournament[]>([])
   const [tab, setTab] = useState('overview')
   useEffect(() => { if (data) setList(data) }, [data])
+  const reported = list.filter(x => x.openReports).length
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
@@ -362,6 +477,10 @@ export default function AdminPanel() {
           <TabsTrigger value="overview">{t('dashboard.nav.overview')}</TabsTrigger>
           <TabsTrigger value="tournaments">{t('nav.tournaments')}</TabsTrigger>
           <TabsTrigger value="users">{t('admin.users')}</TabsTrigger>
+          <TabsTrigger value="reports">
+            {t('admin.reports.tab')}
+            {reported > 0 && <span className="ml-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-danger px-1.5 text-[11px] font-bold text-white">{reported}</span>}
+          </TabsTrigger>
           <TabsTrigger value="log">{t('admin.log.tab')}</TabsTrigger>
         </TabsList>
         {error ? <div className="mt-6"><ErrorState onRetry={reload} /></div> : loading || !data ? <Skeleton className="mt-6 h-96" /> : (
@@ -369,6 +488,7 @@ export default function AdminPanel() {
             <TabsContent value="overview"><Overview tournaments={list} setTab={setTab} /></TabsContent>
             <TabsContent value="tournaments"><TournamentsTab list={list} setList={setList} /></TabsContent>
             <TabsContent value="users"><UsersTab /></TabsContent>
+            <TabsContent value="reports"><ReportsTab onChanged={reload} /></TabsContent>
             <TabsContent value="log"><LogTab /></TabsContent>
           </>
         )}

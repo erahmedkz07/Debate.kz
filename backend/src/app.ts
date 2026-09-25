@@ -16,6 +16,7 @@ import { prisma } from './lib/prisma.js'
 import { avatarRouter } from './routes/avatar.js'
 import { invitesRouter } from './routes/invites.js'
 import { feedbackRouter } from './routes/feedback.js'
+import { reportsRouter } from './routes/reports.js'
 import { UPLOADS_DIR } from './lib/uploads.js'
 
 export function createApp() {
@@ -41,7 +42,7 @@ export function createApp() {
   app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny' }))
 
   app.use('/api/auth', authRouter)
-  app.use('/api', publicRouter, meRouter, avatarRouter, invitesRouter, judgeRouter, feedbackRouter, organizerRouter, adminRouter)
+  app.use('/api', publicRouter, meRouter, avatarRouter, invitesRouter, judgeRouter, feedbackRouter, reportsRouter, organizerRouter, adminRouter)
 
   app.use('/api', notFoundHandler)
   app.use(errorHandler)
