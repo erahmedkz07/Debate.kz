@@ -212,6 +212,17 @@ export interface AdminAction {
   createdAt: string
 }
 
+// in-app notification: the text is built on the site from type + data (RU/KZ)
+export interface AppNotification {
+  id: string
+  type: string // participant.* | judge.* | organizer.* | admin.*
+  data: Record<string, unknown>
+  link?: string
+  read: boolean
+  createdAt: string
+  recipient?: { name: string; email: string } // admin platform feed only
+}
+
 export interface MyTournament extends Tournament {
   moderation: ModerationStatus
   moderationNote?: string

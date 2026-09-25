@@ -460,4 +460,37 @@ ok(r.status === 401, 'judges are added by organizers only')
 r = await org('POST', `/tournaments/${t1.id}/judges`, { name: 'Судья Без Рейтинга', rating: 10 })
 ok(r.status === 201 && r.data.rating === 5, 'organizers cannot set a judge rating (ignored, neutral default)')
 
+// ---------- 18. notification centre (by role) ----------
+const notes = async c => (await c('GET', '/me/notifications')).data
+const types = list => list.items.map(n => n.type)
+const orgN = await notes(org)
+ok(types(orgN).includes('organizer.newRegistration') && orgN.items.some(n => n.data.team === 'E2E Команда'), 'organizer: new team registration')
+const stN = await notes(student)
+ok(types(stN).includes('participant.registrationConfirmed') && types(stN).includes('participant.drawReleased'), 'participant: registration decision and draw (room, side)')
+ok(stN.items.find(n => n.type === 'participant.drawReleased').data.room !== undefined, 'the draw notification carries the room')
+ok(!types(stN).some(x => x.startsWith('organizer.') || x.startsWith('admin.')), 'a participant gets no organizer or admin events')
+const jN = await notes(judge)
+ok(types(jN).includes('judge.assigned') && jN.items.find(n => n.type === 'judge.assigned').link.startsWith('/ballot/'), 'judge: assignment with a ballot link')
+ok(types(await notes(sabina)).includes('judge.joined'), 'judge: welcome after accepting an invite')
+const frN = await notes(fresh)
+ok(['organizer.memberJoined', 'organizer.approved', 'organizer.deleted'].every(x => types(frN).includes(x)), 'organizer: who joined, approvals and deletions')
+ok(frN.items.find(n => n.type === 'organizer.deleted').link === undefined, 'a deleted tournament has no link')
+const adN = await notes(admin)
+ok(types(adN).includes('admin.tournamentPending'), 'admin: tournaments waiting for review')
+const feed = (await admin('GET', '/admin/notifications')).data
+ok(feed.items.length > 0 && feed.items.every(n => n.recipient?.email), 'admin sees the whole platform feed with recipients')
+ok((await student('GET', '/admin/notifications')).status === 403, 'the platform feed is admin-only')
+const unread0 = (await student('GET', '/me/notifications/unread')).data.count
+ok(unread0 === stN.unread && unread0 > 0, `unread counter (${unread0})`)
+r = await student('POST', '/me/notifications/read', { ids: [stN.items[0].id] })
+ok(r.data.updated === 1 && (await student('GET', '/me/notifications/unread')).data.count === unread0 - 1, 'mark one as read')
+r = await timur('POST', '/me/notifications/read', { ids: [stN.items[1].id] })
+ok(r.data.updated === 0, "nobody can mark someone else's notifications")
+await student('POST', '/me/notifications/read', {})
+ok((await student('GET', '/me/notifications/unread')).data.count === 0, 'mark all as read')
+if (adN.hasMore) {
+  const page2 = (await admin('GET', `/me/notifications?before=${adN.items.at(-1).createdAt}`)).data
+  ok(page2.items.every(n => n.createdAt < adN.items.at(-1).createdAt), 'the next page continues where the first ended')
+}
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

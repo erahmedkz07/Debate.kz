@@ -8,6 +8,7 @@ import { hashToken, newToken } from '../lib/tokens.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn } from '../services/tournaments.js'
+import { background, notifyJoined } from '../services/notify.js'
 
 export const invitesRouter = Router()
 
@@ -71,5 +72,6 @@ invitesRouter.post('/invites/:token/accept', requireAuth(), requireVerified, asy
       await tx.tournamentOrganizer.create({ data: { tournamentId: invite.tournamentId, userId: user.id, role: 'co_organizer' } })
     }
   })
+  background(notifyJoined(invite.tournamentId, user.id, invite.kind))
   res.json({ ok: true, kind: invite.kind, tournamentId: invite.tournamentId })
 })

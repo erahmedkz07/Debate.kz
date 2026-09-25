@@ -114,6 +114,7 @@ model User {
   createdInvites       TournamentInvite[]    @relation("InviteCreatedBy")
   usedInvites          TournamentInvite[]    @relation("InviteUsedBy")
   adminActions         AdminAction[]
+  notifications        Notification[]
 
   @@map("users")
 }
@@ -402,6 +403,23 @@ model AdminAction {
 
   @@index([createdAt])
   @@map("admin_actions")
+}
+
+// in-app notification: stored as a type + data so the site renders it in RU/KZ
+// (types: participant.*, judge.*, organizer.*, admin.* — see services/notify.ts)
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  type      String
+  data      Json      @default("{}")
+  link      String?
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("notifications")
 }
 
 model Testimonial {

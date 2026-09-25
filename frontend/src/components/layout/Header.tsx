@@ -8,6 +8,7 @@ import { Dialog, DialogTrigger, SheetContent } from '@/components/ui/dialog'
 import { useTheme } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import { Avatar, UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { cn } from '@/lib/utils'
 
 const links = [
@@ -95,7 +96,7 @@ export function Header() {
           <LangSwitch onDark={onDark} />
           <ThemeToggle onDark={onDark} />
           {user
-            ? <UserMenu onDark={onDark} />
+            ? <><NotificationBell onDark={onDark} /><UserMenu onDark={onDark} /></>
             : (
               <>
                 <Button asChild variant="ghost" className={cn(onDark && 'text-white hover:bg-white/10')}><Link to="/login">{t('nav.login')}</Link></Button>
@@ -106,6 +107,7 @@ export function Header() {
 
         <div className="flex items-center gap-1 lg:hidden">
           <LangSwitch onDark={onDark} />
+          <NotificationBell onDark={onDark} />
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button variant="ghost" size="icon" aria-label={t('nav.menu')} className={cn(onDark && 'text-white hover:bg-white/10')}><Menu className="size-6" /></Button>

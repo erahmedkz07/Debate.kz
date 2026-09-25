@@ -64,7 +64,7 @@ adminRouter.delete('/admin/tournaments/:id', async (req, res) => {
   if (!t) throw notFound('tournament_not_found')
   // notify first: after deletion the owner link is gone
   const owner = t.organizers[0]?.user
-  await notifyModeration(t.id, `🗑 Турнир «${t.name}» удалён администратором. Причина: ${reason}`).catch(() => undefined)
+  await notifyModeration(t.id, t.name, 'deleted', reason).catch(() => undefined)
   await prisma.tournament.delete({ where: { id: t.id } })
   await logAction(req.user!, 'tournament.delete', { type: 'tournament', id: t.id, label: t.name }, reason)
   if (owner) {
@@ -98,9 +98,7 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
   // tell the owner about the moderation decision
   const owner = t.organizers[0]?.user
   if (d.moderation) {
-    background(notifyModeration(t.id, d.moderation === 'approved'
-      ? `✅ Турнир «${t.name}» одобрен и опубликован.`
-      : `❌ Турнир «${t.name}» отклонён. Причина: ${d.moderationNote}`))
+    background(notifyModeration(t.id, t.name, d.moderation, d.moderationNote))
   }
   if (d.moderation && owner) {
     const approved = d.moderation === 'approved'

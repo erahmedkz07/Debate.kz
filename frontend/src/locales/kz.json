@@ -868,5 +868,89 @@
     "unmute": "Хабарламаларды қосу",
     "unlink": "Ажырату",
     "unlinked": "Telegram ажыратылды"
+  },
+  "notifications": {
+    "title": "Хабарламалар",
+    "subtitle": "Турнирлеріңізге қатысты бәрі: өтінімдер, жеребелер, төрешілік және әкімшілер шешімдері.",
+    "bellUnread_one": "{{count}} оқылмаған хабарлама",
+    "bellUnread_other": "{{count}} оқылмаған хабарлама",
+    "all": "Барлығы",
+    "platform": "Бүкіл платформа",
+    "readAll": "Барлығын оқу",
+    "more": "Тағы көрсету",
+    "unread": "Оқылмаған",
+    "platformHint": "Барлық пайдаланушылардың хабарламалары — тек әкімшілерге көрінеді.",
+    "empty": "Әзірге хабарлама жоқ",
+    "emptyText": "Мұнда өтінімдер, жеребелер, төрешілікке тағайындаулар және турнирлеріңіз бойынша шешімдер шығады.",
+    "chair": "бас төреші",
+    "wing": "бүйір төреші",
+    "kind": {
+      "judge": "төреші",
+      "co_organizer": "қосалқы ұйымдастырушы"
+    },
+    "categories": {
+      "participant": "Қатысу",
+      "judge": "Төрешілік",
+      "organizer": "Ұйымдастыру",
+      "admin": "Әкімшілік"
+    },
+    "types": {
+      "participant": {
+        "registrationConfirmed": {
+          "title": "Өтінім расталды",
+          "text": "«{{team}}» командасы «{{tournament}}» турниріне қатысады."
+        },
+        "registrationRejected": {
+          "title": "Өтінім қабылданбады",
+          "text": "Ұйымдастырушы «{{team}}» командасының «{{tournament}}» өтінімін қабылдамады."
+        },
+        "drawReleased": {
+          "title": "Жеребе: {{round}}",
+          "text": "«{{tournament}}»: аудитория {{room}}, сіз — {{side}}, қарсылас «{{opponent}}». Тақырып: «{{motion}}»."
+        },
+        "roundResult": {
+          "title": "Раунд қорытындысы: {{result}}",
+          "text": "«{{tournament}}», {{round}} — нәтижелер турнир кестесінде."
+        }
+      },
+      "judge": {
+        "assigned": {
+          "title": "Тағайындау: {{round}}",
+          "text": "«{{tournament}}»: сіз {{room}} аудиториясында {{role}} — «{{proposition}}» vs «{{opposition}}». Бюллетеньді ашыңыз."
+        },
+        "joined": {
+          "title": "Сіз турнир төрешісісіз",
+          "text": "«{{tournament}}»: тағайындаулар жеребеден кейін шығады."
+        }
+      },
+      "organizer": {
+        "newRegistration": {
+          "title": "Жаңа өтінім",
+          "text": "«{{team}}» командасы «{{tournament}}» турниріне өтінім берді."
+        },
+        "memberJoined": {
+          "title": "Шақыру қабылданды",
+          "text": "{{name}} — «{{tournament}}» турнирінің {{kind}}."
+        },
+        "approved": {
+          "title": "Турнир мақұлданды",
+          "text": "«{{tournament}}» жарияланды және бәріне көрінеді."
+        },
+        "rejected": {
+          "title": "Турнир қабылданбады",
+          "text": "«{{tournament}}». Себебі: {{reason}}"
+        },
+        "deleted": {
+          "title": "Турнирді әкімші жойды",
+          "text": "«{{tournament}}». Себебі: {{reason}}"
+        }
+      },
+      "admin": {
+        "tournamentPending": {
+          "title": "Турнир тексеруді күтуде{{plan}}",
+          "text": "«{{tournament}}» ({{city}}), иесі — {{owner}}."
+        }
+      }
+    }
   }
 }
