@@ -837,7 +837,7 @@ export default function ManageTournament() {
           {current === 'rounds' && <Rounds {...props} />}
           {current === 'draw' && <Draw {...props} />}
           {current === 'ballots' && <Ballots {...props} />}
-          {current === 'results' && <><SectionTitle title={t('dashboard.nav.results')} /><ResultsTab id={id} kind="teams" /></>}
+          {current === 'results' && <><SectionTitle title={t('dashboard.nav.results')} /><ResultsTab id={id} kind="teams" tournament={data} /></>}
           {current === 'settings' && <SettingsSection {...props} />}
         </section>
       </div>
