@@ -100,6 +100,7 @@ export interface TournamentDetails extends Tournament {
   paid?: boolean
   moderation?: ModerationStatus
   moderationNote?: string
+  registrationOpen?: boolean
   myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]
   rounds: Round[]

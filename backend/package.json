@@ -11,9 +11,10 @@
     "db:migrate": "prisma migrate dev && prisma generate",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "db:seed:force": "prisma db seed -- --force",
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio",
-    "test:e2e": "node scripts/e2e.mjs",
+    "test:e2e": "node --env-file=.env scripts/e2e.mjs",
     "admin:grant": "tsx scripts/make-admin.ts"
   },
   "dependencies": {

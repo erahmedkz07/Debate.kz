@@ -1,5 +1,6 @@
 // Development seed: realistic tournaments, teams, judges, draws and real WSDC ballots.
-// Run: npm run db:seed  (wipes all data first — never run against production)
+// Run: npm run db:seed on an empty DB. It WIPES all data first, so a DB that already has users
+// is only reseeded with an explicit: npm run db:seed:force   (never against production)
 import 'dotenv/config'
 import bcrypt from 'bcryptjs'
 import { PrismaPg } from '@prisma/adapter-pg'
@@ -92,6 +93,13 @@ const rooms = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ау
   'Ауд. 601', 'Ауд. 602', 'Ауд. 603', 'Ауд. 604']
 
 async function main() {
+  // protect real work: never wipe a database that already has accounts unless asked explicitly
+  const users = await prisma.user.count()
+  if (users > 0 && !process.argv.includes('--force')) {
+    console.error(`The database already has ${users} users. Seeding would wipe them.
+If you really want to reset to demo data: npm run db:seed:force`)
+    process.exit(1)
+  }
   console.log('Wiping data…')
   await prisma.$transaction([
     prisma.speakerScore.deleteMany(), prisma.ballot.deleteMany(), prisma.debateJudge.deleteMany(), prisma.debate.deleteMany(),

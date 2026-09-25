@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -63,6 +63,8 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     setOpen(v)
   }
 
+  // admins judge or organize, but never compete
+  if (user?.role === 'admin') return null
   if (tournament.status !== 'registration') {
     return <Button size="lg" variant="white" disabled><Lock className="size-4" />{t('tournament.registrationClosed')}</Button>
   }
@@ -387,6 +389,10 @@ export default function TournamentPage() {
   const { id = '' } = useParams()
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getTournamentById(id), [id])
+  // deep links like /tournaments/:id?tab=draw (e.g. from "My debates")
+  const [params] = useSearchParams()
+  const tabs = ['overview', 'teams', 'draw', 'results', 'speakers', 'judges']
+  const requestedTab = params.get('tab')
 
   if (error instanceof NotFoundError) return <NotFound />
   if (error) return <div className="container-page py-20"><ErrorState onRetry={reload} /></div>
@@ -415,7 +421,7 @@ export default function TournamentPage() {
       </section>
 
       <div className="container-page py-8 sm:py-10">
-        <Tabs defaultValue={data.status === 'registration' ? 'overview' : 'draw'}>
+        <Tabs defaultValue={requestedTab && tabs.includes(requestedTab) ? requestedTab : data.status === 'registration' ? 'overview' : 'draw'}>
           <TabsList>
             <TabsTrigger value="overview">{t('tournament.tabs.overview')}</TabsTrigger>
             <TabsTrigger value="teams">{t('tournament.tabs.teams')} <span className="ml-1 text-xs opacity-60">{data.teams.length}</span></TabsTrigger>

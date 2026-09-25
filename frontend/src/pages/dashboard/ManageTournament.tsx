@@ -4,13 +4,13 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Loader2, Megaphone, Pencil, Plus, Settings, Shuffle, Trash2, Users, X,
+  Loader2, Megaphone, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, Users, X,
 } from 'lucide-react'
 import {
-  addJudge, addTeam, deleteTeam, deleteTournament, generateDraw, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
-import type { Debate, Round, Team, TournamentDetails } from '@/types'
+import type { Debate, Judge, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn, formatDateRange, initials } from '@/lib/utils'
@@ -266,6 +266,10 @@ function Judges({ data, reload }: SectionProps) {
   const { busy, run } = useAction()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ name: '', institution: '', rating: 7 })
+  const [toDelete, setToDelete] = useState<Judge | null>(null)
+  const remove = async () => {
+    if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
+  }
   const submit = async () => {
     if (form.name.trim().length < 3) return
     const ok = await run('add', () => addJudge(data.id, { name: form.name, institution: form.institution || undefined, rating: form.rating }), t('dashboard.teams.saved'))
@@ -281,6 +285,7 @@ function Judges({ data, reload }: SectionProps) {
           </div>
         } />
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
+      {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {data.judges.map(j => (
           <Card key={j.id} className="flex items-center gap-3 p-4">
@@ -293,6 +298,9 @@ function Judges({ data, reload }: SectionProps) {
               <p className="text-xs text-muted-foreground">{t('tournament.rating')}</p>
               <p className="font-extrabold text-primary">{j.rating}/10</p>
             </div>
+            <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(j)}>
+              <Trash2 className="size-4" />
+            </Button>
           </Card>
         ))}
       </div>
@@ -310,6 +318,14 @@ function Judges({ data, reload }: SectionProps) {
               <Button type="submit" disabled={busy === 'add' || form.name.trim().length < 3}>{t('common.save')}</Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
+        <DialogContent heading={t('dashboard.judges.confirmDelete', { name: toDelete?.name })} description={t('dashboard.judges.deleteHint')}>
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button variant="danger" disabled={busy === 'delete'} onClick={remove}><Trash2 className="size-4" />{t('common.delete')}</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </>
@@ -504,6 +520,16 @@ function SettingsSection({ data, reload }: SectionProps) {
   const { busy, run } = useAction()
   const [form, setForm] = useState({ name: data.name, description: data.description, visible: data.visible ?? true })
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [stageTo, setStageTo] = useState<TournamentStatus | null>(null)
+  const changeStage = async () => {
+    if (await run('stage', () => updateTournament(data.id, { status: stageTo! }), t('dashboard.stage.changed'))) { setStageTo(null); reload() }
+  }
+  const toggleRegistration = async (open: boolean) => {
+    if (await run('reg', () => updateTournament(data.id, { registrationOpen: open }), open ? t('dashboard.stage.regOpened') : t('dashboard.stage.regClosed'))) reload()
+  }
+  const stages: TournamentStatus[] = ['registration', 'ongoing', 'finished']
+  const stageIndex = stages.indexOf(data.status)
+  const next = stages[stageIndex + 1]
   // deleting and inviting co-organizers is for the owner (or a platform admin)
   const isOwner = data.myRole === 'owner' || data.myRole === 'admin'
   const save = async () => { if (await run('save', () => updateTournament(data.id, form), t('dashboard.teams.saved'))) reload() }
@@ -514,6 +540,35 @@ function SettingsSection({ data, reload }: SectionProps) {
     <>
       <SectionTitle title={t('dashboard.nav.settings')} />
       <div className="space-y-5">
+        <Card className="p-6">
+          <h3 className="font-bold">{t('dashboard.stage.title')}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.stage.text')}</p>
+          {/* stepper: registration -> ongoing -> finished */}
+          <ol className="mt-5 grid grid-cols-3 gap-2">
+            {stages.map((s, i) => (
+              <li key={s} className={cn('flex items-center justify-center rounded-xl border-2 px-3 py-2.5 text-center text-sm font-semibold leading-tight',
+                i === stageIndex ? 'border-primary bg-primary-soft text-primary' : i < stageIndex ? 'border-success/40 text-success' : 'border-border text-muted-foreground')}>
+                {i < stageIndex && <Check className="mr-1 inline size-4" />}{t(`status.${s}`)}
+              </li>
+            ))}
+          </ol>
+          {data.status === 'registration' && (
+            <div className="mt-5 border-t border-border pt-5">
+              <Switch label={t('dashboard.stage.regSwitch')} checked={data.registrationOpen ?? true} onChange={toggleRegistration} />
+            </div>
+          )}
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            {data.status === 'ongoing' && !data.rounds.some(r => r.status !== 'draft') && (
+              <Button variant="ghost" disabled={!!busy} onClick={() => setStageTo('registration')}><Undo2 className="size-4" />{t('dashboard.stage.back')}</Button>
+            )}
+            {next && (
+              <Button variant={next === 'finished' ? 'accent' : 'primary'} disabled={!!busy || data.moderation !== 'approved'} onClick={() => setStageTo(next)}
+                title={data.moderation !== 'approved' ? t('apiErrors.not_approved') : undefined}>
+                {next === 'finished' ? <Flag className="size-4" /> : <Play className="size-4" />}{t(`dashboard.stage.to.${next}`)}
+              </Button>
+            )}
+          </div>
+        </Card>
         <Card className="space-y-4 p-6">
           <h3 className="font-bold">{t('dashboard.settings.general')}</h3>
           <div><Label htmlFor="s-name">{t('wizard.name')}</Label><Input id="s-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
@@ -545,6 +600,14 @@ function SettingsSection({ data, reload }: SectionProps) {
           </Card>
         )}
       </div>
+      <Dialog open={!!stageTo} onOpenChange={o => !o && setStageTo(null)}>
+        <DialogContent heading={stageTo ? t(`dashboard.stage.to.${stageTo}`) : ''} description={stageTo ? t(`dashboard.stage.confirm.${stageTo}`) : ''}>
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button disabled={busy === 'stage'} onClick={changeStage}>{busy === 'stage' && <Loader2 className="size-4 animate-spin" />}{t('common.confirm')}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent heading={t('dashboard.settings.deleteConfirm', { name: data.name })} description={t('dashboard.settings.dangerText')}>
           <div className="flex justify-end gap-2">
@@ -593,7 +656,7 @@ export default function ManageTournament() {
               </NavLink>
             ))}
           </div>
-          <Link to={`/tournaments/${id}`} className="hidden items-center gap-2 px-3.5 pt-4 text-xs font-semibold text-primary hover:underline lg:flex">
+          <Link to={`/tournaments/${id}`} className="flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-primary hover:underline lg:px-3.5 lg:pb-0 lg:pt-4 lg:text-xs">
             <ExternalLink className="size-3.5" />{t('dashboard.public')}
           </Link>
         </nav>

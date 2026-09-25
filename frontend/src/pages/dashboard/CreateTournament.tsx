@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { FieldError, Input, Label, Switch, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { DatePicker } from '@/components/ui/date-picker'
 
 const FREE_LIMIT = 12
 const steps = ['basic', 'format', 'registration', 'summary'] as const
@@ -49,9 +50,11 @@ export default function CreateTournament() {
 
   const { register, handleSubmit, trigger, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { level: 'school', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, city: '' },
+    defaultValues: { level: 'school', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, city: '', startDate: '', endDate: '', regDeadline: '' },
   })
   const v = watch()
+  // tournaments cannot start in the past
+  const today = new Date().toISOString().slice(0, 10)
   const paid = Number(v.maxTeams) > FREE_LIMIT
 
   const fieldsByStep: (keyof Form)[][] = [
@@ -135,12 +138,14 @@ export default function CreateTournament() {
                     </div>
                     <div>
                       <Label htmlFor="start">{t('wizard.startDate')}</Label>
-                      <Input id="start" type="date" aria-invalid={!!errors.startDate} {...register('startDate')} />
+                      <DatePicker id="start" value={v.startDate} invalid={!!errors.startDate} min={today}
+                        onChange={d => setValue('startDate', d, { shouldValidate: !!errors.startDate })} />
                       <FieldError message={errors.startDate?.message} />
                     </div>
                     <div>
                       <Label htmlFor="end">{t('wizard.endDate')}</Label>
-                      <Input id="end" type="date" min={v.startDate} aria-invalid={!!errors.endDate} {...register('endDate')} />
+                      <DatePicker id="end" value={v.endDate} invalid={!!errors.endDate} min={v.startDate || today}
+                        onChange={d => setValue('endDate', d, { shouldValidate: !!errors.endDate })} />
                       <FieldError message={errors.endDate?.message} />
                     </div>
                   </div>
@@ -212,7 +217,8 @@ export default function CreateTournament() {
                   </div>
                   <div>
                     <Label htmlFor="deadline">{t('wizard.regDeadline')}</Label>
-                    <Input id="deadline" type="date" max={v.startDate} {...register('regDeadline')} />
+                    <DatePicker id="deadline" value={v.regDeadline} min={today} max={v.startDate || undefined}
+                      onChange={d => setValue('regDeadline', d)} />
                   </div>
                   <div>
                     <Label>{t('wizard.languages')}</Label>

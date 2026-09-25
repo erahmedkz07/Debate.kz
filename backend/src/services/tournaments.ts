@@ -105,6 +105,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     // organizer-only flags
     ...(manager && {
       visible: t.visible, plan: t.plan, paid: t.paid, moderation: t.moderation, moderationNote: t.moderationNote ?? undefined,
+      registrationOpen: t.registrationOpen,
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
