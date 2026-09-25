@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Ornament } from '@/components/brand'
 import { Reveal } from '@/components/motion'
+import { ModerationBadge } from '@/components/tournament/ModerationBadge'
 
 export default function MyTournaments() {
   const { t } = useTranslation()
@@ -40,10 +41,15 @@ export default function MyTournaments() {
                 <div className="relative h-32">
                   <img src={item.cover} alt="" className="size-full object-cover" />
                   <div className="absolute inset-0 bg-gradient-to-t from-navy/70 to-transparent" />
-                  <Badge variant="glass" className="absolute left-3 top-3"><StatusDot status={item.status} />{t(`status.${item.status}`)}</Badge>
+                  <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
+                    <Badge variant="glass"><StatusDot status={item.status} />{t(`status.${item.status}`)}</Badge>
+                    <ModerationBadge status={item.moderation} />
+                  </div>
+                  {item.myRole === 'co_organizer' && <Badge variant="glass" className="absolute bottom-3 left-3">{t('dashboard.coOrganizerBadge')}</Badge>}
                 </div>
                 <div className="flex flex-1 flex-col p-5">
                   <h2 className="font-bold leading-snug">{item.name}</h2>
+                  {item.moderation === 'rejected' && item.moderationNote && <p className="mt-2 rounded-lg bg-danger-soft p-2 text-xs text-danger">{item.moderationNote}</p>}
                   <div className="mt-3 space-y-1.5 text-sm text-muted-foreground">
                     <p className="flex items-center gap-2"><CalendarDays className="size-4 text-primary" />{formatDateRange(item.startDate, item.endDate)}</p>
                     <p className="flex items-center gap-2"><MapPin className="size-4 text-primary" />{item.city}</p>

@@ -94,9 +94,13 @@ export interface ScheduleItem {
 }
 
 export interface TournamentDetails extends Tournament {
-  visible?: boolean // present for organizers only
+  // present for organizers only
+  visible?: boolean
   plan?: 'free' | 'pro'
   paid?: boolean
+  moderation?: ModerationStatus
+  moderationNote?: string
+  myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]
   rounds: Round[]
   teams: Team[]
@@ -140,7 +144,10 @@ export interface TournamentFilters {
 }
 
 // ---------- Auth & roles ----------
-export type Role = 'participant' | 'organizer' | 'judge' | 'admin'
+// global roles only; organizer / judge / speaker are rights inside a tournament
+export type Role = 'user' | 'admin'
+export type ModerationStatus = 'pending' | 'approved' | 'rejected'
+export type OrganizerRole = 'owner' | 'co_organizer'
 
 export interface User {
   id: string
@@ -150,8 +157,12 @@ export interface User {
   role: Role
   institution?: string
   city?: string
+  avatarUrl?: string
   createdAt: string
   blocked?: boolean
+  emailVerified?: boolean
+  organizes?: boolean // owns or co-organizes at least one tournament
+  judges?: boolean // judges in at least one tournament
 }
 
 export interface TeamRegistration {
@@ -177,4 +188,21 @@ export interface AdminTournament extends Tournament {
   plan: 'free' | 'pro'
   paid: boolean
   visible: boolean
+  moderation: ModerationStatus
+  moderationNote?: string
+  owner?: { name: string; email: string }
+}
+
+export interface MyTournament extends Tournament {
+  moderation: ModerationStatus
+  moderationNote?: string
+  myRole: OrganizerRole
+}
+
+export interface InvitePreview {
+  kind: 'judge' | 'co_organizer'
+  state: 'valid' | 'used' | 'expired'
+  invitedBy: string
+  expiresAt: string
+  tournament: { id: string; name: string; city: string; startDate: string; endDate: string; cover: string }
 }

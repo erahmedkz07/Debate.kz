@@ -94,7 +94,7 @@ export default function JudgeDashboard() {
         <>
           <h2 className="mt-10 flex items-center gap-2 text-xl font-bold"><ClipboardList className="size-5 text-primary" />{t('judge.active')}</h2>
           {active.length === 0
-            ? <div className="mt-4"><EmptyState icon={<Gavel className="size-7" />} title={t('judge.noActive')} /></div>
+            ? <div className="mt-4"><EmptyState icon={<Gavel className="size-7" />} title={t('judge.noActive')} text={t('judge.howToBecome')} /></div>
             : <div className="mt-4 grid gap-4 lg:grid-cols-2">{active.map(a => <AssignmentCard key={a.debate.id} a={a} />)}</div>}
 
           <h2 className="mt-12 flex items-center gap-2 text-xl font-bold"><History className="size-5 text-primary" />{t('judge.history')}</h2>

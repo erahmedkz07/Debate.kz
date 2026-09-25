@@ -5,9 +5,7 @@ import { getMe, logout } from '@/api'
 // The session is an httpOnly cookie set by the API; the page only keeps the user object in memory.
 
 export const roleHome: Record<Role, string> = {
-  participant: '/me',
-  organizer: '/dashboard',
-  judge: '/judge',
+  user: '/me',
   admin: '/admin',
 }
 

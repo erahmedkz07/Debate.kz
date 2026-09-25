@@ -33,18 +33,44 @@ export const toDebate = (d: DebateRow) => ({
 
 // ---------- permissions ----------
 
+// Rights are per tournament: owner / co-organizer links, or a platform admin
+export async function organizerLink(user: User | undefined, tournamentId: string) {
+  if (!user) return null
+  return prisma.tournamentOrganizer.findUnique({ where: { tournamentId_userId: { tournamentId, userId: user.id } } })
+}
+
 export async function isOrganizerOf(user: User | undefined, tournamentId: string) {
   if (!user) return false
   if (user.role === 'admin') return true
-  if (user.role !== 'organizer') return false
-  const link = await prisma.tournamentOrganizer.findUnique({ where: { tournamentId_userId: { tournamentId, userId: user.id } } })
-  return !!link
+  return !!(await organizerLink(user, tournamentId))
 }
 
 export async function assertCanManage(user: User | undefined, tournamentId: string) {
   const exists = await prisma.tournament.findUnique({ where: { id: tournamentId }, select: { id: true } })
   if (!exists) throw notFound('tournament_not_found')
   if (!(await isOrganizerOf(user, tournamentId))) throw forbidden()
+}
+
+// Deleting the tournament and inviting co-organizers is for the owner (or an admin) only
+export async function assertOwner(user: User | undefined, tournamentId: string) {
+  await assertCanManage(user, tournamentId)
+  if (user!.role === 'admin') return
+  const link = await organizerLink(user, tournamentId)
+  if (link?.role !== 'owner') throw forbidden('owner_only')
+}
+
+// Public listing: approved by an admin and not hidden
+export const publicWhere = { visible: true, moderation: 'approved' as const }
+
+// One person cannot be both a judge/organizer and a speaker in the same tournament
+export async function participationIn(userId: string, tournamentId: string) {
+  const [organizer, judge, speaker, registration] = await Promise.all([
+    prisma.tournamentOrganizer.findUnique({ where: { tournamentId_userId: { tournamentId, userId } } }),
+    prisma.judge.findFirst({ where: { tournamentId, userId } }),
+    prisma.speaker.findFirst({ where: { userId, team: { tournamentId } } }),
+    prisma.teamRegistration.findFirst({ where: { tournamentId, userId, status: { not: 'rejected' } } }),
+  ])
+  return { organizer: !!organizer, judge: !!judge, competitor: !!speaker || !!registration }
 }
 
 // ---------- details ----------
@@ -61,7 +87,8 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     },
   })
   const manager = await isOrganizerOf(viewer, id)
-  if (!t || (!t.visible && !manager)) throw notFound('tournament_not_found')
+  if (!t || ((!t.visible || t.moderation !== 'approved') && !manager)) throw notFound('tournament_not_found')
+  const link = manager ? await organizerLink(viewer, id) : null
 
   // the public never sees unreleased motions or draws
   const rounds = t.rounds.map(r => ({
@@ -76,7 +103,10 @@ export async function getTournamentDetails(id: string, viewer?: User) {
   return {
     ...toSummary(t),
     // organizer-only flags
-    ...(manager && { visible: t.visible, plan: t.plan, paid: t.paid }),
+    ...(manager && {
+      visible: t.visible, plan: t.plan, paid: t.paid, moderation: t.moderation, moderationNote: t.moderationNote ?? undefined,
+      myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
+    }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
     rounds, debates,
     teams: t.teams.map(toTeam),

@@ -32,8 +32,9 @@ let r = await student('POST', `/tournaments/${t1.id}/registrations`, { teamName:
 ok(r.status === 201, `participant registers team (${r.status})`)
 r = await student('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'E2E Команда', institution: 'Лицей №15', speakers: ['А Б', 'В Г', 'Д Е'].map(s => s + 'ов'), phone: '+7 701 555 44 33' })
 ok(r.status === 409 && r.data.error === 'team_name_taken', 'duplicate team name rejected')
-r = await judge('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'X', institution: 'Лицей', speakers: ['Ааа Б', 'Ввв Г', 'Ддд Е'], phone: '+7 701 555 44 33' })
-ok(r.status === 403, 'judge cannot register a team')
+const t4id = mine.find(t => t.status === 'ongoing').id
+r = await judge('POST', `/tournaments/${t4id}/registrations`, { teamName: 'Команда судьи', institution: 'Лицей №1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+ok(r.status === 403 && r.data.error === 'conflict_of_interest', 'a judge of a tournament cannot register a team in it')
 const regs = (await org('GET', `/tournaments/${t1.id}/registrations`)).data
 const reg = regs.find(x => x.teamName === 'E2E Команда')
 r = await student('PATCH', `/registrations/${reg.id}`, { status: 'confirmed' })
@@ -150,5 +151,87 @@ const myDebates = (await student('GET', '/me/debates')).data
 ok(myDebates.length >= 3 && myDebates.some(d => d.result), `participant sees own debates (${myDebates.length}, with results)`)
 const myRegs = (await student('GET', '/me/registrations')).data
 ok(myRegs.some(x => x.teamName === 'E2E Команда' && x.status === 'confirmed'), 'registration shows as confirmed')
+
+// ---------- 7. roles model: plain users, email verification, moderation, invites ----------
+const uniq = Date.now().toString(36)
+const fresh = client()
+r = await fresh('POST', '/auth/register', { name: 'Новый Пользователь', email: `new.${uniq}@mail.kz`, phone: '+7 707 111 22 33', password: 'secret123', consent: true, role: 'admin' })
+ok(r.status === 201 && r.data.user.role === 'user', 'self-registration always gives role "user" (role: admin ignored)')
+ok(r.data.user.emailVerified === false && typeof r.data.devVerificationToken === 'string', 'new account starts unverified, verification email sent')
+const verifyToken = r.data.devVerificationToken
+r = await client()('POST', '/auth/register', { name: 'Без Согласия', email: `nc.${uniq}@mail.kz`, phone: '+7 707 111 22 33', password: 'secret123' })
+ok(r.status === 400, 'registration without personal-data consent rejected')
+
+const tBody = n => ({ name: `E2E турнир ${n} ${uniq}`, city: 'Астана', startDate: '2026-12-12', endDate: '2026-12-13', level: 'school', description: '', preliminaryRounds: 3, breakSize: 4, maxTeams: 8, registrationOpen: true, requireApproval: true, languages: ['ru'] })
+r = await fresh('POST', '/tournaments', tBody(1))
+ok(r.status === 403 && r.data.error === 'email_not_verified', 'unverified user cannot create a tournament')
+r = await fresh('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'Z', institution: 'Лицей', speakers: ['Ааа Бб', 'Ввв Гг', 'Ддд Ее'], phone: '+7 701 555 44 33' })
+ok(r.status === 403 && r.data.error === 'email_not_verified', 'unverified user cannot register a team')
+r = await fresh('POST', '/auth/verify-email', { token: 'x'.repeat(43) })
+ok(r.status === 400 && r.data.error === 'invalid_or_expired_token', 'wrong verification token rejected')
+r = await fresh('POST', '/auth/verify-email', { token: verifyToken })
+ok(r.status === 200 && r.data.user.emailVerified === true, 'email verified with the link token')
+r = await fresh('POST', '/auth/verify-email', { token: verifyToken })
+ok(r.status === 400, 'verification link is single-use')
+
+r = await fresh('POST', '/tournaments', tBody(1))
+const own1 = r.data
+ok(r.status === 201, 'any verified user can create a tournament')
+let pubList = (await client()('GET', '/tournaments')).data
+ok(!pubList.some(t => t.id === own1.id), 'new tournament is NOT public before moderation')
+ok((await client()('GET', `/tournaments/${own1.id}`)).status === 404, 'guest gets 404 for an unmoderated tournament')
+ok((await fresh('GET', `/tournaments/${own1.id}`)).data.moderation === 'pending', 'owner sees it with status pending')
+r = await fresh('PATCH', `/admin/tournaments/${own1.id}`, { moderation: 'approved' })
+ok(r.status === 403, 'owner cannot approve their own tournament')
+r = await admin('PATCH', `/admin/tournaments/${own1.id}`, { moderation: 'rejected' })
+ok(r.status === 400 && r.data.error === 'reason_required', 'rejection requires a reason')
+r = await admin('PATCH', `/admin/tournaments/${own1.id}`, { moderation: 'approved' })
+pubList = (await client()('GET', '/tournaments')).data
+ok(r.status === 200 && pubList.some(t => t.id === own1.id), 'after admin approval the tournament is public')
+
+ok((await fresh('POST', '/tournaments', tBody(2))).status === 201 && (await fresh('POST', '/tournaments', tBody(3))).status === 201, 'second and third tournament allowed')
+r = await fresh('POST', '/tournaments', tBody(4))
+ok(r.status === 400 && r.data.error === 'tournament_limit_reached', 'fourth active tournament refused (limit 3)')
+
+// judge invite: single use, grants rights only in that tournament
+const sabina = await login('sabina@mail.kz')
+const timur = await login('timur@mail.kz')
+r = await sabina('POST', `/tournaments/${own1.id}/invites`, { kind: 'judge' })
+ok(r.status === 403, 'outsider cannot create invites')
+r = await fresh('POST', `/tournaments/${own1.id}/invites`, { kind: 'judge' })
+const judgeToken = r.data.url.split('/invite/')[1]
+ok(r.status === 201 && !!judgeToken, 'owner creates a judge invite link')
+const preview = (await client()('GET', `/invites/${judgeToken}`)).data
+ok(preview.state === 'valid' && preview.kind === 'judge' && preview.tournament.id === own1.id, 'anyone can preview the invite')
+r = await sabina('POST', `/invites/${judgeToken}/accept`)
+ok(r.status === 200, 'invited user accepts and becomes a judge of that tournament')
+ok((await sabina('GET', '/auth/me')).data.user.judges === true, 'profile now reports judging')
+r = await timur('POST', `/invites/${judgeToken}/accept`)
+ok(r.status === 400 && r.data.error === 'invite_used', 'the same invite cannot be used twice')
+r = await sabina('POST', `/tournaments/${own1.id}/teams`, { name: 'Hack', institution: 'X school', speakers: ['Aaa Bbb', 'Ccc Ddd', 'Eee Fff'] })
+ok(r.status === 403, 'a judge cannot manage the tournament')
+
+// conflict of interest: an applicant cannot become a judge of the same tournament
+r = await org('POST', `/tournaments/${t1.id}/invites`, { kind: 'judge' })
+r = await student('POST', `/invites/${r.data.url.split('/invite/')[1]}/accept`)
+ok(r.status === 403 && r.data.error === 'conflict_of_interest', 'a team member cannot accept a judge invite for the same tournament')
+
+// co-organizer: can manage, cannot delete or invite co-organizers
+r = await fresh('POST', `/tournaments/${own1.id}/invites`, { kind: 'co_organizer' })
+r = await timur('POST', `/invites/${r.data.url.split('/invite/')[1]}/accept`)
+ok(r.status === 200, 'co-organizer joins through an invite')
+r = await timur('POST', `/tournaments/${own1.id}/teams`, { name: 'Команда соорга', institution: 'Лицей №1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+ok(r.status === 201, 'co-organizer can manage teams')
+r = await timur('POST', `/tournaments/${own1.id}/invites`, { kind: 'co_organizer' })
+ok(r.status === 403 && r.data.error === 'owner_only', 'co-organizer cannot invite other co-organizers')
+r = await timur('DELETE', `/tournaments/${own1.id}`)
+ok(r.status === 403 && r.data.error === 'owner_only', 'co-organizer cannot delete the tournament')
+
+// the admin role cannot be obtained by users
+const freshMe = (await fresh('GET', '/auth/me')).data.user
+r = await fresh('PATCH', `/admin/users/${freshMe.id}`, { role: 'admin' })
+ok(r.status === 403, 'a user cannot make themselves admin')
+r = await admin('PATCH', `/admin/users/${freshMe.id}`, { role: 'judge' })
+ok(r.status === 400, '"judge" is not a global role anymore')
 
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

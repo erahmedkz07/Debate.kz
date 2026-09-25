@@ -52,8 +52,8 @@ export function Header() {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
   const { user, signOut } = useAuth()
-  // guests and organizers see "create tournament"; other roles get a shortcut to their cabinet
-  const canCreate = !user || user.role === 'organizer' || user.role === 'admin'
+  // anyone can create a tournament (guests are sent to login first)
+  const canCreate = true
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8)
@@ -123,11 +123,11 @@ export function Header() {
               {user && (
                 <div className="mt-6 border-t border-border pt-6">
                   <div className="flex items-center gap-3 px-2">
-                    <Avatar name={user.name} role={user.role} className="size-11" />
+                    <Avatar name={user.name} role={user.role} src={user.avatarUrl} className="size-11" />
                     <div className="min-w-0"><p className="truncate font-bold">{user.name}</p><p className="text-xs text-muted-foreground">{t(`roles.${user.role}`)}</p></div>
                   </div>
                   <div className="mt-3 flex flex-col gap-1">
-                    {cabinetLinks(user.role).map(({ to, key, icon: Icon }) => (
+                    {cabinetLinks(user).map(({ to, key, icon: Icon }) => (
                       <NavLink key={to} to={to} className="flex items-center gap-3 rounded-xl px-4 py-3 font-semibold hover:bg-muted"><Icon className="size-5 text-primary" />{t(`cabinet.${key}`)}</NavLink>
                     ))}
                   </div>

@@ -9,7 +9,7 @@ import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange } from '@/lib/utils'
-import { Avatar } from '@/components/auth/UserMenu'
+import { AvatarEditor } from '@/components/auth/AvatarEditor'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -38,11 +38,11 @@ export default function Profile() {
       <Card className="relative overflow-hidden">
         <div className="relative h-28 bg-gradient-to-r from-primary to-navy sm:h-32"><OrnamentPattern className="text-white/[0.07]" /></div>
         <div className="flex flex-col gap-4 px-6 pb-6 sm:flex-row sm:items-end">
-          <Avatar name={user.name} role={user.role} className="-mt-12 size-24 border-4 border-card text-3xl shadow-lg" />
+          <AvatarEditor className="-mt-14 sm:-mt-16" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">{user.name}</h1>
-              <Badge>{t(`roles.${user.role}`)}</Badge>
+              {user.role === 'admin' && <Badge variant="danger">{t('roles.admin')}</Badge>}
             </div>
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5"><Mail className="size-4" />{user.email}</span>

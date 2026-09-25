@@ -4,8 +4,8 @@ import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
-import { publicUser, requireAuth } from '../middleware/auth.js'
-import { summaryInclude, toSummary } from '../services/tournaments.js'
+import { requireAuth, requireVerified, sessionUser } from '../middleware/auth.js'
+import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 
 export const meRouter = Router()
 
@@ -22,7 +22,7 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
     where: { id: req.user!.id },
     data: { name: data.name, phone: data.phone || null, institution: data.institution || null, city: data.city || null },
   })
-  res.json({ user: publicUser(user) })
+  res.json({ user: await sessionUser(user) })
 })
 
 meRouter.get('/me/registrations', requireAuth(), async (req, res) => {
@@ -67,11 +67,14 @@ const registrationSchema = z.object({
   phone,
 })
 
-// only participants register teams; organizer confirms later
-meRouter.post('/tournaments/:id/registrations', requireAuth('participant'), async (req, res) => {
+// any verified user can register a team; the organizer confirms later.
+// Judges and organizers of this tournament cannot compete in it (conflict of interest).
+meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, async (req, res) => {
   const data = body(req, registrationSchema)
-  const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') }, include: { _count: { select: { teams: true } } } })
-  if (!t || !t.visible) throw notFound('tournament_not_found')
+  const t = await prisma.tournament.findFirst({ where: { id: param(req, 'id'), ...publicWhere }, include: { _count: { select: { teams: true } } } })
+  if (!t) throw notFound('tournament_not_found')
+  const role = await participationIn(req.user!.id, t.id)
+  if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
   if (t.registrationDeadline && t.registrationDeadline < new Date(toDay(new Date()))) throw forbidden('registration_closed')
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')

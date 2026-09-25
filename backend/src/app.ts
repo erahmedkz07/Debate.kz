@@ -13,6 +13,9 @@ import { judgeRouter } from './routes/judge.js'
 import { organizerRouter } from './routes/organizer.js'
 import { adminRouter } from './routes/admin.js'
 import { prisma } from './lib/prisma.js'
+import { avatarRouter } from './routes/avatar.js'
+import { invitesRouter } from './routes/invites.js'
+import { UPLOADS_DIR } from './lib/uploads.js'
 
 export function createApp() {
   const app = express()
@@ -33,8 +36,11 @@ export function createApp() {
     res.json({ status: 'ok' })
   })
 
+  // user uploads (already re-encoded by sharp); long cache, files are immutable by name
+  app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny' }))
+
   app.use('/api/auth', authRouter)
-  app.use('/api', publicRouter, meRouter, judgeRouter, organizerRouter, adminRouter)
+  app.use('/api', publicRouter, meRouter, avatarRouter, invitesRouter, judgeRouter, organizerRouter, adminRouter)
 
   app.use('/api', notFoundHandler)
   app.use(errorHandler)

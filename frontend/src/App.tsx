@@ -23,6 +23,8 @@ const ManageTournament = lazy(() => import('@/pages/dashboard/ManageTournament')
 const Profile = lazy(() => import('@/pages/cabinet/Profile'))
 const JudgeDashboard = lazy(() => import('@/pages/cabinet/JudgeDashboard'))
 const AdminPanel = lazy(() => import('@/pages/cabinet/AdminPanel'))
+const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'))
+const InvitePage = lazy(() => import('@/pages/InvitePage'))
 
 function PageLoader() {
   return (
@@ -47,20 +49,22 @@ export default function App() {
                 <Route path="rating" element={<Rating />} />
                 <Route path="about" element={<About />} />
                 <Route path="pricing" element={<Pricing />} />
-                <Route path="ballot/:debateId" element={<RequireAuth roles={['judge', 'organizer', 'admin']}><Ballot /></RequireAuth>} />
+                <Route path="ballot/:debateId" element={<RequireAuth><Ballot /></RequireAuth>} />
+                <Route path="verify-email" element={<VerifyEmail />} />
+                <Route path="invite/:token" element={<InvitePage />} />
                 <Route path="*" element={<NotFound />} />
               </Route>
               <Route path="login" element={<Login />} />
               <Route path="register" element={<Register />} />
-              {/* cabinets: every route needs a signed-in user, some need a specific role */}
+              {/* cabinets: every route needs a signed-in user; organizer/judge rights are checked per tournament by the API */}
               <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
                 <Route path="me" element={<Profile />} />
-                <Route path="judge" element={<RequireAuth roles={['judge', 'admin']}><JudgeDashboard /></RequireAuth>} />
+                <Route path="judge" element={<JudgeDashboard />} />
                 <Route path="admin" element={<RequireAuth roles={['admin']}><AdminPanel /></RequireAuth>} />
                 <Route path="dashboard">
-                  <Route index element={<RequireAuth roles={['organizer', 'admin']}><MyTournaments /></RequireAuth>} />
-                  <Route path="tournaments/new" element={<RequireAuth roles={['organizer', 'admin']}><CreateTournament /></RequireAuth>} />
-                  <Route path="tournaments/:id/:section?" element={<RequireAuth roles={['organizer', 'admin']}><ManageTournament /></RequireAuth>} />
+                  <Route index element={<MyTournaments />} />
+                  <Route path="tournaments/new" element={<CreateTournament />} />
+                  <Route path="tournaments/:id/:section?" element={<ManageTournament />} />
                 </Route>
               </Route>
             </Routes>

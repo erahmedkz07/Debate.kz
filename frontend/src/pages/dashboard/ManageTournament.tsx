@@ -23,6 +23,8 @@ import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { ResultsTab } from '@/pages/TournamentPage'
 import NotFound from '@/pages/NotFound'
+import { InviteButton } from '@/components/tournament/InviteDialog'
+import { ModerationBanner } from '@/components/tournament/ModerationBadge'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -271,7 +273,14 @@ function Judges({ data, reload }: SectionProps) {
   }
   return (
     <>
-      <SectionTitle title={`${t('dashboard.nav.judges')} · ${data.judges.length}`} action={<Button onClick={() => setOpen(true)}><Plus className="size-4" />{t('dashboard.judges.add')}</Button>} />
+      <SectionTitle title={`${t('dashboard.nav.judges')} · ${data.judges.length}`}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <InviteButton tournamentId={data.id} kind="judge" variant="primary" />
+            <Button variant="outline" onClick={() => setOpen(true)}><Plus className="size-4" />{t('dashboard.judges.add')}</Button>
+          </div>
+        } />
+      <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {data.judges.map(j => (
           <Card key={j.id} className="flex items-center gap-3 p-4">
@@ -495,6 +504,8 @@ function SettingsSection({ data, reload }: SectionProps) {
   const { busy, run } = useAction()
   const [form, setForm] = useState({ name: data.name, description: data.description, visible: data.visible ?? true })
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // deleting and inviting co-organizers is for the owner (or a platform admin)
+  const isOwner = data.myRole === 'owner' || data.myRole === 'admin'
   const save = async () => { if (await run('save', () => updateTournament(data.id, form), t('dashboard.teams.saved'))) reload() }
   const remove = async () => {
     if (await run('delete', () => deleteTournament(data.id), t('dashboard.settings.deleted'))) navigate('/dashboard', { replace: true })
@@ -517,11 +528,22 @@ function SettingsSection({ data, reload }: SectionProps) {
           </div>
           <Button asChild variant="outline"><Link to="/pricing">{t('nav.pricing')}</Link></Button>
         </Card>
-        <Card className="border-danger/40 p-6">
-          <h3 className="font-bold text-danger">{t('dashboard.settings.danger')}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.settings.dangerText')}</p>
-          <Button variant="danger" className="mt-4" onClick={() => setConfirmDelete(true)}><Trash2 className="size-4" />{t('dashboard.settings.deleteTournament')}</Button>
-        </Card>
+        {isOwner && (
+          <Card className="flex flex-wrap items-center justify-between gap-4 p-6">
+            <div>
+              <h3 className="font-bold">{t('dashboard.settings.coOrganizers')}</h3>
+              <p className="text-sm text-muted-foreground">{t('dashboard.settings.coOrganizersText')}</p>
+            </div>
+            <InviteButton tournamentId={data.id} kind="co_organizer" />
+          </Card>
+        )}
+        {isOwner && (
+          <Card className="border-danger/40 p-6">
+            <h3 className="font-bold text-danger">{t('dashboard.settings.danger')}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.settings.dangerText')}</p>
+            <Button variant="danger" className="mt-4" onClick={() => setConfirmDelete(true)}><Trash2 className="size-4" />{t('dashboard.settings.deleteTournament')}</Button>
+          </Card>
+        )}
       </div>
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent heading={t('dashboard.settings.deleteConfirm', { name: data.name })} description={t('dashboard.settings.dangerText')}>
@@ -558,6 +580,7 @@ export default function ManageTournament() {
         <Badge variant="glass" className="border border-border"><StatusDot status={data.status} />{t(`status.${data.status}`)}</Badge>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{formatDateRange(data.startDate, data.endDate)} · {data.city}</p>
+      <ModerationBanner status={data.moderation} note={data.moderationNote} className="mt-4" />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[240px_1fr]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-1 lg:px-0">

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, Ban, CheckCircle2, CircleDollarSign, ExternalLink, Eye, EyeOff, Gavel, LayoutGrid, Search, Trophy, Unlock, Users } from 'lucide-react'
+import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Gavel, LayoutGrid, Search, Trophy, Unlock, Users, X } from 'lucide-react'
 import { getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { AdminTournament, Role, User } from '@/types'
@@ -14,18 +14,21 @@ import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { Input, Label, Textarea } from '@/components/ui/input'
+import { ModerationBadge } from '@/components/tournament/ModerationBadge'
 import { Select } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { CabinetHeader } from '@/pages/dashboard/DashboardLayout'
 
-const roles: Role[] = ['participant', 'organizer', 'judge', 'admin']
+// only two global roles; organizer/judge are per-tournament rights
+const roles: Role[] = ['user', 'admin']
 
 function Overview({ tournaments, setTab }: { tournaments: AdminTournament[]; setTab: (v: string) => void }) {
   const { t } = useTranslation()
   const { data } = useAsync(getAdminStats)
-  const unpaid = tournaments.filter(x => x.plan === 'pro' && !x.paid)
+  const unpaid = tournaments.filter(x => x.plan === 'pro' && !x.paid && x.moderation === 'approved')
+  const pending = tournaments.filter(x => x.moderation === 'pending')
   const cards = [
     { label: t('admin.stats.users'), value: data?.users, icon: Users, color: 'bg-primary-soft text-primary' },
     { label: t('admin.stats.organizers'), value: data?.organizers, icon: LayoutGrid, color: 'bg-accent-soft text-navy dark:text-accent' },
@@ -45,8 +48,17 @@ function Overview({ tournaments, setTab }: { tournaments: AdminTournament[]; set
       </div>
       <Card className="mt-6 p-6">
         <h3 className="flex items-center gap-2 text-lg font-bold"><AlertTriangle className="size-5 text-accent-foreground dark:text-accent" />{t('admin.attention')}</h3>
-        {unpaid.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">{t('admin.allGood')}</p> : (
+        {unpaid.length === 0 && pending.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">{t('admin.allGood')}</p> : (
           <ul className="mt-4 divide-y divide-border">
+            {pending.map(x => (
+              <li key={x.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div>
+                  <p className="font-semibold">{x.name}</p>
+                  <p className="text-xs text-muted-foreground">{x.owner?.name} · {x.owner?.email} · {x.city}</p>
+                </div>
+                <Button size="sm" variant="accent" onClick={() => setTab('tournaments')}><Clock className="size-4" />{t('admin.reviewNow')}</Button>
+              </li>
+            ))}
             {unpaid.map(x => (
               <li key={x.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div>
@@ -66,11 +78,13 @@ function Overview({ tournaments, setTab }: { tournaments: AdminTournament[]; set
 function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (l: AdminTournament[]) => void }) {
   const { t } = useTranslation()
   const [confirm, setConfirm] = useState<AdminTournament | null>(null)
+  const [rejecting, setRejecting] = useState<AdminTournament | null>(null)
+  const [reason, setReason] = useState('')
   // server first, then local list; returns false on error
-  const patch = async (id: string, p: { paid?: boolean; visible?: boolean }) => {
+  const patch = async (id: string, p: { paid?: boolean; visible?: boolean; moderation?: 'approved' | 'rejected'; moderationNote?: string }) => {
     try {
       const updated = await updateAdminTournament(id, p)
-      setList(list.map(x => (x.id === id ? updated : x)))
+      setList(list.map(x => (x.id === id ? { ...x, ...updated } : x)))
       return true
     } catch (e) {
       toast.error(errorMessage(e, t))
@@ -84,7 +98,8 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
           <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-5 py-3">{t('admin.tournament')}</th>
-              <th className="px-5 py-3">{t('tournament.organizer')}</th>
+              <th className="px-5 py-3">{t('admin.owner')}</th>
+              <th className="px-5 py-3">{t('admin.moderationCol')}</th>
               <th className="px-5 py-3">{t('common.team')}</th>
               <th className="px-5 py-3">{t('dashboard.settings.plan')}</th>
               <th className="px-5 py-3 text-right">{t('admin.actions')}</th>
@@ -97,7 +112,13 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
                   <p className="font-bold">{x.name}</p>
                   <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><StatusDot status={x.status} />{t(`status.${x.status}`)} · {formatDateRange(x.startDate, x.endDate)}</p>
                 </td>
-                <td className="px-5 py-3.5 text-muted-foreground">{x.organizer}</td>
+                <td className="px-5 py-3.5">
+                  <p className="text-sm">{x.owner?.name ?? x.organizer}</p>
+                  {x.owner && <p className="text-xs text-muted-foreground">{x.owner.email}</p>}
+                </td>
+                <td className="px-5 py-3.5">
+                  {x.moderation === 'approved' ? <Badge variant="success"><CheckCircle2 className="size-3" />{t('moderation.approved')}</Badge> : <ModerationBadge status={x.moderation} />}
+                </td>
                 <td className="px-5 py-3.5 tabular-nums">{x.teamsCount}/{x.maxTeams}</td>
                 <td className="px-5 py-3.5">
                   {x.plan === 'free'
@@ -107,7 +128,17 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
                 </td>
                 <td className="px-5 py-3.5">
                   <div className="flex justify-end gap-1">
-                    {x.plan === 'pro' && !x.paid && <Button size="sm" variant="accent" onClick={() => setConfirm(x)}>{t('admin.markPaid')}</Button>}
+                    {x.moderation === 'pending' && (
+                      <>
+                        <Button size="sm" onClick={async () => { if (await patch(x.id, { moderation: 'approved' })) toast.success(t('admin.approvedToast')) }}>
+                          <Check className="size-4" />{t('admin.approve')}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-danger" onClick={() => { setRejecting(x); setReason('') }}>
+                          <X className="size-4" />{t('admin.reject')}
+                        </Button>
+                      </>
+                    )}
+                    {x.moderation === 'approved' && x.plan === 'pro' && !x.paid && <Button size="sm" variant="accent" onClick={() => setConfirm(x)}>{t('admin.markPaid')}</Button>}
                     <Button variant="ghost" size="icon" title={x.visible ? t('admin.hide') : t('admin.show')} aria-label={x.visible ? t('admin.hide') : t('admin.show')}
                       onClick={async () => { if (await patch(x.id, { visible: !x.visible })) toast(x.visible ? t('admin.hidden') : t('admin.shown')) }}>
                       {x.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
@@ -122,6 +153,24 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
           </tbody>
         </table>
       </Card>
+      <Dialog open={!!rejecting} onOpenChange={o => !o && setRejecting(null)}>
+        <DialogContent heading={t('admin.rejectTitle')} description={rejecting?.name}>
+          <form className="space-y-4" onSubmit={async e => {
+            e.preventDefault()
+            if (reason.trim().length < 5) return
+            if (await patch(rejecting!.id, { moderation: 'rejected', moderationNote: reason.trim() })) { setRejecting(null); toast(t('admin.rejectedToast')) }
+          }}>
+            <div>
+              <Label htmlFor="reject-reason">{t('admin.rejectReason')}</Label>
+              <Textarea id="reject-reason" rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder={t('admin.rejectPlaceholder')} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+              <Button type="submit" variant="danger" disabled={reason.trim().length < 5}><X className="size-4" />{t('admin.reject')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!confirm} onOpenChange={o => !o && setConfirm(null)}>
         <DialogContent heading={t('admin.markPaidTitle')} description={confirm?.name}>
           <p className="text-sm text-muted-foreground">{t('admin.markPaidText')}</p>
@@ -189,7 +238,7 @@ function UsersTab() {
                 <tr key={u.id} className={cn('hover:bg-muted/40', u.blocked && 'bg-danger-soft/40')}>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
-                      <Avatar name={u.name} role={u.role} />
+                      <Avatar name={u.name} role={u.role} src={u.avatarUrl} />
                       <div className="min-w-0">
                         <p className="flex items-center gap-2 font-bold">{u.name}{u.blocked && <Badge variant="danger">{t('admin.blocked')}</Badge>}</p>
                         <p className="text-xs text-muted-foreground">{u.email}</p>

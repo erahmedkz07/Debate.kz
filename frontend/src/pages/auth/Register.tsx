@@ -5,22 +5,17 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { AlertCircle, Gavel, Loader2, Mic, Trophy } from 'lucide-react'
+import { AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { AuthError, register as registerUser } from '@/api'
 import { roleHome, useAuth } from '@/lib/auth'
 import { safeNext } from './Login'
 import { images } from '@/mocks/images'
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
 
-const roles = [
-  { value: 'participant', icon: Mic },
-  { value: 'organizer', icon: Trophy },
-  { value: 'judge', icon: Gavel },
-] as const
-
+// No role picker: everyone registers as a plain user. Organizing comes from creating a tournament,
+// judging from an organizer's invite, admin rights are granted only by another admin.
 export default function Register() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -33,14 +28,10 @@ export default function Register() {
     email: z.string().trim().min(1, t('auth.errors.required')).email(t('auth.errors.email')),
     phone: z.string().trim().regex(/^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/, t('auth.errors.phone')),
     password: z.string().min(8, t('auth.errors.password')),
-    role: z.enum(['organizer', 'participant', 'judge']),
+    consent: z.literal(true, { error: t('auth.errors.consent') }),
   })
   type Form = z.infer<typeof schema>
-  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
-    resolver: zodResolver(schema),
-    defaultValues: { role: 'participant' },
-  })
-  const role = watch('role')
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
 
   if (user) return <Navigate to={next ?? roleHome[user.role]} replace />
 
@@ -49,7 +40,7 @@ export default function Register() {
     try {
       const u = await registerUser(v)
       signIn(u)
-      toast.success(t('auth.registerSuccess'))
+      toast.success(t('auth.registerSuccess'), { description: t('verify.checkInbox', { email: u.email }) })
       navigate(next ?? roleHome[u.role], { replace: true })
     } catch (e) {
       setFormError(e instanceof AuthError ? t(`auth.errors.${e.code}`) : t('common.error'))
@@ -64,20 +55,6 @@ export default function Register() {
             <AlertCircle className="mt-0.5 size-4 shrink-0" />{formError}
           </p>
         )}
-        <div>
-          <Label>{t('auth.role')}</Label>
-          <div className="grid grid-cols-3 gap-2" role="radiogroup">
-            {roles.map(({ value, icon: Icon }) => (
-              <button key={value} type="button" role="radio" aria-checked={role === value} onClick={() => setValue('role', value)}
-                className={cn('flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border-2 px-2 py-3 text-center transition-all',
-                  role === value ? 'border-primary bg-primary-soft text-primary' : 'border-border hover:border-primary/40')}>
-                <Icon className="size-5" />
-                <span className="text-xs font-bold">{t(`auth.roles.${value}`)}</span>
-                <span className="hidden text-[10px] leading-tight text-muted-foreground sm:block">{t(`auth.roles.${value}D`)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
         <div>
           <Label htmlFor="name">{t('auth.name')}</Label>
           <Input id="name" autoComplete="name" aria-invalid={!!errors.name} {...register('name')} />
@@ -100,9 +77,21 @@ export default function Register() {
           <Input id="password" type="password" autoComplete="new-password" aria-invalid={!!errors.password} {...register('password')} />
           <FieldError message={errors.password?.message} />
         </div>
+
+        <div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border-2 border-border p-3 text-sm transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary-soft/40">
+            <input type="checkbox" className="mt-0.5 size-4 shrink-0 cursor-pointer accent-[var(--primary)]" aria-invalid={!!errors.consent} {...register('consent')} />
+            <span className="text-muted-foreground">{t('auth.consent')}</span>
+          </label>
+          <FieldError message={errors.consent?.message} />
+        </div>
+
         <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
           {isSubmitting && <Loader2 className="size-4 animate-spin" />}{t('auth.registerButton')}
         </Button>
+        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />{t('auth.rolesHint')}
+        </p>
       </form>
       <p className="mt-8 text-center text-sm text-muted-foreground">
         {t('auth.hasAccount')} <Link to={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} className="font-bold text-primary hover:underline">{t('auth.toLogin')}</Link>

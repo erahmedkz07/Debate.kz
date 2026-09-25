@@ -5,24 +5,14 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { AlertCircle, Eye, EyeOff, Gavel, LayoutGrid, Loader2, ShieldCheck, UserRound } from 'lucide-react'
+import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { AuthError, login } from '@/api'
-import type { Role } from '@/types'
 import { roleHome, useAuth } from '@/lib/auth'
 import { images } from '@/mocks/images'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
 
-const demo: { role: Role; email: string; icon: typeof UserRound }[] = [
-  { role: 'participant', email: 'student@debate.kz', icon: UserRound },
-  { role: 'organizer', email: 'org@debate.kz', icon: LayoutGrid },
-  { role: 'judge', email: 'judge@debate.kz', icon: Gavel },
-  { role: 'admin', email: 'admin@debate.kz', icon: ShieldCheck },
-]
-
-// demo accounts exist only in the dev seed; the hint is hidden in production builds
-const DEMO_PASSWORD = 'demo1234'
 
 // only allow in-app redirects (no open redirect to other sites)
 export const safeNext = (next: string | null) => (next && next.startsWith('/') && !next.startsWith('//') ? next : null)
@@ -41,7 +31,7 @@ export default function Login() {
     password: z.string().min(8, t('auth.errors.password')),
   })
   type Form = z.infer<typeof schema>
-  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
 
   if (user) return <Navigate to={next ?? roleHome[user.role]} replace />
 
@@ -57,11 +47,6 @@ export default function Login() {
     }
   }
 
-  const fillDemo = (email: string) => {
-    setValue('email', email, { shouldValidate: true })
-    setValue('password', DEMO_PASSWORD, { shouldValidate: true })
-    setFormError(null)
-  }
 
   return (
     <AuthLayout title={t('auth.loginTitle')} subtitle={next ? t('authGate.loginToContinue') : t('auth.loginSubtitle')} image={images.presentation}>
@@ -94,18 +79,6 @@ export default function Login() {
         </Button>
       </form>
 
-      {import.meta.env.DEV && <div className="mt-8 rounded-2xl border border-dashed border-primary/40 bg-primary-soft/40 p-4">
-        <p className="text-xs font-bold uppercase tracking-wider text-primary">{t('auth.demoTitle')}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{t('auth.demoText', { password: DEMO_PASSWORD })}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {demo.map(({ role, email, icon: Icon }) => (
-            <button key={role} type="button" onClick={() => fillDemo(email)}
-              className="flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-left text-xs font-semibold transition-colors hover:border-primary hover:text-primary">
-              <Icon className="size-4 shrink-0 text-primary" />{t(`roles.${role}`)}
-            </button>
-          ))}
-        </div>
-      </div>}
 
       <p className="mt-8 text-center text-sm text-muted-foreground">
         {t('auth.noAccount')} <Link to={`/register${next ? `?next=${encodeURIComponent(next)}` : ''}`} className="font-bold text-primary hover:underline">{t('auth.toRegister')}</Link>

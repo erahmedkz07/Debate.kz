@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import type { User } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
 import { badRequest, forbidden, notFound } from '../lib/errors.js'
@@ -12,7 +13,7 @@ export const judgeRouter = Router()
 const teamInclude = { institution: true, speakers: { orderBy: { position: 'asc' as const } } }
 
 // all debates where the signed-in user sits on the panel
-judgeRouter.get('/judge/assignments', requireAuth('judge', 'admin'), async (req, res) => {
+judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {
   const links = await prisma.debateJudge.findMany({
     where: { judge: { userId: req.user!.id }, debate: { round: { status: { not: 'draft' } } } },
     include: {
@@ -41,7 +42,7 @@ judgeRouter.get('/judge/assignments', requireAuth('judge', 'admin'), async (req,
 })
 
 // who may open a ballot: a judge of this debate, the tournament's organizer, or an admin
-async function loadBallotContext(debateId: string, userId: string, role: string) {
+async function loadBallotContext(debateId: string, user: User) {
   const d = await prisma.debate.findUnique({
     where: { id: debateId },
     include: {
@@ -52,14 +53,14 @@ async function loadBallotContext(debateId: string, userId: string, role: string)
     },
   })
   if (!d) throw notFound('debate_not_found')
-  const myJudge = d.judges.find(j => j.judge.userId === userId)?.judge
-  const manager = await isOrganizerOf({ id: userId, role } as never, d.round.tournamentId)
+  const myJudge = d.judges.find(j => j.judge.userId === user.id)?.judge
+  const manager = await isOrganizerOf(user, d.round.tournamentId)
   if (!myJudge && !manager) throw forbidden('not_on_panel')
   return { d, myJudge }
 }
 
-judgeRouter.get('/ballots/:debateId', requireAuth('judge', 'organizer', 'admin'), async (req, res) => {
-  const { d } = await loadBallotContext(param(req, 'debateId'), req.user!.id, req.user!.role)
+judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
+  const { d } = await loadBallotContext(param(req, 'debateId'), req.user!)
   res.json({
     tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
     round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
@@ -77,9 +78,9 @@ const ballotSchema = z.object({
   replySpeakers: z.object({ proposition: z.string(), opposition: z.string() }),
 })
 
-judgeRouter.post('/ballots/:debateId', requireAuth('judge', 'organizer', 'admin'), async (req, res) => {
+judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
   const data = body(req, ballotSchema)
-  const { d, myJudge } = await loadBallotContext(param(req, 'debateId'), req.user!.id, req.user!.role)
+  const { d, myJudge } = await loadBallotContext(param(req, 'debateId'), req.user!)
   if (d.round.status === 'draft') throw badRequest('round_not_released')
   if (d.round.status === 'completed' || d.ballotStatus === 'confirmed') throw forbidden('ballot_locked')
   // organizers/admins submit on behalf of the chair when they are not on the panel themselves

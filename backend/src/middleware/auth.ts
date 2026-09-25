@@ -42,16 +42,33 @@ export async function loadUser(req: Request, _res: Response, next: NextFunction)
   next()
 }
 
-// Route guard: requireAuth() for any signed-in user, requireAuth('admin') for roles
+// Route guard: requireAuth() for any signed-in user, requireAuth('admin') for admins.
+// Organizer / judge rights are per tournament and checked inside the routes.
 export const requireAuth = (...roles: Role[]) => (req: Request, _res: Response, next: NextFunction) => {
   if (!req.user) return next(unauthorized())
   if (roles.length && !roles.includes(req.user.role)) return next(forbidden())
   next()
 }
 
+// Actions that create content or join tournaments need a confirmed email (anti-spam)
+export const requireVerified = (req: Request, _res: Response, next: NextFunction) => {
+  if (!req.user) return next(unauthorized())
+  if (!req.user.emailVerifiedAt) return next(forbidden('email_not_verified'))
+  next()
+}
+
 // Public shape of a user (never leak passwordHash)
 export const publicUser = (u: User) => ({
   id: u.id, name: u.name, email: u.email, phone: u.phone ?? undefined, role: u.role,
-  institution: u.institution ?? undefined, city: u.city ?? undefined,
-  createdAt: u.createdAt.toISOString().slice(0, 10), blocked: u.blocked,
+  institution: u.institution ?? undefined, city: u.city ?? undefined, avatarUrl: u.avatarUrl ?? undefined,
+  createdAt: u.createdAt.toISOString().slice(0, 10), blocked: u.blocked, emailVerified: !!u.emailVerifiedAt,
 })
+
+// Current user + what they do on the platform, so the UI can show only relevant cabinet sections
+export async function sessionUser(u: User) {
+  const [organizes, judges] = await Promise.all([
+    prisma.tournamentOrganizer.count({ where: { userId: u.id } }),
+    prisma.judge.count({ where: { userId: u.id } }),
+  ])
+  return { ...publicUser(u), organizes: organizes > 0, judges: judges > 0 }
+}

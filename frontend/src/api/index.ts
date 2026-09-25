@@ -1,10 +1,10 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  AdminTournament, Debate, Judge, JudgeAssignment, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration,
-  TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, User,
+  AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
+  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, User,
 } from '@/types'
-import { ApiError, http, qs } from './http'
+import { ApiError, http, qs, upload } from './http'
 
 export { ApiError }
 
@@ -35,6 +35,13 @@ export const getStandings = (id: string) =>
 
 export const getCities = () => http<string[]>('GET', '/cities')
 export const getPlatformStats = () => http<{ tournaments: number; teams: number; debaters: number; cities: number }>('GET', '/stats')
+export interface LiveRound {
+  personal: boolean // true = a tournament where the signed-in user speaks, judges or organizes
+  tournament: { id: string; name: string }
+  round: { number: number; motion: string }
+  ballots: { submitted: number; total: number }
+}
+export const getLive = () => http<LiveRound | null>('GET', '/live')
 export const getTestimonials = () => http<Testimonial[]>('GET', '/testimonials')
 export const getRating = () => http<{ teams: RatingTeam[]; speakers: RatingSpeaker[] }>('GET', '/rating')
 
@@ -56,22 +63,26 @@ const authCall = async (p: Promise<{ user: User }>) => {
 
 export const login = (email: string, password: string) => authCall(http('POST', '/auth/login', { email, password }))
 
-export const register = (data: { name: string; email: string; phone: string; password: string; role: Exclude<Role, 'admin'> }) =>
+// no role: everyone starts as a plain user; consent to personal data processing is required
+export const register = (data: { name: string; email: string; phone: string; password: string; consent: true }) =>
   authCall(http('POST', '/auth/register', data))
+
+export const verifyEmail = (token: string) => http<{ user: User }>('POST', '/auth/verify-email', { token }).then(r => r.user)
+export const resendVerification = () => http<{ ok: true }>('POST', '/auth/resend-verification')
 
 export const logout = () => http<void>('POST', '/auth/logout')
 
-export async function getMe(): Promise<User | null> {
-  try {
-    return (await http<{ user: User }>('GET', '/auth/me')).user
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 401) return null
-    throw e
-  }
-}
+export const getMe = () => http<{ user: User | null }>('GET', '/auth/me').then(r => r.user)
 
 export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
+
+export function uploadAvatar(file: File) {
+  const form = new FormData()
+  form.append('avatar', file)
+  return upload<{ user: User }>('/me/avatar', form).then(r => r.user)
+}
+export const deleteAvatar = () => http<{ user: User }>('DELETE', '/me/avatar').then(r => r.user)
 
 // ---------- participant ----------
 
@@ -115,7 +126,7 @@ export const submitBallot = (debateId: string, payload: BallotPayload) =>
 
 // ---------- organizer ----------
 
-export const getMyTournaments = () => http<Tournament[]>('GET', '/organizer/tournaments')
+export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/tournaments')
 
 export interface CreateTournamentInput {
   name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university'; description: string
@@ -146,12 +157,20 @@ export const getRegistrations = (tournamentId: string) => http<OrganizerRegistra
 export const setRegistrationStatus = (regId: string, status: 'confirmed' | 'rejected') =>
   http<{ id: string; status: string }>('PATCH', `/registrations/${regId}`, { status })
 
+// ---------- invites (judge / co-organizer) ----------
+
+export const createInvite = (tournamentId: string, kind: 'judge' | 'co_organizer') =>
+  http<{ id: string; kind: string; url: string; expiresAt: string }>('POST', `/tournaments/${tournamentId}/invites`, { kind })
+export const getInvite = (token: string) => or404(http<InvitePreview>('GET', `/invites/${encodeURIComponent(token)}`))
+export const acceptInvite = (token: string) =>
+  http<{ ok: true; kind: 'judge' | 'co_organizer'; tournamentId: string }>('POST', `/invites/${encodeURIComponent(token)}/accept`)
+
 // ---------- admin ----------
 
 export const getAdminStats = () =>
-  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number }>('GET', '/admin/stats')
+  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number }>('GET', '/admin/stats')
 export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/tournaments')
-export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean }>) =>
+export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
 export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)

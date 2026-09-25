@@ -25,6 +25,19 @@ export async function http<T>(method: string, path: string, body?: unknown): Pro
   return data as T
 }
 
+// multipart upload (e.g. avatar); the browser sets the boundary header itself
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(BASE + path, { method: 'POST', credentials: 'include', body: form })
+  } catch {
+    throw new ApiError(0, 'network_error')
+  }
+  const data = await res.json().catch(() => null)
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? 'unknown_error', data?.details)
+  return data as T
+}
+
 export const qs = (params: Record<string, string | number | undefined>) => {
   const p = new URLSearchParams()
   Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '' && v !== 'all') p.set(k, String(v)) })

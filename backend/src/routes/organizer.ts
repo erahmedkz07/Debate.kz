@@ -4,22 +4,30 @@ import { prisma } from '../lib/prisma.js'
 import { fromDay, toDay } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
-import { requireAuth } from '../middleware/auth.js'
-import { assertCanManage, summaryInclude, toSummary, toTeam } from '../services/tournaments.js'
+import { requireAuth, requireVerified } from '../middleware/auth.js'
+import { assertCanManage, assertOwner, participationIn, summaryInclude, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 
 export const organizerRouter = Router()
-const org = requireAuth('organizer', 'admin')
+// any signed-in user; per-tournament rights are checked with assertCanManage / assertOwner
+const org = requireAuth()
 
 export const FREE_TEAM_LIMIT = 12
+export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 // ---------- tournaments ----------
 
+// tournaments the user owns or co-organizes (admins moderate everything from the admin panel)
 organizerRouter.get('/organizer/tournaments', org, async (req, res) => {
-  const where = req.user!.role === 'admin' ? {} : { organizers: { some: { userId: req.user!.id } } }
-  const rows = await prisma.tournament.findMany({ where, include: summaryInclude, orderBy: { startDate: 'desc' } })
-  res.json(rows.map(toSummary))
+  const rows = await prisma.tournament.findMany({
+    where: { organizers: { some: { userId: req.user!.id } } },
+    include: { ...summaryInclude, organizers: { where: { userId: req.user!.id } } },
+    orderBy: { startDate: 'desc' },
+  })
+  res.json(rows.map(t => ({
+    ...toSummary(t), moderation: t.moderation, moderationNote: t.moderationNote ?? undefined, myRole: t.organizers[0]?.role,
+  })))
 })
 
 const createSchema = z.object({
@@ -40,8 +48,15 @@ const createSchema = z.object({
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
 
-organizerRouter.post('/tournaments', org, async (req, res) => {
+organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const d = body(req, createSchema)
+  const isAdmin = req.user!.role === 'admin'
+  if (!isAdmin) {
+    const active = await prisma.tournament.count({
+      where: { status: { not: 'finished' }, moderation: { not: 'rejected' }, organizers: { some: { userId: req.user!.id, role: 'owner' } } },
+    })
+    if (active >= ACTIVE_TOURNAMENT_LIMIT) throw badRequest('tournament_limit_reached')
+  }
   const pro = d.maxTeams > FREE_TEAM_LIMIT
   const start = fromDay(d.startDate), end = fromDay(d.endDate)
   const t = await prisma.tournament.create({
@@ -53,7 +68,9 @@ organizerRouter.post('/tournaments', org, async (req, res) => {
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
       // Pro plan is paid offline; admin marks it as paid manually
       plan: pro ? 'pro' : 'free', paid: !pro,
-      organizers: { create: { userId: req.user!.id } },
+      // new tournaments stay out of the public list until an admin approves them
+      moderation: isAdmin ? 'approved' : 'pending',
+      organizers: { create: { userId: req.user!.id, role: 'owner' } },
       scoringConfig: { create: {} },
       rounds: {
         create: Array.from({ length: d.preliminaryRounds }, (_, i) => ({
@@ -80,7 +97,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
 })
 
 organizerRouter.delete('/tournaments/:id', org, async (req, res) => {
-  await assertCanManage(req.user, param(req, 'id'))
+  await assertOwner(req.user, param(req, 'id'))
   await prisma.tournament.delete({ where: { id: param(req, 'id') } })
   res.status(204).end()
 })
@@ -153,6 +170,7 @@ organizerRouter.post('/tournaments/:id/judges', org, async (req, res) => {
   }))
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') } })
   const user = d.email ? await prisma.user.findUnique({ where: { email: d.email } }) : null
+  if (user && (await participationIn(user.id, t.id)).competitor) throw forbidden('conflict_of_interest')
   const j = await prisma.judge.create({
     data: {
       tournamentId: t.id, name: d.name, rating: d.rating, userId: user?.id,
@@ -258,6 +276,9 @@ organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
   const { status } = body(req, z.object({ status: z.enum(['confirmed', 'rejected']) }))
   if (reg.status !== 'pending') throw badRequest('already_processed')
   if (status === 'confirmed') {
+    // the applicant may have become a judge/organizer here after applying
+    const role = await participationIn(reg.userId, reg.tournamentId)
+    if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
     if (reg.tournament._count.teams >= reg.tournament.maxTeams) throw badRequest('tournament_full')
     if (await prisma.team.findUnique({ where: { tournamentId_name: { tournamentId: reg.tournamentId, name: reg.teamName } } })) throw conflict('team_name_taken')
     const instId = await institutionId(reg.institution, reg.tournament.level)
