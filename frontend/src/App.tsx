@@ -27,6 +27,7 @@ const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'))
 const ForgotPassword = lazy(() => import('@/pages/auth/ForgotPassword'))
 const ResetPassword = lazy(() => import('@/pages/auth/ResetPassword'))
 const InvitePage = lazy(() => import('@/pages/InvitePage'))
+const JudgeCalls = lazy(() => import('@/pages/JudgeCalls'))
 
 function PageLoader() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
                 <Route path="tournaments" element={<Tournaments />} />
                 <Route path="tournaments/:id" element={<TournamentPage />} />
                 <Route path="rating" element={<Rating />} />
+                <Route path="judges" element={<JudgeCalls />} />
                 <Route path="about" element={<About />} />
                 <Route path="pricing" element={<Pricing />} />
                 <Route path="ballot/:debateId" element={<RequireAuth><Ballot /></RequireAuth>} />

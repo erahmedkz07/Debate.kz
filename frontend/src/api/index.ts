@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  AdminAction, AdminTournament, Debate, ModerationStatus, ReportQueueItem, ReportReason, TrustProfile, FeedbackItem, JudgeFeedbackRow, JudgeLevel, JudgeProfile, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
+  AdminAction, AdminTournament, Debate, JudgeCallBoard, JudgeCallPublic, MyJudgeApplication, ModerationStatus, ReportQueueItem, ReportReason, TrustProfile, FeedbackItem, JudgeFeedbackRow, JudgeLevel, JudgeProfile, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
@@ -199,5 +199,15 @@ export const getMyFeedback = () => http<FeedbackItem[]>('GET', '/me/feedback')
 export const sendFeedback = (debateId: string, data: { judgeId: string; score: number; comment?: string }) =>
   http<{ ok: true }>('POST', `/debates/${debateId}/feedback`, data)
 export const getJudgeProfile = () => http<JudgeProfile>('GET', '/judge/profile')
+
+// ---------- judge exchange ----------
+export const getJudgeCalls = () => http<JudgeCallPublic[]>('GET', '/judge-calls')
+export const applyToJudge = (tournamentId: string, message?: string) => http<{ ok: true }>('POST', `/judge-calls/${tournamentId}/applications`, { message })
+export const withdrawApplication = (tournamentId: string) => http<void>('DELETE', `/judge-calls/${tournamentId}/applications/me`)
+export const getMyJudgeApplications = () => http<MyJudgeApplication[]>('GET', '/me/judge-applications')
+export const getJudgeCall = (tournamentId: string) => http<JudgeCallBoard | null>('GET', `/tournaments/${tournamentId}/judge-call`)
+export const saveJudgeCall = (tournamentId: string, data: { needed: number; minLevel: JudgeLevel; message?: string; open: boolean }) =>
+  http<{ ok: true }>('PUT', `/tournaments/${tournamentId}/judge-call`, data)
+export const decideApplication = (id: string, decision: 'accept' | 'decline') => http<{ ok: true }>('PATCH', `/judge-applications/${id}`, { decision })
 export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackRow[]>('GET', `/tournaments/${tournamentId}/judge-feedback`)
 export const reviewJudge = (judgeId: string, score: number) => http<{ judgeId: string; score: number }>('PUT', `/judges/${judgeId}/review`, { score })
