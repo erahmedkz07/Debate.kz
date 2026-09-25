@@ -61,7 +61,8 @@ export async function assertOwner(user: User | undefined, tournamentId: string) 
 }
 
 // Public listing: approved by an admin and not hidden
-export const publicWhere = { visible: true, moderation: 'approved' as const }
+// public = approved, not hidden by the organizer, not on hold after reports
+export const publicWhere = { visible: true, moderation: 'approved' as const, reportHold: false }
 
 // One person cannot be both a judge/organizer and a speaker in the same tournament
 export async function participationIn(userId: string, tournamentId: string) {
@@ -90,7 +91,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
   })
   const manager = await isOrganizerOf(viewer, id)
   const levels = t ? await levelsForJudges(t.judges) : new Map()
-  if (!t || ((!t.visible || t.moderation !== 'approved') && !manager)) throw notFound('tournament_not_found')
+  if (!t || ((!t.visible || t.moderation !== 'approved' || t.reportHold) && !manager)) throw notFound('tournament_not_found')
   const link = manager ? await organizerLink(viewer, id) : null
 
   // the public never sees unreleased motions or draws
@@ -108,7 +109,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     // organizer-only flags
     ...(manager && {
       visible: t.visible, plan: t.plan, paid: t.paid, moderation: t.moderation, moderationNote: t.moderationNote ?? undefined,
-      registrationOpen: t.registrationOpen,
+      registrationOpen: t.registrationOpen, reportHold: t.reportHold, autoApproved: t.autoApproved,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
       rooms: t.rooms, pendingRegistrations: t.registrations.length,
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),

@@ -7,6 +7,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
+import { organizerTrust } from '../services/organizerTrust.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
 export const organizerRouter = Router()
@@ -14,7 +15,6 @@ export const organizerRouter = Router()
 const org = requireAuth()
 
 export const FREE_TEAM_LIMIT = 12
-export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 // ---------- tournaments ----------
@@ -28,7 +28,13 @@ organizerRouter.get('/organizer/tournaments', org, async (req, res) => {
   })
   res.json(rows.map(t => ({
     ...toSummary(t), moderation: t.moderation, moderationNote: t.moderationNote ?? undefined, myRole: t.organizers[0]?.role,
+    reportHold: t.reportHold, autoApproved: t.autoApproved,
   })))
+})
+
+// my organizer trust: whether new tournaments are published at once, and the active-tournament limit
+organizerRouter.get('/organizer/trust', org, async (req, res) => {
+  res.json(await organizerTrust(req.user!.id))
 })
 
 const createSchema = z.object({
@@ -52,12 +58,10 @@ const createSchema = z.object({
 organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const d = body(req, createSchema)
   const isAdmin = req.user!.role === 'admin'
-  if (!isAdmin) {
-    const active = await prisma.tournament.count({
-      where: { status: { not: 'finished' }, moderation: { not: 'rejected' }, organizers: { some: { userId: req.user!.id, role: 'owner' } } },
-    })
-    if (active >= ACTIVE_TOURNAMENT_LIMIT) throw badRequest('tournament_limit_reached')
-  }
+  // trusted organizers publish at once and may run more tournaments at a time (anti-spam limit)
+  const trust = isAdmin ? null : await organizerTrust(req.user!.id)
+  if (trust && trust.active >= trust.activeLimit) throw badRequest('tournament_limit_reached', { limit: trust.activeLimit })
+  const autoPublish = !!trust?.autoPublish
   const pro = d.maxTeams > FREE_TEAM_LIMIT
   const start = fromDay(d.startDate), end = fromDay(d.endDate)
   const t = await prisma.tournament.create({
@@ -69,8 +73,9 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
       // Pro plan is paid offline; admin marks it as paid manually
       plan: pro ? 'pro' : 'free', paid: !pro,
-      // new tournaments stay out of the public list until an admin approves them
-      moderation: isAdmin ? 'approved' : 'pending',
+      // new organizers wait for an admin; trusted ones are published at once (reports still protect the list)
+      moderation: isAdmin || autoPublish ? 'approved' : 'pending',
+      autoApproved: autoPublish,
       organizers: { create: { userId: req.user!.id, role: 'owner' } },
       scoringConfig: { create: {} },
       rounds: {
@@ -81,7 +86,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
     },
     include: summaryInclude,
   })
-  res.status(201).json(toSummary(t))
+  res.status(201).json({ ...toSummary(t), moderation: t.moderation, autoApproved: t.autoApproved })
 })
 
 organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
