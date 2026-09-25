@@ -7,6 +7,7 @@ import { publicUser, requireAuth } from '../middleware/auth.js'
 import { sendMail } from '../lib/mail.js'
 import { env } from '../lib/env.js'
 import { summaryInclude, toSummary } from '../services/tournaments.js'
+import { judgeProfiles } from '../services/judgeLevels.js'
 import type { User } from '../generated/prisma/client.js'
 
 export const adminRouter = Router()
@@ -95,11 +96,19 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
 
 adminRouter.get('/admin/users', async (_req, res) => {
   const users = await prisma.user.findMany({ orderBy: { createdAt: 'asc' } })
-  res.json(users.map(publicUser))
+  const profiles = await judgeProfiles(users.map(u => u.id))
+  // a level is shown only for people who have judged or were given a minimum level
+  const levelOf = (id: string) => { const p = profiles.get(id); return p && (p.stats.debates > 0 || p.minLevel) ? p.level : undefined }
+  res.json(users.map(u => ({ ...publicUser(u), judgeLevel: levelOf(u.id), judgeLevelMin: u.judgeLevelMin ?? undefined })))
 })
 
 adminRouter.patch('/admin/users/:id', async (req, res) => {
-  const d = body(req, z.object({ role: z.enum(['user', 'admin']).optional(), blocked: z.boolean().optional() }))
+  const d = body(req, z.object({
+    role: z.enum(['user', 'admin']).optional(),
+    blocked: z.boolean().optional(),
+    // minimum judge level for experienced judges who are new to the platform; null = earned level only
+    judgeLevelMin: z.enum(['judge', 'experienced', 'chief']).nullable().optional(),
+  }))
   // an admin cannot lock themselves out
   if (param(req, 'id') === req.user!.id) throw badRequest('cannot_change_self')
   const u = await prisma.user.findUnique({ where: { id: param(req, 'id') } })
@@ -108,5 +117,8 @@ adminRouter.patch('/admin/users/:id', async (req, res) => {
   const target = { type: 'user' as const, id: u.id, label: `${u.name} (${u.email})` }
   if (d.role && d.role !== u.role) await logAction(req.user!, 'user.role', target, d.role)
   if (d.blocked !== undefined && d.blocked !== u.blocked) await logAction(req.user!, d.blocked ? 'user.block' : 'user.unblock', target)
-  res.json(publicUser(updated))
+  if (d.judgeLevelMin !== undefined && d.judgeLevelMin !== u.judgeLevelMin) await logAction(req.user!, 'user.judgeLevel', target, d.judgeLevelMin ?? 'auto')
+  const profile = (await judgeProfiles([u.id])).get(u.id)
+  const shown = profile && (profile.stats.debates > 0 || profile.minLevel) ? profile.level : undefined
+  res.json({ ...publicUser(updated), judgeLevel: shown, judgeLevelMin: updated.judgeLevelMin ?? undefined })
 })

@@ -1,6 +1,7 @@
 import { badRequest, forbidden } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { getStandings } from './tournaments.js'
+import { levelRank, levelsForJudges } from './judgeLevels.js'
 
 const ROOMS = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
 export const DEFAULT_ROOMS = ROOMS
@@ -29,6 +30,10 @@ export async function generateDraw(roundId: string) {
   if (teams.length < 2) throw badRequest('not_enough_teams')
   if (teams.length % 2) throw badRequest('odd_number_of_teams')
   if (judges.length < teams.length / 2) throw badRequest('not_enough_judges')
+  // higher-level judges chair first (novices end up as wings when possible); ties keep the organizer's rating order
+  const levels = await levelsForJudges(judges)
+  const rank = (id: string) => { const l = levels.get(id); return l ? levelRank(l) : 0 }
+  judges.sort((a, b) => rank(b.id) - rank(a.id))
 
   // order teams
   let ordered: string[]

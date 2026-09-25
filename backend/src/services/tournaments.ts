@@ -2,6 +2,7 @@ import type { Prisma, User } from '../generated/prisma/client.js'
 import { toDay } from '../lib/dates.js'
 import { forbidden, notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
+import { levelsForJudges } from './judgeLevels.js'
 
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
@@ -88,6 +89,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     },
   })
   const manager = await isOrganizerOf(viewer, id)
+  const levels = t ? await levelsForJudges(t.judges) : new Map()
   if (!t || ((!t.visible || t.moderation !== 'approved') && !manager)) throw notFound('tournament_not_found')
   const link = manager ? await organizerLink(viewer, id) : null
 
@@ -116,6 +118,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     teams: t.teams.map(toTeam),
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
+      level: levels.get(j.id), // earned judge level; only for judges with an account
     })),
   }
 }
