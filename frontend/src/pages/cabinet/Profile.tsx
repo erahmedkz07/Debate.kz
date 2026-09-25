@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Building2, CalendarDays, ChevronRight, DoorOpen, KeyRound, Mail, MapPin, Phone, Swords, Trash2, Trophy, Users } from 'lucide-react'
-import { changePassword, deleteAccount, getMyDebates, getMyRegistrations, updateProfile } from '@/api'
+import { BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Swords, Trash2, Trophy, Unlink, Users } from 'lucide-react'
+import { changePassword, createTelegramLink, deleteAccount, getMe, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -20,6 +20,71 @@ import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
+
+// Telegram: notifications, phone verification and one-tap judge feedback
+function TelegramCard() {
+  const { t } = useTranslation()
+  const { user, signIn } = useAuth()
+  const config = useAsync(getTelegramConfig)
+  const [link, setLink] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  if (!config.data?.enabled || !user) return null
+  const act = async (fn: () => Promise<void>) => {
+    setBusy(true)
+    try { await fn() } catch (e) { toast.error(errorMessage(e, t)) } finally { setBusy(false) }
+  }
+  const connect = () => act(async () => {
+    const { url } = await createTelegramLink()
+    setLink(url)
+    window.open(url, '_blank', 'noopener')
+  })
+  // after pressing Start in Telegram the user comes back and refreshes the status
+  const refresh = () => act(async () => {
+    const me = await getMe()
+    if (me) signIn(me)
+    if (me?.telegramLinked) { setLink(null); toast.success(t('telegram.connected')) } else toast(t('telegram.notYet'))
+  })
+  return (
+    <Card className="p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="flex items-center gap-2 font-bold"><Send className="size-4 text-primary" />Telegram</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{t('telegram.text')}</p>
+        </div>
+        {user.telegramLinked && <Badge variant="success"><CheckCircle2 className="size-3" />{t('telegram.linked')}{user.telegramUsername && ` · @${user.telegramUsername}`}</Badge>}
+      </div>
+      <ul className="mt-4 space-y-1.5 text-sm">
+        <li className="flex items-center gap-2"><Bell className="size-4 text-primary" />{t('telegram.f1')}</li>
+        <li className="flex items-center gap-2"><CheckCircle2 className="size-4 text-primary" />{t('telegram.f2')}</li>
+        <li className="flex items-center gap-2"><BadgeCheck className="size-4 text-primary" />{t('telegram.f3')}</li>
+      </ul>
+      {user.telegramLinked ? (
+        <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+          <p className="mr-auto text-sm">{user.phoneVerified ? <span className="flex items-center gap-1.5 text-success"><BadgeCheck className="size-4" />{t('telegram.phoneOk')}</span> : t('telegram.phoneHint')}</p>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => act(async () => { signIn(await setTelegramNotify(!user.telegramNotify)) })}>
+            {user.telegramNotify ? <><BellOff className="size-4" />{t('telegram.mute')}</> : <><Bell className="size-4" />{t('telegram.unmute')}</>}
+          </Button>
+          <Button size="sm" variant="ghost" className="text-danger" disabled={busy} onClick={() => act(async () => { signIn(await unlinkTelegram()); toast(t('telegram.unlinked')) })}>
+            <Unlink className="size-4" />{t('telegram.unlink')}
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-5 border-t border-border pt-4">
+          {link ? (
+            <div className="space-y-3">
+              <p className="text-sm">{t('telegram.step')}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="outline"><a href={link} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4" />{t('telegram.openAgain')}</a></Button>
+                <Button disabled={busy} onClick={refresh}><RefreshCw className="size-4" />{t('telegram.done')}</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('telegram.linkTtl')}</p>
+            </div>
+          ) : <Button disabled={busy} onClick={connect}><Send className="size-4" />{t('telegram.connect', { bot: config.data.username })}</Button>}
+        </div>
+      )}
+    </Card>
+  )
+}
 
 function PasswordCard() {
   const { t } = useTranslation()
@@ -144,7 +209,11 @@ export default function Profile() {
             </div>
             <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground sm:justify-start">
               <span className="flex items-center gap-1.5"><Mail className="size-4 text-primary" />{user.email}</span>
-              {user.phone && <span className="flex items-center gap-1.5"><Phone className="size-4 text-primary" />{user.phone}</span>}
+              {user.phone && (
+                <span className="flex items-center gap-1.5"><Phone className="size-4 text-primary" />{user.phone}
+                  {user.phoneVerified && <BadgeCheck className="size-4 text-success" aria-label={t('telegram.phoneOk')} />}
+                </span>
+              )}
               {user.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{user.institution}</span>}
               {user.city && <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{user.city}</span>}
             </div>
@@ -250,6 +319,7 @@ export default function Profile() {
               <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!form.name.trim()}>{t('common.save')}</Button></div>
             </form>
           </Card>
+          <TelegramCard />
           <PasswordCard />
           {/* admins are demoted by another admin before they can leave */}
           {!isAdmin && <DeleteAccountCard />}

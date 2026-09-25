@@ -81,6 +81,11 @@ export const getMe = () => http<{ user: User | null }>('GET', '/auth/me').then(r
 
 export const changePassword = (currentPassword: string, newPassword: string) =>
   http<{ user: User }>('POST', '/me/password', { currentPassword, newPassword }).then(r => r.user)
+// ---------- Telegram bot ----------
+export const getTelegramConfig = () => http<{ enabled: boolean; username?: string }>('GET', '/telegram/config')
+export const createTelegramLink = () => http<{ url: string; expiresInMinutes: number }>('POST', '/me/telegram/link')
+export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATCH', '/me/telegram', { notify }).then(r => r.user)
+export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
 export const deleteAccount = (password: string) => http<void>('DELETE', '/me', { password })
 export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)

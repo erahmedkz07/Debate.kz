@@ -165,6 +165,10 @@ export interface User {
   createdAt: string
   blocked?: boolean
   emailVerified?: boolean
+  phoneVerified?: boolean // confirmed through the Telegram bot
+  telegramLinked?: boolean
+  telegramUsername?: string
+  telegramNotify?: boolean
   organizes?: boolean // owns or co-organizes at least one tournament
   judges?: boolean // judges in at least one tournament
 }
