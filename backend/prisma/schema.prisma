@@ -84,25 +84,6 @@ enum JudgeLevel {
   chief
 }
 
-// admin override of the earned organizer trust: verified organization or restricted (always moderated)
-enum OrganizerTrust {
-  verified
-  restricted
-}
-
-enum ReportReason {
-  fake
-  inappropriate
-  spam
-  other
-}
-
-enum ReportStatus {
-  open
-  upheld
-  dismissed
-}
-
 enum Plan {
   free
   pro
@@ -111,23 +92,22 @@ enum Plan {
 // ---------- people ----------
 
 model User {
-  id                String          @id @default(cuid())
-  email             String          @unique
-  passwordHash      String          @map("password_hash")
+  id                String      @id @default(cuid())
+  email             String      @unique
+  passwordHash      String      @map("password_hash")
   name              String
   phone             String?
-  role              Role            @default(user)
+  role              Role        @default(user)
   institution       String?
   city              String?
-  avatarUrl         String?         @map("avatar_url") // /uploads/avatars/<file>.webp
-  blocked           Boolean         @default(false)
-  emailVerifiedAt   DateTime?       @map("email_verified_at")
-  consentAt         DateTime?       @map("consent_at") // consent to personal data processing
-  passwordChangedAt DateTime?       @map("password_changed_at") // sessions issued before this are rejected
-  judgeLevelMin     JudgeLevel?     @map("judge_level_min") // admin-set floor for known judges (cold start)
-  organizerTrust    OrganizerTrust? @map("organizer_trust") // admin override; null = earned trust (services/organizerTrust.ts)
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
+  avatarUrl         String?     @map("avatar_url") // /uploads/avatars/<file>.webp
+  blocked           Boolean     @default(false)
+  emailVerifiedAt   DateTime?   @map("email_verified_at")
+  consentAt         DateTime?   @map("consent_at") // consent to personal data processing
+  passwordChangedAt DateTime?   @map("password_changed_at") // sessions issued before this are rejected
+  judgeLevelMin     JudgeLevel? @map("judge_level_min") // admin-set floor for known judges (cold start)
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
 
   organizedTournaments TournamentOrganizer[]
   judgeProfiles        Judge[]
@@ -139,8 +119,6 @@ model User {
   adminActions         AdminAction[]
   judgeFeedback        JudgeFeedback[]
   judgeReviews         JudgeReview[]
-  reports              TournamentReport[]    @relation("ReportAuthor")
-  resolvedReports      TournamentReport[]    @relation("ReportResolver")
 
   @@map("users")
 }
@@ -199,8 +177,6 @@ model Tournament {
   moderation           ModerationStatus @default(pending) // public only after admin approval
   moderationNote       String?          @map("moderation_note")
   rooms                String[]         @default([]) // organizer's own room names for the draw; empty = default list
-  autoApproved         Boolean          @default(false) @map("auto_approved") // published without review thanks to organizer trust
-  reportHold           Boolean          @default(false) @map("report_hold") // hidden automatically after several reports, until an admin decides
   createdAt            DateTime         @default(now()) @map("created_at")
   updatedAt            DateTime         @updatedAt @map("updated_at")
 
@@ -212,7 +188,6 @@ model Tournament {
   schedule      ScheduleItem[]
   registrations TeamRegistration[]
   invites       TournamentInvite[]
-  reports       TournamentReport[]
 
   @@index([status, startDate])
   @@index([moderation])
@@ -436,26 +411,6 @@ model JudgeReview {
   byUser    User?    @relation(fields: [byUserId], references: [id], onDelete: SetNull)
 
   @@map("judge_reviews")
-}
-
-// a user's complaint about a public tournament (one per user and tournament)
-model TournamentReport {
-  id           String       @id @default(cuid())
-  tournamentId String       @map("tournament_id")
-  reporterId   String?      @map("reporter_id")
-  reason       ReportReason
-  text         String?
-  status       ReportStatus @default(open)
-  resolvedById String?      @map("resolved_by_id")
-  resolvedAt   DateTime?    @map("resolved_at")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  tournament   Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  reporter     User?        @relation("ReportAuthor", fields: [reporterId], references: [id], onDelete: SetNull)
-  resolvedBy   User?        @relation("ReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
-
-  @@unique([tournamentId, reporterId])
-  @@index([status])
-  @@map("tournament_reports")
 }
 
 model TeamRegistration {

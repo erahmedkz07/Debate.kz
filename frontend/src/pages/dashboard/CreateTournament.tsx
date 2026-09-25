@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Loader2, PartyPopper, Trophy } from 'lucide-react'
 import { createTournament, getCities } from '@/api'
+import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDateRange } from '@/lib/utils'
@@ -23,6 +24,7 @@ const steps = ['basic', 'format', 'registration', 'summary'] as const
 export default function CreateTournament() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { data: cities = [] } = useAsync(getCities)
   const [step, setStep] = useState(0)
   const [cover, setCover] = useState<string | null>(null)
@@ -73,9 +75,7 @@ export default function CreateTournament() {
         registrationDeadline: f.regDeadline || undefined,
         languages: [...(f.langKz ? ['kz' as const] : []), ...(f.langRu ? ['ru' as const] : [])],
       })
-      toast.success(t('wizard.created'), {
-        description: created.moderation === 'pending' ? t('moderation.sentForReview') : created.autoApproved ? t('trust.published') : undefined,
-      })
+      toast.success(t('wizard.created'), { description: user?.role === 'admin' ? undefined : t('moderation.sentForReview') })
       navigate(`/dashboard/tournaments/${created.id}/teams`)
     } catch (e) {
       toast.error(errorMessage(e, t))

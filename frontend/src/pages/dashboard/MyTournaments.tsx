@@ -1,48 +1,15 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { CalendarDays, CheckCircle2, ExternalLink, MapPin, Plus, Settings2, Users } from 'lucide-react'
-import { getMyTournaments, getOrganizerTrust } from '@/api'
+import { CalendarDays, ExternalLink, MapPin, Plus, Settings2, Users } from 'lucide-react'
+import { getMyTournaments } from '@/api'
 import { useAsync } from '@/lib/hooks'
-import { cn, formatDateRange } from '@/lib/utils'
-import { Card } from '@/components/ui/card'
-import { trustLook } from '@/components/tournament/TrustBadge'
+import { formatDateRange } from '@/lib/utils'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Ornament } from '@/components/brand'
 import { Reveal } from '@/components/motion'
 import { ModerationBadge } from '@/components/tournament/ModerationBadge'
-
-// explains whether new tournaments are published at once and how to earn that
-function TrustCard() {
-  const { t } = useTranslation()
-  const { data } = useAsync(getOrganizerTrust)
-  if (!data) return null
-  const { icon: Icon, tile } = trustLook[data.level]
-  return (
-    <Card className="mt-6 flex flex-wrap items-start gap-4 p-5">
-      <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl', tile)}><Icon className="size-5" /></span>
-      <div className="min-w-0 flex-1">
-        <p className="font-bold">{t(`trust.levels.${data.level}`)}</p>
-        <p className="mt-0.5 text-sm text-muted-foreground">{t(`trust.text.${data.level}`)}</p>
-        {data.level === 'new' && (
-          <ul className="mt-3 space-y-1.5">
-            {data.checks.map(c => (
-              <li key={c.key} className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className={cn('size-4 shrink-0', c.met ? 'text-success' : 'text-border')} />
-                <span className={cn(c.met && 'text-muted-foreground')}>{t(`trust.checks.${c.key}`)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="text-right">
-        <p className="text-xs text-muted-foreground">{t('trust.active')}</p>
-        <p className="text-xl font-extrabold tabular-nums">{data.active}/{data.activeLimit}</p>
-      </div>
-    </Card>
-  )
-}
 
 export default function MyTournaments() {
   const { t } = useTranslation()
@@ -56,7 +23,6 @@ export default function MyTournaments() {
           <p className="mt-1 text-muted-foreground">{t('dashboard.myTournamentsText')}</p>
         </div>
       </div>
-      <TrustCard />
 
       <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <Link to="/dashboard/tournaments/new"
@@ -77,7 +43,7 @@ export default function MyTournaments() {
                   <div className="absolute inset-0 bg-gradient-to-t from-navy/70 to-transparent" />
                   <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
                     <Badge variant="glass"><StatusDot status={item.status} />{t(`status.${item.status}`)}</Badge>
-                    <ModerationBadge status={item.moderation} hold={item.reportHold} />
+                    <ModerationBadge status={item.moderation} />
                   </div>
                   {item.myRole === 'co_organizer' && <Badge variant="glass" className="absolute bottom-3 left-3">{t('dashboard.coOrganizerBadge')}</Badge>}
                 </div>

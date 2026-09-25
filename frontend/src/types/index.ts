@@ -134,8 +134,6 @@ export interface TournamentDetails extends Tournament {
   moderation?: ModerationStatus
   moderationNote?: string
   registrationOpen?: boolean
-  reportHold?: boolean // hidden after reports until an admin decides
-  autoApproved?: boolean // published without review thanks to organizer trust
   registrationDeadline?: string
   rooms?: string[]
   pendingRegistrations?: number
@@ -203,8 +201,6 @@ export interface User {
   organizes?: boolean // owns or co-organizes at least one tournament
   judgeLevel?: JudgeLevel // admin list only
   judgeLevelMin?: JudgeLevel // admin-set floor
-  organizerTrust?: TrustLevel // admin list only
-  organizerTrustOverride?: 'verified' | 'restricted'
   judges?: boolean // judges in at least one tournament
 }
 
@@ -234,26 +230,6 @@ export interface AdminTournament extends Tournament {
   moderation: ModerationStatus
   moderationNote?: string
   owner?: { name: string; email: string }
-  autoApproved?: boolean
-  reportHold?: boolean
-  openReports?: number
-}
-
-export type TrustLevel = 'new' | 'trusted' | 'verified' | 'restricted'
-export interface TrustProfile {
-  level: TrustLevel
-  earned: 'new' | 'trusted'
-  override: 'verified' | 'restricted' | null
-  autoPublish: boolean
-  activeLimit: number
-  active: number
-  checks: { key: 'finished' | 'noUpheldReports' | 'noRecentRejections'; met: boolean; value: number }[]
-}
-
-export type ReportReason = 'fake' | 'inappropriate' | 'spam' | 'other'
-export interface ReportQueueItem {
-  tournament: Tournament & { reportHold: boolean; autoApproved: boolean; owner?: { name: string; email: string } }
-  reports: { id: string; reason: ReportReason; text?: string; createdAt: string; reporter?: { name: string; email: string } }[]
 }
 
 export interface AdminAction {
@@ -270,8 +246,6 @@ export interface AdminAction {
 export interface MyTournament extends Tournament {
   moderation: ModerationStatus
   moderationNote?: string
-  reportHold?: boolean
-  autoApproved?: boolean
   myRole: OrganizerRole
 }
 

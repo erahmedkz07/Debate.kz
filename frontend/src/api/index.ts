@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  AdminAction, AdminTournament, Debate, ModerationStatus, ReportQueueItem, ReportReason, TrustProfile, FeedbackItem, JudgeFeedbackRow, JudgeLevel, JudgeProfile, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
+  AdminAction, AdminTournament, Debate, FeedbackItem, JudgeFeedbackRow, JudgeLevel, JudgeProfile, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
@@ -141,10 +141,7 @@ export interface CreateTournamentInput {
   preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
 }
-export const createTournament = (data: CreateTournamentInput) =>
-  http<Tournament & { moderation: ModerationStatus; autoApproved: boolean }>('POST', '/tournaments', data)
-export const getOrganizerTrust = () => http<TrustProfile>('GET', '/organizer/trust')
-export const reportTournament = (id: string, data: { reason: ReportReason; text?: string }) => http<{ ok: true }>('POST', `/tournaments/${id}/reports`, data)
+export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
 export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
   city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
@@ -183,16 +180,13 @@ export const acceptInvite = (token: string) =>
 // ---------- admin ----------
 
 export const getAdminStats = () =>
-  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number; openReports: number }>('GET', '/admin/stats')
+  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number }>('GET', '/admin/stats')
 export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/tournaments')
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
 export const getAdminActions = () => http<AdminAction[]>('GET', '/admin/actions')
-export const getReports = () => http<ReportQueueItem[]>('GET', '/admin/reports')
-export const resolveReports = (tournamentId: string, decision: 'dismiss' | 'uphold', note?: string) =>
-  http<{ ok: true }>('PATCH', `/admin/reports/${tournamentId}`, { decision, note })
-export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean; judgeLevelMin: JudgeLevel | null; organizerTrust: 'verified' | 'restricted' | null }>) => http<User>('PATCH', `/admin/users/${id}`, data)
+export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean; judgeLevelMin: JudgeLevel | null }>) => http<User>('PATCH', `/admin/users/${id}`, data)
 
 // ---------- judge feedback & levels ----------
 export const getMyFeedback = () => http<FeedbackItem[]>('GET', '/me/feedback')
