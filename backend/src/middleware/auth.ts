@@ -32,10 +32,12 @@ export async function loadUser(req: Request, _res: Response, next: NextFunction)
   const token = req.cookies?.[COOKIE]
   if (!token) return next()
   try {
-    const { sub } = jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'] }) as { sub: string }
+    const { sub, iat } = jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'] }) as { sub: string; iat: number }
     // re-read from DB so role changes and blocks apply immediately
     const user = await prisma.user.findUnique({ where: { id: sub } })
-    if (user && !user.blocked) req.user = user
+    // sessions created before the last password change are no longer valid (iat is in whole seconds)
+    const revoked = !!user?.passwordChangedAt && iat < Math.floor(user.passwordChangedAt.getTime() / 1000)
+    if (user && !user.blocked && !revoked) req.user = user
   } catch {
     // expired or tampered token -> treat as guest
   }

@@ -31,7 +31,8 @@ export default function Login() {
     password: z.string().min(8, t('auth.errors.password')),
   })
   type Form = z.infer<typeof schema>
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
+  const emailValue = watch('email')?.trim()
 
   if (user) return <Navigate to={next ?? roleHome[user.role]} replace />
 
@@ -64,7 +65,7 @@ export default function Login() {
         <div>
           <div className="flex items-center justify-between">
             <Label htmlFor="password">{t('auth.password')}</Label>
-            <button type="button" className="mb-1.5 cursor-pointer text-xs font-semibold text-primary hover:underline">{t('auth.forgot')}</button>
+            <Link to={`/forgot-password${emailValue ? `?email=${encodeURIComponent(emailValue)}` : ''}`} className="mb-1.5 text-xs font-semibold text-primary hover:underline">{t('auth.forgot')}</Link>
           </div>
           <div className="relative">
             <Input id="password" type={show ? 'text' : 'password'} autoComplete="current-password" aria-invalid={!!errors.password} className="pr-11" {...register('password')} />

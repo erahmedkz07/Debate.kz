@@ -234,4 +234,38 @@ ok(r.status === 403, 'a user cannot make themselves admin')
 r = await admin('PATCH', `/admin/users/${freshMe.id}`, { role: 'judge' })
 ok(r.status === 400, '"judge" is not a global role anymore')
 
+// ---------- 8. password reset ----------
+{
+  const victimEmail = `reset.${uniq}@mail.kz`
+  const oldSession = client()
+  await oldSession('POST', '/auth/register', { name: 'Сброс Пароля', email: victimEmail, phone: '+7 707 222 33 44', password: 'oldpass123', consent: true })
+  ok((await oldSession('GET', '/auth/me')).data.user?.email === victimEmail, 'reset: account created and signed in')
+
+  r = await client()('POST', '/auth/forgot-password', { email: `nobody.${uniq}@mail.kz` })
+  const unknown = r
+  r = await client()('POST', '/auth/forgot-password', { email: victimEmail })
+  const resetToken = r.data.devResetToken
+  ok(unknown.status === 200 && r.status === 200 && unknown.data.ok === r.data.ok, 'forgot-password answers the same for unknown and known emails')
+  ok(typeof resetToken === 'string', 'reset link sent for a known email')
+
+  r = await client()('POST', '/auth/reset-password', { token: resetToken, password: 'short' })
+  ok(r.status === 400 && r.data.error === 'validation_error', 'new password must be at least 8 characters')
+  r = await client()('POST', '/auth/reset-password', { token: verifyToken, password: 'newpass123' })
+  ok(r.status === 400 && r.data.error === 'invalid_or_expired_token', 'an email-verification link cannot reset a password')
+
+  await new Promise(res => setTimeout(res, 1100)) // make sure the new password is set in a later second than the old session
+  const fresh2 = client()
+  r = await fresh2('POST', '/auth/reset-password', { token: resetToken, password: 'newpass123' })
+  ok(r.status === 200 && r.data.user.email === victimEmail, 'password reset with the link, user signed in')
+  r = await client()('POST', '/auth/reset-password', { token: resetToken, password: 'another123' })
+  ok(r.status === 400, 'reset link is single-use')
+
+  ok((await oldSession('GET', '/auth/me')).data.user === null, 'sessions created before the reset are revoked')
+  ok((await fresh2('GET', '/auth/me')).data.user?.email === victimEmail, 'the new session works')
+  r = await client()('POST', '/auth/login', { email: victimEmail, password: 'oldpass123' })
+  ok(r.status === 401, 'old password no longer works')
+  r = await client()('POST', '/auth/login', { email: victimEmail, password: 'newpass123' })
+  ok(r.status === 200, 'new password works')
+}
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
