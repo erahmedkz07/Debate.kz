@@ -362,6 +362,7 @@ model SpeakerScore {
   side      Side
   position  Int // 1..3 substantive, 4 = reply
   score     Decimal @db.Decimal(4, 1)
+  feedback  String? // the judge's short written comment to this speaker (shown after the round is completed)
   ballot    Ballot  @relation(fields: [ballotId], references: [id], onDelete: Cascade)
   speaker   Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
 

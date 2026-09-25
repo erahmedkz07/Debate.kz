@@ -502,4 +502,30 @@ ok(eduBank.items.every(m => m.topics.includes('education')) && bank.topicCounts.
 ok((await client()('GET', '/motions?lang=kz')).data.items.every(m => m.language === 'kz'), 'language filter')
 ok((await client()('GET', '/motions?topic=astrology')).status === 400, 'unknown topics are rejected')
 
+// ---------- 20. judges' written feedback and speaker progress ----------
+const t4live = (await org('GET', `/tournaments/${t4id}`)).data
+const liveRound = t4live.rounds.find(x => x.status === 'released')
+const myDebate = (await student('GET', '/me/debates')).data.find(x => x.round.id === liveRound.id)
+const COMMENT = 'Сильная структура, но не хватило ответов на POI'
+for (const d of t4live.debates.filter(x => x.roundId === liveRound.id && !x.winner)) {
+  const bd = (await org('GET', `/ballots/${d.id}`)).data
+  const sc = {}, fb = {}
+  bd.proposition.speakers.forEach(s => (sc[s.id] = 75)); bd.opposition.speakers.forEach(s => (sc[s.id] = 72))
+  if (d.id === myDebate.debate.id) [...bd.proposition.speakers, ...bd.opposition.speakers].forEach(s => (fb[s.id] = COMMENT))
+  fb['reply:proposition'] = 'Хороший итог'
+  const res = await org('POST', `/ballots/${d.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id }, feedback: fb })
+  if (res.status !== 201) ok(false, `ballot with feedback ${res.status} ${JSON.stringify(res.data)}`)
+}
+r = await org('POST', `/ballots/${myDebate.debate.id}`, { winner: 'proposition', scores: {}, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: 'x', opposition: 'y' }, feedback: { x: 'a'.repeat(401) } })
+ok(r.status === 400, 'a comment longer than 400 characters is rejected')
+let prog = (await student('GET', '/me/progress')).data
+ok(!prog.comments.some(c => c.text === COMMENT), 'comments stay hidden until the round is completed')
+r = await org('PATCH', `/rounds/${liveRound.id}`, { status: 'completed' })
+prog = (await student('GET', '/me/progress')).data
+ok(r.status === 200 && prog.comments.some(c => c.text === COMMENT && c.judge && c.round === liveRound.name), "after the round the speaker sees the judge's comment")
+ok(prog.summary.speeches >= 3 && prog.summary.average >= 60 && prog.summary.average <= 80 && prog.timeline.length === prog.summary.speeches, `progress: ${prog.summary.speeches} speeches, average ${prog.summary.average}`)
+ok(prog.byPosition.length === 3 && prog.byPosition.every(p => p.average === null || (p.average >= 60 && p.average <= 80)), 'averages by position')
+ok((await timur('GET', '/me/progress')).data.comments.every(c => c.text !== COMMENT), "nobody else sees someone's comments")
+ok((await client()('GET', '/me/progress')).status === 401, 'progress needs sign-in')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

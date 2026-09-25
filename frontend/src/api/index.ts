@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  MotionItem, MotionTopic,
+  MotionItem, MotionTopic, SpeakerProgress,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
@@ -135,6 +135,7 @@ export interface BallotPayload {
   scores: Record<string, number> // speakerId -> substantive speech score
   reply: Record<'proposition' | 'opposition', number>
   replySpeakers: Record<'proposition' | 'opposition', string>
+  feedback?: Record<string, string> // speakerId or "reply:<side>" -> short comment to the speaker
 }
 export const submitBallot = (debateId: string, payload: BallotPayload) =>
   http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload)
@@ -193,6 +194,8 @@ export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
+export const getProgress = () => http<SpeakerProgress>('GET', '/me/progress')
+
 // ---------- motion bank ----------
 export const getMotions = (f: { search?: string; level?: 'school' | 'university'; lang?: 'ru' | 'kz'; topic?: MotionTopic; page?: number }) =>
   http<{ items: MotionItem[]; total: number; page: number; pages: number; topicCounts: Record<MotionTopic, number> }>('GET', `/motions${qs(f)}`)

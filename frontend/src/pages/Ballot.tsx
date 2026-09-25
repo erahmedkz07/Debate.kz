@@ -14,11 +14,27 @@ import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/input'
 import NotFound from './NotFound'
 
 type Side = 'proposition' | 'opposition'
 const SPEAKER = { min: 60, max: 80, step: 0.5 }
 const REPLY = { min: 30, max: 40, step: 0.5 }
+
+// optional written comment to a speaker; hidden behind a small link so the ballot stays compact
+function FeedbackField({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(!!value)
+  if (!open) {
+    return <button type="button" onClick={() => setOpen(true)} className="mb-2 cursor-pointer text-xs font-semibold text-primary hover:underline">+ {t('ballot.addFeedback')}</button>
+  }
+  return (
+    <div className="mb-3">
+      <Textarea rows={2} maxLength={400} value={value} onChange={e => onChange(e.target.value)} placeholder={t('ballot.feedbackPlaceholder')} aria-label={label} className="text-sm" />
+      <p className="mt-1 text-right text-[11px] text-muted-foreground tabular-nums">{value.length}/400</p>
+    </div>
+  )
+}
 
 function ScoreInput({ label, value, onChange, range, invalid }: { label: string; value: string; onChange: (v: string) => void; range: typeof SPEAKER; invalid: boolean }) {
   const bump = (d: number) => {
@@ -47,6 +63,8 @@ export default function Ballot() {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getBallot(debateId), [debateId])
   const [scores, setScores] = useState<Record<string, string>>({})
+  // speakerId (substantive) or "reply:<side>" -> comment
+  const [feedback, setFeedback] = useState<Record<string, string>>({})
   const [reply, setReply] = useState<Record<Side, string>>({ proposition: '', opposition: '' })
   const [replyBy, setReplyBy] = useState<Partial<Record<Side, string>>>({})
   const [winner, setWinner] = useState<Side | null>(null)
@@ -95,6 +113,7 @@ export default function Ballot() {
         },
         scores: Object.fromEntries(allSpeakers.map(s => [s.id, Number(scores[s.id])])),
         reply: { proposition: Number(reply.proposition), opposition: Number(reply.opposition) },
+        feedback: Object.fromEntries(Object.entries(feedback).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v)),
       })
       setConfirm(false)
       setDone(true)
@@ -136,8 +155,11 @@ export default function Ballot() {
         </div>
         <div className="divide-y divide-border px-5">
           {team.speakers.map((s, i) => (
-            <ScoreInput key={s.id} label={`${i + 1}. ${s.name}`} value={scores[s.id] ?? ''} range={SPEAKER}
-              invalid={tried && !inRange(scores[s.id] ?? '', SPEAKER)} onChange={v => setScores(p => ({ ...p, [s.id]: v }))} />
+            <div key={s.id}>
+              <ScoreInput label={`${i + 1}. ${s.name}`} value={scores[s.id] ?? ''} range={SPEAKER}
+                invalid={tried && !inRange(scores[s.id] ?? '', SPEAKER)} onChange={v => setScores(p => ({ ...p, [s.id]: v }))} />
+              <FeedbackField label={t('ballot.feedbackFor', { name: s.name })} value={feedback[s.id] ?? ''} onChange={v => setFeedback(p => ({ ...p, [s.id]: v }))} />
+            </div>
           ))}
           <div className="py-2.5">
             <div className="flex items-center justify-between gap-3">
@@ -149,6 +171,7 @@ export default function Ballot() {
               </div>
             </div>
             <ScoreInput label={team.speakers.find(s => s.id === (replyBy[side] ?? replyOptions[0].id))!.name} value={reply[side]} range={REPLY} invalid={tried && !inRange(reply[side], REPLY)} onChange={v => setReply(p => ({ ...p, [side]: v }))} />
+            <FeedbackField label={t('ballot.feedbackReply')} value={feedback[`reply:${side}`] ?? ''} onChange={v => setFeedback(p => ({ ...p, [`reply:${side}`]: v }))} />
           </div>
         </div>
       </Card>

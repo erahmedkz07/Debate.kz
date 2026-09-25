@@ -212,6 +212,15 @@ export interface AdminAction {
   createdAt: string
 }
 
+// ---------- speaker progress ----------
+export interface SpeakerProgress {
+  summary: { speeches: number; debates: number; wins: number; average: number | null; best: number | null; replyAverage: number | null; trend: number | null }
+  timeline: { date: string; tournament: string; round: string; position: number; score: number; won: boolean }[]
+  byPosition: { position: number; average: number | null; count: number }[]
+  byTopic: { topic: MotionTopic; average: number; count: number }[]
+  comments: { judge: string; text: string; position: number; score: number; tournament: string; round: string; date: string }[]
+}
+
 // ---------- motion bank ----------
 export type MotionTopic = 'education' | 'technology' | 'economy' | 'politics' | 'international' | 'environment' | 'society' | 'rights' | 'media' | 'health' | 'culture' | 'sport'
 export interface MotionItem {

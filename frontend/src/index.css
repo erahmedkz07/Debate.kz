@@ -11,6 +11,7 @@
   --muted-foreground: #5b7384;
   --border: #d7e6ee;
   --primary: #009bc9;
+  --chart-1: #009bc9; /* chart marks; validated vs the card surface (dataviz validator) */
   --primary-hover: #0086ae;
   --primary-soft: #e6f5fa;
   --primary-foreground: #ffffff;
@@ -32,6 +33,7 @@
   --muted-foreground: #8fb0c2;
   --border: #1a3d52;
   --primary: #1db4e0;
+  --chart-1: #1597c2; /* darker than --primary: stays inside the dark-mode lightness band */
   --primary-hover: #3fc3ea;
   --primary-soft: #0d3346;
   --primary-foreground: #04151f;
@@ -53,6 +55,7 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-primary: var(--primary);
+  --color-chart-1: var(--chart-1);
   --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
   --color-primary-foreground: var(--primary-foreground);
