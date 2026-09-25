@@ -109,7 +109,7 @@ const registrationSchema = z.object({
 // Judges and organizers of this tournament cannot compete in it (conflict of interest).
 meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, async (req, res) => {
   const data = body(req, registrationSchema)
-  const t = await prisma.tournament.findFirst({ where: { id: param(req, 'id'), ...publicWhere }, include: { _count: { select: { teams: true } } } })
+  const t = await prisma.tournament.findFirst({ where: { id: param(req, 'id'), ...publicWhere }, include: { _count: { select: { teams: { where: { swing: false } } } } } })
   if (!t) throw notFound('tournament_not_found')
   // platform admins may judge or organize, but never compete as speakers
   if (req.user!.role === 'admin') throw forbidden('admins_cannot_compete')

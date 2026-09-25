@@ -37,6 +37,8 @@ export interface Team {
   institution: string
   city: string
   speakers: Speaker[]
+  checkedIn?: boolean // present at the venue (QR check-in)
+  swing?: boolean // stand-in team for an odd draw, never ranked
 }
 
 export interface Judge {
@@ -210,6 +212,20 @@ export interface AdminAction {
   targetLabel: string
   note?: string
   createdAt: string
+}
+
+// ---------- certificates ----------
+export interface Certificate {
+  code: string
+  kind: 'speaker' | 'judge'
+  name: string
+  teamName?: string
+  institution?: string
+  teamPlace?: number
+  inBreak: boolean
+  speakerPlace?: number
+  issuedAt: string
+  tournament: { id: string; name: string; city: string; level: TournamentLevel; organizer: string; startDate: string; endDate: string }
 }
 
 // ---------- speaker progress ----------

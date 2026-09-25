@@ -102,7 +102,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
   }))
-  const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: true } } } })
+  const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })
   if (d.status) await assertStageChange(cur.id, d.status)
   const { startDate, endDate, registrationDeadline, maxTeams, rooms, ...rest } = d
   const data: Prisma.TournamentUpdateInput = { ...rest }
@@ -144,7 +144,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
 const stageMoves: Record<string, string[]> = { registration: ['ongoing'], ongoing: ['registration', 'finished'], finished: [] }
 
 async function assertStageChange(tournamentId: string, to: 'registration' | 'ongoing' | 'finished') {
-  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, include: { rounds: true, _count: { select: { teams: true } } } })
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })
   if (t.status === to) return
   if (!stageMoves[t.status].includes(to)) throw badRequest('invalid_status_transition')
   if (t.moderation !== 'approved') throw forbidden('not_approved')
@@ -176,7 +176,7 @@ async function institutionId(name: string, level: 'school' | 'university') {
 organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
   const d = body(req, teamSchema)
-  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { _count: { select: { teams: true } } } })
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { _count: { select: { teams: { where: { swing: false } } } } } })
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
   if (await prisma.team.findUnique({ where: { tournamentId_name: { tournamentId: t.id, name: d.name } } })) throw conflict('team_name_taken')
   const team = await prisma.team.create({
@@ -282,7 +282,8 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
   const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') } })
   if (!round) throw notFound('round_not_found')
   await assertCanManage(req.user, round.tournamentId)
-  await generateDraw(round.id)
+  const opts = body(req, z.object({ presentOnly: z.boolean().optional(), addSwing: z.boolean().optional() }).default({}))
+  await generateDraw(round.id, opts)
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
   res.status(201).json(debates.map(x => ({
     id: x.id, roundId: x.roundId, room: x.room, propositionTeamId: x.propositionTeamId, oppositionTeamId: x.oppositionTeamId,
@@ -352,7 +353,7 @@ organizerRouter.get('/tournaments/:id/registrations', org, async (req, res) => {
 
 // confirming a registration creates the team; the registering participant is linked to their speaker slot
 organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
-  const reg = await prisma.teamRegistration.findUnique({ where: { id: param(req, 'regId') }, include: { tournament: { include: { _count: { select: { teams: true } } } }, user: true } })
+  const reg = await prisma.teamRegistration.findUnique({ where: { id: param(req, 'regId') }, include: { tournament: { include: { _count: { select: { teams: { where: { swing: false } } } } } }, user: true } })
   if (!reg) throw notFound('registration_not_found')
   await assertCanManage(req.user, reg.tournamentId)
   const { status } = body(req, z.object({ status: z.enum(['confirmed', 'rejected']) }))

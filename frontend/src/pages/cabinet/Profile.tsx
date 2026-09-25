@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
+import { Award, BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
 import { changePassword, createTelegramLink, deleteAccount, getMe, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
@@ -19,6 +19,7 @@ import { SideTabsList, SideTabsTrigger, Tabs, TabsContent } from '@/components/u
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
 import { ProgressPanel } from '@/components/profile/ProgressPanel'
+import { CertificatesPanel } from '@/components/profile/CertificatesPanel'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
 
@@ -275,6 +276,7 @@ export default function Profile() {
             <SideTabsTrigger value="registrations"><Users className="size-4" />{t('profile.tabs.registrations')}<Count n={regs.data?.length} /></SideTabsTrigger>
             <SideTabsTrigger value="debates"><Swords className="size-4" />{t('profile.tabs.debates')}<Count n={debates.data?.length} /></SideTabsTrigger>
             <SideTabsTrigger value="progress"><TrendingUp className="size-4" />{t('profile.tabs.progress')}</SideTabsTrigger>
+            <SideTabsTrigger value="certificates"><Award className="size-4" />{t('profile.tabs.certificates')}</SideTabsTrigger>
             <SideTabsTrigger value="settings"><Settings className="size-4" />{t('profile.tabs.settings')}</SideTabsTrigger>
           </SideTabsList>
         )}
@@ -338,6 +340,7 @@ export default function Profile() {
         </TabsContent>
 
         <TabsContent value="progress" className="mt-0"><ProgressPanel /></TabsContent>
+        <TabsContent value="certificates" className="mt-0"><CertificatesPanel /></TabsContent>
 
         <TabsContent value="settings" className="mt-0">
           {/* two columns on wide screens: personal data | Telegram + security */}

@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  DoorOpen, Loader2, Presentation, Megaphone, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  Award, Circle, DoorOpen, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -26,6 +26,7 @@ import NotFound from '@/pages/NotFound'
 import { InviteButton } from '@/components/tournament/InviteDialog'
 import { ModerationBanner } from '@/components/tournament/ModerationBadge'
 import { DatePicker } from '@/components/ui/date-picker'
+import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -204,6 +205,44 @@ function TeamDialog({ team, open, onOpenChange, onSave, saving }: { team: Team |
   )
 }
 
+// venue check-in: a QR for teams to scan, the live count, a new code or a reset for the next day
+function CheckinCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const status = useAsync(() => getCheckin(data.id), [data.id, data.teams.filter(x => x.checkedIn).length])
+  const [show, setShow] = useState(false)
+  const code = status.data?.code
+  const url = code ? `${window.location.origin}/checkin/${data.id}?code=${code}` : ''
+  const act = async (fn: () => Promise<unknown>) => { if (await run('checkin', fn)) { status.reload(); reload() } }
+  return (
+    <Card className="mb-5 flex flex-wrap items-center gap-4 p-5">
+      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary"><QrCode className="size-5" /></span>
+      <div className="min-w-0 flex-1">
+        <p className="font-bold">{t('dashboard.checkin.title')}</p>
+        <p className="text-sm text-muted-foreground">
+          {status.data ? t('dashboard.checkin.count', { present: status.data.present, total: status.data.total }) : '…'} · {t('dashboard.checkin.hint')}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={busy === 'checkin'} onClick={async () => { if (!code) await act(() => newCheckinCode(data.id)); setShow(true) }}><QrCode className="size-4" />{t('dashboard.checkin.showQr')}</Button>
+        <Button variant="ghost" disabled={busy === 'checkin' || !status.data?.present} onClick={() => act(() => resetCheckin(data.id))}><RotateCcw className="size-4" />{t('dashboard.checkin.reset')}</Button>
+      </div>
+      <Dialog open={show && !!code} onOpenChange={setShow}>
+        <DialogContent heading={t('dashboard.checkin.qrTitle')} description={t('dashboard.checkin.qrText')}>
+          <div className="flex flex-col items-center gap-3">
+            {url && <QrCodeImage value={url} size={280} className="rounded-xl border border-border" />}
+            <p className="font-mono text-3xl font-extrabold tracking-[0.4em]">{code}</p>
+            <p className="break-all text-center text-xs text-muted-foreground">{url}</p>
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Button variant="ghost" disabled={busy === 'checkin'} onClick={() => act(() => newCheckinCode(data.id))}><RefreshCw className="size-4" />{t('dashboard.checkin.newCode')}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  )
+}
+
 function Teams({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
@@ -221,13 +260,14 @@ function Teams({ data, reload }: SectionProps) {
 
   return (
     <>
-      <SectionTitle title={`${t('dashboard.nav.teams')} · ${data.teams.length}/${data.maxTeams}`}
+      <SectionTitle title={`${t('dashboard.nav.teams')} · ${data.teams.filter(x => !x.swing).length}/${data.maxTeams}`}
         action={<Button disabled={data.teams.length >= data.maxTeams} onClick={() => { setEditing(null); setOpen(true) }}><Plus className="size-4" />{t('dashboard.teams.add')}</Button>} />
+      {data.status !== 'finished' && data.teams.length > 0 && <CheckinCard data={data} reload={reload} />}
       {data.teams.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('common.empty')} /> : (
         <Card className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
-              <tr><th className="px-5 py-3">{t('common.team')}</th><th className="px-5 py-3">{t('tournament.speakers')}</th><th className="w-28 px-5 py-3" /></tr>
+              <tr><th className="px-5 py-3">{t('common.team')}</th><th className="px-5 py-3">{t('tournament.speakers')}</th><th className="w-44 px-5 py-3" /></tr>
             </thead>
             <tbody className="divide-y divide-border">
               {data.teams.map(team => (
@@ -235,12 +275,23 @@ function Teams({ data, reload }: SectionProps) {
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary-soft text-xs font-bold text-primary">{initials(team.name)}</span>
-                      <div><p className="font-bold">{team.name}</p><p className="text-xs text-muted-foreground">{team.institution}</p></div>
+                      <div>
+                        <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}{team.swing && <Badge variant="outline">{t('dashboard.checkin.swing')}</Badge>}</p>
+                        <p className="text-xs text-muted-foreground">{team.institution}</p>
+                      </div>
                     </div>
                   </td>
                   <td className="px-5 py-3.5 text-muted-foreground">{team.speakers.map(s => s.name).join(', ')}</td>
                   <td className="px-5 py-3.5">
                     <div className="flex justify-end gap-1">
+                      {!team.swing && data.status !== 'finished' && (
+                        <Button variant="ghost" size="sm" aria-pressed={!!team.checkedIn} disabled={busy === `ci-${team.id}`}
+                          className={cn(team.checkedIn ? 'text-success' : 'text-muted-foreground')} title={t('dashboard.checkin.toggle')}
+                          onClick={async () => { if (await run(`ci-${team.id}`, () => setTeamCheckin(team.id, !team.checkedIn))) reload() }}>
+                          {team.checkedIn ? <CheckCircle2 className="size-4" /> : <Circle className="size-4" />}
+                          <span className="hidden sm:inline">{team.checkedIn ? t('dashboard.checkin.present') : t('dashboard.checkin.absent')}</span>
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" aria-label={t('common.edit')} onClick={() => { setEditing(team); setOpen(true) }}><Pencil className="size-4" /></Button>
                       <Button variant="ghost" size="icon" aria-label={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(team)}><Trash2 className="size-4" /></Button>
                     </div>
@@ -406,7 +457,10 @@ function Draw({ data, reload }: SectionProps) {
   const editable = round.status !== 'completed'
   const rooms = [...new Set([...(data.rooms?.length ? data.rooms : DEFAULT_ROOMS), ...current.map(d => d.room)])]
 
-  const generate = async () => { if (await run('generate', () => generateDraw(round.id), t('dashboard.draw.generated'))) reload() }
+  const present = data.teams.filter(x => x.checkedIn && !x.swing).length
+  const [presentOnly, setPresentOnly] = useState(false)
+  const [addSwing, setAddSwing] = useState(true)
+  const generate = async () => { if (await run('generate', () => generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing }), t('dashboard.draw.generated'))) reload() }
   const publish = async () => { if (await run('publish', () => updateRound(round.id, { status: 'released' }), t('dashboard.draw.published'))) reload() }
   const patch = async (d: Debate, p: Parameters<typeof updateDebate>[1]) => { if (await run(d.id, () => updateDebate(d.id, p))) reload() }
 
@@ -430,6 +484,18 @@ function Draw({ data, reload }: SectionProps) {
             )}
           </div>
         } />
+      {editable && (
+        <div className="mb-4 flex flex-wrap gap-x-6 gap-y-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={presentOnly && present > 0} disabled={present === 0} onChange={e => setPresentOnly(e.target.checked)} />
+            {t('dashboard.draw.presentOnly', { present, total: data.teams.filter(x => !x.swing).length })}
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={addSwing} onChange={e => setAddSwing(e.target.checked)} />
+            {t('dashboard.draw.addSwing')}
+          </label>
+        </div>
+      )}
       {round.status === 'draft' && current.length > 0 && !round.motion.trim() && <p className="mb-3 text-sm text-danger">{t('dashboard.draw.needMotion')}</p>}
       {current.length === 0 ? (
         <EmptyState icon={<Shuffle className="size-7" />} title={t('dashboard.draw.empty')} text={t('dashboard.draw.emptyText')}
@@ -842,7 +908,16 @@ export default function ManageTournament() {
           {current === 'rounds' && <Rounds {...props} />}
           {current === 'draw' && <Draw {...props} />}
           {current === 'ballots' && <Ballots {...props} />}
-          {current === 'results' && <><SectionTitle title={t('dashboard.nav.results')} /><ResultsTab id={id} kind="teams" tournament={data} /></>}
+          {current === 'results' && (
+            <>
+              <SectionTitle title={t('dashboard.nav.results')}
+                action={data.status === 'finished' && (
+                  <Button asChild variant="outline"><a href={`/tournaments/${id}/certificates/print`} target="_blank" rel="noopener"><Award className="size-4" />{t('certificate.printAll')}</a></Button>
+                )} />
+              {data.status !== 'finished' && <p className="-mt-3 mb-4 text-sm text-muted-foreground">{t('certificate.afterFinish')}</p>}
+              <ResultsTab id={id} kind="teams" tournament={data} />
+            </>
+          )}
           {current === 'settings' && <SettingsSection {...props} />}
         </section>
       </div>

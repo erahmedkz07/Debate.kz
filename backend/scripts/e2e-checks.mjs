@@ -528,4 +528,49 @@ ok(prog.byPosition.length === 3 && prog.byPosition.every(p => p.average === null
 ok((await timur('GET', '/me/progress')).data.comments.every(c => c.text !== COMMENT), "nobody else sees someone's comments")
 ok((await client()('GET', '/me/progress')).status === 401, 'progress needs sign-in')
 
+// ---------- 21. certificates with QR verification ----------
+const finishedT = (await org('GET', '/organizer/tournaments')).data.find(x => x.status === 'finished')
+const certs = (await org('GET', `/tournaments/${finishedT.id}/certificates`)).data
+ok(certs.length > 0 && certs.every(c => /^[A-Z2-9]{10}$/.test(c.code)), `certificates issued for a finished tournament (${certs.length})`)
+ok(certs.some(c => c.kind === 'speaker' && c.teamPlace === 1) && certs.some(c => c.kind === 'judge'), 'speakers (with team place) and judges get certificates')
+ok(certs.filter(c => c.speakerPlace).length <= 3 && certs.filter(c => c.inBreak).every(c => c.teamPlace <= finishedT.breakSize), 'top-3 speakers and the break are marked correctly')
+const again = (await org('GET', `/tournaments/${finishedT.id}/certificates`)).data
+ok(again.length === certs.length && again.every(c => certs.some(x => x.code === c.code)), 'issuing is idempotent: codes never change')
+const one = certs[0]
+r = await client()('GET', `/certificates/${one.code}`)
+ok(r.status === 200 && r.data.name === one.name && r.data.tournament.name === finishedT.name, 'anyone can verify a certificate by its code')
+ok((await client()('GET', `/certificates/${one.code.toLowerCase()}`)).status === 200, 'the code is case-insensitive')
+ok((await client()('GET', '/certificates/ABCDEFGHJK')).status === 404 && (await client()('GET', '/certificates/nonsense')).status === 404, 'unknown codes are rejected')
+ok((await student('GET', `/tournaments/${finishedT.id}/certificates`)).status === 403, 'only organizers list every certificate')
+ok((await org('GET', `/tournaments/${t1.id}/certificates`)).data.length === 0, 'no certificates before the tournament is finished')
+const judgeOfFinished = certs.find(c => c.kind === 'judge')
+const jc = (await judge('GET', '/me/certificates')).data
+ok(Array.isArray(jc) && jc.every(c => c.kind === 'judge' || c.kind === 'speaker') && jc.every(c => certs.some(x => x.code === c.code) || c.tournament.id !== finishedT.id), 'my certificates list only my own')
+ok(!(await student('GET', '/me/certificates')).data.some(c => c.code === judgeOfFinished?.code), "nobody gets someone else's certificate")
+
+// ---------- 22. QR check-in and the swing team ----------
+r = await org('POST', `/tournaments/${t1.id}/checkin/code`)
+const ciCode = r.data.code
+ok(r.status === 200 && /^[A-Z2-9]{6}$/.test(ciCode) && r.data.present === 0, 'organizer creates a check-in code')
+ok((await student('POST', `/checkin/${t1.id}`, { code: 'WRONG1' })).data.error === 'wrong_checkin_code', 'a wrong code is rejected')
+r = await student('POST', `/checkin/${t1.id}`, { code: ciCode.toLowerCase() })
+ok(r.status === 200 && r.data.team === 'E2E Команда', 'a team member checks the team in by scanning the QR')
+ok((await timur('POST', `/checkin/${t1.id}`, { code: ciCode })).data.error === 'not_in_tournament', 'people without a team cannot check in')
+for (let i = 0; i < 10; i++) await sabina('POST', `/checkin/${t1.id}`, { code: 'ZZZZZZ' })
+ok((await sabina('POST', `/checkin/${t1.id}`, { code: ciCode })).status === 429, 'guessing the code is blocked after 10 misses')
+const t1teams = (await org('GET', `/tournaments/${t1.id}`)).data.teams
+for (const tm of t1teams.filter(x => x.name !== 'E2E Команда').slice(0, 2)) await org('PATCH', `/teams/${tm.id}/checkin`, { present: true })
+ok((await org('GET', `/tournaments/${t1.id}/checkin`)).data.present === 3, 'the organizer marks teams by hand (3 present)')
+ok((await student('PATCH', `/teams/${t1teams[0].id}/checkin`, { present: false })).status === 403, 'participants cannot mark teams')
+const t1round = (await org('GET', `/tournaments/${t1.id}`)).data.rounds.find(x => x.status === 'draft')
+r = await org('POST', `/rounds/${t1round.id}/draw`, { presentOnly: true })
+ok(r.status === 400 && r.data.error === 'odd_number_of_teams', 'three present teams cannot be paired without a swing')
+r = await org('POST', `/rounds/${t1round.id}/draw`, { presentOnly: true, addSwing: true })
+const t1drawn = (await org('GET', `/tournaments/${t1.id}`)).data
+const swing = t1drawn.teams.find(x => x.swing)
+ok(r.status === 201 && r.data.length === 2 && swing && r.data.some(d => [d.propositionTeamId, d.oppositionTeamId].includes(swing.id)), 'only present teams are drawn, the swing team evens it out')
+ok(!(await client()('GET', `/tournaments/${t1.id}/standings`)).data.teams.some(x => x.team.swing || x.team.name === 'Swing'), 'the swing team is never ranked')
+r = await org('POST', `/tournaments/${t1.id}/checkin/reset`)
+ok(r.data.present === 0, 'check-in can be reset for the next day')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

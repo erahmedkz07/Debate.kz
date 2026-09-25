@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  MotionItem, MotionTopic, SpeakerProgress,
+  Certificate, MotionItem, MotionTopic, SpeakerProgress,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
@@ -169,7 +169,7 @@ export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
-export const generateDraw = (roundId: string) => http<Debate[]>('POST', `/rounds/${roundId}/draw`)
+export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean } = {}) => http<Debate[]>('POST', `/rounds/${roundId}/draw`, opts)
 export const updateDebate = (debateId: string, data: Partial<{ room: string; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 
@@ -194,6 +194,18 @@ export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
+// ---------- certificates & check-in ----------
+export const verifyCertificate = (code: string) => or404(http<Certificate>('GET', `/certificates/${encodeURIComponent(code)}`))
+export const getMyCertificates = () => http<Certificate[]>('GET', '/me/certificates')
+export const getTournamentCertificates = (id: string) => http<Certificate[]>('GET', `/tournaments/${id}/certificates`)
+type CheckinStatus = { code?: string; present: number; total: number }
+export const getCheckin = (id: string) => http<CheckinStatus>('GET', `/tournaments/${id}/checkin`)
+export const newCheckinCode = (id: string) => http<CheckinStatus>('POST', `/tournaments/${id}/checkin/code`)
+export const resetCheckin = (id: string) => http<CheckinStatus>('POST', `/tournaments/${id}/checkin/reset`)
+export const setTeamCheckin = (teamId: string, present: boolean) => http<{ ok: true }>('PATCH', `/teams/${teamId}/checkin`, { present })
+export const checkIn = (tournamentId: string, code: string) =>
+  http<{ team: string; tournament: string; alreadyChecked: boolean }>('POST', `/checkin/${tournamentId}`, { code })
+
 export const getProgress = () => http<SpeakerProgress>('GET', '/me/progress')
 
 // ---------- motion bank ----------

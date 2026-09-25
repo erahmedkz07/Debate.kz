@@ -139,3 +139,13 @@
   background-color: currentColor;
 }
 @keyframes dropdown-in { from { opacity: 0; transform: translateY(-4px) scale(0.98) } }
+
+/* certificates: A4 landscape, one per page; toolbar hidden */
+@media print {
+  @page { size: A4 landscape; margin: 0; }
+  body { background: #fff !important; }
+  .print-hidden { display: none !important; }
+  .cert-sheet { width: 297mm; height: 210mm; max-width: none; aspect-ratio: auto; break-after: page; page-break-after: always; }
+  .cert-sheet:last-child { break-after: auto; page-break-after: auto; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

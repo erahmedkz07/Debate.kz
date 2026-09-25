@@ -31,6 +31,9 @@ const Notifications = lazy(() => import('@/pages/cabinet/Notifications'))
 const Motions = lazy(() => import('@/pages/Motions'))
 const Timer = lazy(() => import('@/pages/Timer'))
 const Projector = lazy(() => import('@/pages/Projector'))
+const CertificatePrint = lazy(() => import('@/pages/CertificatePrint'))
+const VerifyCertificate = lazy(() => import('@/pages/VerifyCertificate'))
+const CheckIn = lazy(() => import('@/pages/CheckIn'))
 
 function PageLoader() {
   return (
@@ -55,6 +58,8 @@ export default function App() {
                 <Route path="rating" element={<Rating />} />
                 <Route path="motions" element={<Motions />} />
                 <Route path="timer" element={<Timer />} />
+                <Route path="verify/:code" element={<VerifyCertificate />} />
+                <Route path="checkin/:tournamentId" element={<RequireAuth><CheckIn /></RequireAuth>} />
                 <Route path="about" element={<About />} />
                 <Route path="pricing" element={<Pricing />} />
                 <Route path="ballot/:debateId" element={<RequireAuth><Ballot /></RequireAuth>} />
@@ -64,6 +69,9 @@ export default function App() {
               </Route>
               {/* the venue screen: no site header, full screen */}
               <Route path="tournaments/:id/projector" element={<Projector />} />
+              {/* print views: one certificate, or all certificates of a tournament */}
+              <Route path="certificates/:code" element={<CertificatePrint />} />
+              <Route path="tournaments/:id/certificates/print" element={<RequireAuth><CertificatePrint /></RequireAuth>} />
               <Route path="login" element={<Login />} />
               <Route path="register" element={<Register />} />
               <Route path="forgot-password" element={<ForgotPassword />} />
