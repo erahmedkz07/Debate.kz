@@ -14,13 +14,13 @@ const avatarColor: Record<Role, string> = {
 
 // Cabinet sections depend on what the person actually does, not on a global role:
 // everyone has a profile and "my tournaments" (anyone can create one);
-// "judging" appears once they were invited as a judge; admins also get the admin panel.
+// "judging" is for everyone (level, progress and exchange applications); admins also get the admin panel.
 export function cabinetLinks(user: User) {
   const links = [
     { to: '/me', key: 'profile', icon: UserRound },
     { to: '/dashboard', key: 'organizer', icon: LayoutGrid },
   ]
-  if (user.judges || user.role === 'admin') links.push({ to: '/judge', key: 'judge', icon: Gavel })
+  links.push({ to: '/judge', key: 'judge', icon: Gavel })
   if (user.role === 'admin') links.unshift({ to: '/admin', key: 'admin', icon: ShieldCheck })
   return links
 }

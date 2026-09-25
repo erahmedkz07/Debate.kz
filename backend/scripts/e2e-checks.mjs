@@ -478,4 +478,53 @@ ok(r.status === 200 && (await org('GET', `/tournaments/${orgAuto3.id}`)).data.mo
 const orgTrust2 = (await org('GET', '/organizer/trust')).data
 ok(orgTrust2.level === 'new' && orgTrust2.checks.find(c => c.key === 'noUpheldReports').met === false, 'an organizer with an upheld report loses trust')
 
+// ---------- 18. judge exchange ----------
+r = await org('PUT', `/tournaments/${t1.id}/judge-call`, { needed: 2, minLevel: 'judge', message: 'Нужны судьи на отборочные раунды' })
+ok(r.status === 200, 'organizer posts a judge call')
+r = await fresh('PUT', `/tournaments/${pendingOwn.id}/judge-call`, { needed: 2 })
+ok(r.status === 403 && r.data.error === 'not_approved', 'unmoderated tournaments cannot post on the exchange')
+ok((await student('PUT', `/tournaments/${t1.id}/judge-call`, { needed: 5 })).status === 403, 'only organizers post calls')
+let calls = (await client()('GET', '/judge-calls')).data
+const call1 = calls.find(c => c.tournament.id === t1.id)
+ok(call1?.needed === 2 && call1.accepted === 0 && call1.minLevel === 'judge', 'anyone sees open calls')
+const apply = (c, body = {}) => c('POST', `/judge-calls/${t1.id}/applications`, body)
+r = await apply(student)
+ok(r.status === 403 && r.data.error === 'conflict_of_interest', 'a competitor of the tournament cannot apply to judge it')
+r = await apply(timur)
+ok(r.status === 403 && r.data.error === 'level_too_low', 'the minimum level is enforced by the server')
+r = await apply(judge, { message: 'Судил 10+ дебатов' })
+ok(r.status === 201, 'a judge with a high enough level applies')
+ok((await apply(judge)).status === 409, 'one application per tournament')
+ok((await judge('DELETE', `/judge-calls/${t1.id}/applications/me`)).status === 204, 'an applicant can withdraw')
+ok((await apply(judge, { message: 'Снова готов' })).status === 201, 'a withdrawn application can be sent again')
+ok((await client()('GET', '/judge-calls')).data.length >= 1 && (await judge('GET', '/judge-calls')).data.find(c => c.tournament.id === t1.id).myStatus === 'pending',
+  'the list shows my application status')
+await org('PUT', `/tournaments/${t1.id}/judge-call`, { needed: 2, minLevel: 'novice' })
+ok((await apply(timur)).status === 201 && (await apply(sabina)).status === 201, 'with a lower minimum, novices can apply')
+let board = (await org('GET', `/tournaments/${t1.id}/judge-call`)).data
+ok(board.applications.length === 3 && board.applications[0].level === 'judge' && board.applications[0].stats.debates > 0,
+  'organizer sees applicants with levels and stats, strongest first')
+ok((await student('GET', `/tournaments/${t1.id}/judge-call`)).status === 403, 'participants cannot see applicants')
+ok((await org('GET', `/tournaments/${t1.id}`)).data.pendingApplications === 3, 'pending applications are counted for the organizer menu')
+const allUsers = (await admin('GET', '/admin/users')).data
+const appOf = email => board.applications.find(a => a.user.id === allUsers.find(u => u.email === email).id)
+const judgeApp = board.applications[0]
+ok(judgeApp.user.id === allUsers.find(u => u.email === 'judge@debate.kz').id, 'the experienced applicant is listed first')
+ok((await sabina('PATCH', `/judge-applications/${judgeApp.id}`, { decision: 'accept' })).status === 403, 'applicants cannot accept themselves')
+r = await org('PATCH', `/judge-applications/${judgeApp.id}`, { decision: 'accept' })
+const t1judges = (await org('GET', `/tournaments/${t1.id}`)).data.judges
+ok(r.status === 200 && t1judges.some(j => j.name === judgeApp.user.name && j.level === 'judge' && j.rating === 6), 'accepting makes the applicant a judge of the tournament (rating from level)')
+ok((await org('PATCH', `/judge-applications/${judgeApp.id}`, { decision: 'decline' })).data.error === 'already_processed', 'a decision is final')
+await org('PATCH', `/judge-applications/${appOf('sabina@mail.kz').id}`, { decision: 'decline' })
+ok((await apply(sabina)).status === 409, 'a declined applicant cannot spam the same call')
+const timurApp = appOf('timur@mail.kz')
+r = await org('PATCH', `/judge-applications/${timurApp.id}`, { decision: 'accept' })
+calls = (await client()('GET', '/judge-calls')).data
+ok(r.status === 200 && !calls.some(c => c.tournament.id === t1.id), 'the call closes itself when enough judges are accepted')
+ok((await apply(student)).status === 404, 'a closed call takes no applications')
+board = (await org('GET', `/tournaments/${t1.id}/judge-call`)).data
+ok(board.open === false && board.accepted === 2, 'organizer sees the closed call with 2 accepted')
+const mine1 = (await timur('GET', '/me/judge-applications')).data.concat((await sabina('GET', '/me/judge-applications')).data)
+ok(mine1.some(a => a.status === 'accepted') && mine1.some(a => a.status === 'declined'), 'applicants see accepted / declined')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
