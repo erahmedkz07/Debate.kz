@@ -7,6 +7,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { clearSession, requireAuth, requireVerified, sessionUser, setSession } from '../middleware/auth.js'
 import { removeOld } from './avatar.js'
+import { background, notifyNewRegistration } from '../services/notify.js'
 import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 
 export const meRouter = Router()
@@ -123,5 +124,6 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   const reg = await prisma.teamRegistration.create({
     data: { tournamentId: t.id, userId: req.user!.id, teamName: data.teamName, institution: data.institution, speakers: data.speakers, contactPhone: data.phone },
   })
+  background(notifyNewRegistration(reg.id))
   res.status(201).json({ ...reg, createdAt: toDay(reg.createdAt) })
 })
