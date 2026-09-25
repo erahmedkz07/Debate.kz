@@ -1,5 +1,6 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { Globe } from 'lucide-react'
 import { Logo } from '@/components/brand'
 import { LangSwitch, ThemeToggle } from '@/components/layout/Header'
 import { UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
@@ -26,6 +27,10 @@ export default function DashboardLayout() {
                 <Icon className="size-4" />{t(`cabinet.${key}`)}
               </NavLink>
             ))}
+            {/* explicit way back to the public site: users don't expect the logo to be a link */}
+            <Link to="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground">
+              <Globe className="size-4" />{t('cabinet.site')}
+            </Link>
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <LangSwitch className="hidden sm:flex" />
@@ -41,6 +46,7 @@ export default function DashboardLayout() {
               <Icon className="size-4" />{t(`cabinet.${key}`)}
             </NavLink>
           ))}
+          <Link to="/" className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground"><Globe className="size-4" />{t('cabinet.site')}</Link>
         </nav>
       </header>
       <EmailBanner />

@@ -92,9 +92,23 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationOpen: z.boolean().optional(),
     status: z.enum(['registration', 'ongoing', 'finished']).optional(),
   }))
+  if (d.status) await assertStageChange(param(req, 'id'), d.status)
   const t = await prisma.tournament.update({ where: { id: param(req, 'id') }, data: d, include: summaryInclude })
   res.json(toSummary(t))
 })
+
+// registration -> ongoing -> finished; going back to registration is allowed until a round is released
+const stageMoves: Record<string, string[]> = { registration: ['ongoing'], ongoing: ['registration', 'finished'], finished: [] }
+
+async function assertStageChange(tournamentId: string, to: 'registration' | 'ongoing' | 'finished') {
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, include: { rounds: true, _count: { select: { teams: true } } } })
+  if (t.status === to) return
+  if (!stageMoves[t.status].includes(to)) throw badRequest('invalid_status_transition')
+  if (t.moderation !== 'approved') throw forbidden('not_approved')
+  if (to === 'ongoing' && t._count.teams < 2) throw badRequest('not_enough_teams')
+  if (to === 'registration' && t.rounds.some(r => r.status !== 'draft')) throw badRequest('rounds_started')
+  if (to === 'finished' && t.rounds.some(r => r.status === 'released')) throw badRequest('round_in_progress')
+}
 
 organizerRouter.delete('/tournaments/:id', org, async (req, res) => {
   await assertOwner(req.user, param(req, 'id'))
@@ -179,6 +193,15 @@ organizerRouter.post('/tournaments/:id/judges', org, async (req, res) => {
     include: { institution: true },
   })
   res.status(201).json({ id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating })
+})
+
+organizerRouter.delete('/judges/:judgeId', org, async (req, res) => {
+  const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
+  if (!judge) throw notFound('judge_not_found')
+  await assertCanManage(req.user, judge.tournamentId)
+  if (await prisma.debateJudge.count({ where: { judgeId: judge.id } })) throw forbidden('judge_in_draw')
+  await prisma.judge.delete({ where: { id: judge.id } })
+  res.status(204).end()
 })
 
 // ---------- rounds & draw ----------

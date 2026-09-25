@@ -28,7 +28,8 @@ powershell -ExecutionPolicy Bypass -File scripts\setup-db-admin.ps1
 
 ```bash
 npx prisma migrate dev      # применяет миграции
-npm run db:seed             # демо-данные (стирает всё; в production не запускается)
+npm run db:seed             # демо-данные в ПУСТУЮ базу (если в базе уже есть пользователи — откажется)
+npm run db:seed:force       # сброс к демо-данным: стирает всё, только осознанно
 npm run dev                 # http://localhost:4000, перезапуск при изменениях
 ```
 
@@ -42,8 +43,8 @@ npm run dev                 # http://localhost:4000, перезапуск при
 | `npm run build` / `npm start` | сборка в `dist/` и запуск production-версии |
 | `npm run typecheck` | проверка типов |
 | `npm run db:migrate` | новая миграция после изменения `prisma/schema.prisma` |
-| `npm run db:seed` / `db:reset` | демо-данные / сброс базы |
-| `npm run test:e2e` | сквозной сценарий API (83 проверки; **меняет dev-базу** — после него `npm run db:seed`) |
+| `npm run db:seed` / `db:seed:force` / `db:reset` | демо-данные в пустую базу / принудительный сброс к демо / сброс схемы |
+| `npm run test:e2e` | сквозной сценарий API (95 проверок) на **отдельной базе `debatekz_test`** и своём сервере :4100 — dev-база не трогается |
 | `npm run admin:grant -- <email>` | выдать роль админа существующему пользователю |
 
 ## Роли и права

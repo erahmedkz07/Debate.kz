@@ -106,8 +106,8 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {list.map(x => (
-              <tr key={x.id} className={cn('hover:bg-muted/40', !x.visible && 'opacity-50')}>
+            {[...list].sort((a, b) => Number(b.moderation === 'pending') - Number(a.moderation === 'pending')).map(x => (
+              <tr key={x.id} className={cn('hover:bg-muted/40', !x.visible && 'opacity-50', x.moderation === 'pending' && 'bg-accent-soft/40')}>
                 <td className="px-5 py-3.5">
                   <p className="font-bold">{x.name}</p>
                   <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><StatusDot status={x.status} />{t(`status.${x.status}`)} · {formatDateRange(x.startDate, x.endDate)}</p>
@@ -221,7 +221,7 @@ function UsersTab() {
         <Select className="w-52" value={role} onValueChange={v => setRole(v as typeof role)} aria-label={t('auth.role')}
           options={[{ value: 'all', label: t('admin.allRoles') }, ...roles.map(r => ({ value: r, label: t(`roles.${r}`) }))]} />
       </div>
-      {shown.length === 0 ? <EmptyState title={t('tournaments.emptyTitle')} /> : (
+      {shown.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('admin.noUsers')} /> : (
         <Card className="overflow-x-auto">
           <table className="w-full min-w-[820px] text-sm">
             <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -286,7 +286,7 @@ export default function AdminPanel() {
           <TabsTrigger value="tournaments">{t('nav.tournaments')}</TabsTrigger>
           <TabsTrigger value="users">{t('admin.users')}</TabsTrigger>
         </TabsList>
-        {error ? <div className="mt-6"><ErrorState onRetry={reload} /></div> : loading || !list.length ? <Skeleton className="mt-6 h-96" /> : (
+        {error ? <div className="mt-6"><ErrorState onRetry={reload} /></div> : loading || !data ? <Skeleton className="mt-6 h-96" /> : (
           <>
             <TabsContent value="overview"><Overview tournaments={list} setTab={setTab} /></TabsContent>
             <TabsContent value="tournaments"><TournamentsTab list={list} setList={setList} /></TabsContent>

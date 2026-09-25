@@ -2,7 +2,7 @@
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
   AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
-  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, User,
+  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
 
@@ -139,7 +139,7 @@ export interface CreateTournamentInput {
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
 }
 export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
-export const updateTournament = (id: string, data: Partial<{ name: string; description: string; visible: boolean; registrationOpen: boolean }>) =>
+export const updateTournament = (id: string, data: Partial<{ name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)
 export const deleteTournament = (id: string) => http<void>('DELETE', `/tournaments/${id}`)
 
@@ -150,6 +150,7 @@ export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${tea
 
 export const addJudge = (tournamentId: string, data: { name: string; institution?: string; rating: number }) =>
   http<Judge>('POST', `/tournaments/${tournamentId}/judges`, data)
+export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
