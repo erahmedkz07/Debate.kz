@@ -68,6 +68,8 @@ export default function Motions() {
           {TOPICS.map(topic => {
             const active = filters.topic === topic
             const count = data?.topicCounts[topic] ?? 0
+            // topics without motions only add noise
+            if (data && !count && !active) return null
             return (
               <button key={topic} type="button" aria-pressed={active} onClick={() => set('topic', active ? undefined : topic)}
                 className={cn('cursor-pointer rounded-full border-2 px-3 py-1 text-sm font-semibold transition-all',

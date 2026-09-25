@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  DoorOpen, Loader2, Megaphone, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  DoorOpen, Loader2, Presentation, Megaphone, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
   addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
@@ -350,7 +350,12 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
           <p className="font-bold">{round.name}</p>
           <Badge variant={round.status === 'completed' ? 'muted' : round.status === 'released' ? 'accent' : 'outline'}>{t(`tournament.roundStatus.${round.status}`)}</Badge>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {round.status !== 'completed' && (
+            <Button asChild size="sm" variant="ghost" title={t('projector.open')}>
+              <a href={`/tournaments/${round.tournamentId}/projector?round=${round.id}`} target="_blank" rel="noopener"><Presentation className="size-4" />{t('projector.short')}</a>
+            </Button>
+          )}
           {dirty && round.status !== 'completed' && <Button size="sm" variant="outline" disabled={!!busy} onClick={save}>{t('common.save')}</Button>}
           {round.status === 'draft' && (
             <Button size="sm" disabled={!!busy || !motion.trim() || !hasDraw} title={!hasDraw ? t('dashboard.rounds.needDraw') : undefined} onClick={release}>

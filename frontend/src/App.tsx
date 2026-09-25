@@ -30,6 +30,7 @@ const InvitePage = lazy(() => import('@/pages/InvitePage'))
 const Notifications = lazy(() => import('@/pages/cabinet/Notifications'))
 const Motions = lazy(() => import('@/pages/Motions'))
 const Timer = lazy(() => import('@/pages/Timer'))
+const Projector = lazy(() => import('@/pages/Projector'))
 
 function PageLoader() {
   return (
@@ -61,6 +62,8 @@ export default function App() {
                 <Route path="invite/:token" element={<InvitePage />} />
                 <Route path="*" element={<NotFound />} />
               </Route>
+              {/* the venue screen: no site header, full screen */}
+              <Route path="tournaments/:id/projector" element={<Projector />} />
               <Route path="login" element={<Login />} />
               <Route path="register" element={<Register />} />
               <Route path="forgot-password" element={<ForgotPassword />} />
