@@ -1,6 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
+  AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
 } from '@/types'
@@ -191,5 +192,13 @@ export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
+// ---------- notifications ----------
+export const getNotifications = (before?: string) =>
+  http<{ items: AppNotification[]; unread: number; hasMore: boolean }>('GET', `/me/notifications${qs({ before })}`)
+export const getUnreadCount = () => http<{ count: number }>('GET', '/me/notifications/unread').then(r => r.count)
+export const markNotificationsRead = (ids?: string[]) => http<{ updated: number }>('POST', '/me/notifications/read', { ids })
+export const getPlatformNotifications = (before?: string) =>
+  http<{ items: AppNotification[]; hasMore: boolean; unread?: number }>('GET', `/admin/notifications${qs({ before })}`)
+
 export const getAdminActions = () => http<AdminAction[]>('GET', '/admin/actions')
 export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)

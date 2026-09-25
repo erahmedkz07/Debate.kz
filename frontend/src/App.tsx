@@ -27,6 +27,7 @@ const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'))
 const ForgotPassword = lazy(() => import('@/pages/auth/ForgotPassword'))
 const ResetPassword = lazy(() => import('@/pages/auth/ResetPassword'))
 const InvitePage = lazy(() => import('@/pages/InvitePage'))
+const Notifications = lazy(() => import('@/pages/cabinet/Notifications'))
 
 function PageLoader() {
   return (
@@ -64,6 +65,7 @@ export default function App() {
               <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
                 <Route path="me" element={<Profile />} />
                 <Route path="judge" element={<JudgeDashboard />} />
+                <Route path="notifications" element={<Notifications />} />
                 <Route path="admin" element={<RequireAuth roles={['admin']}><AdminPanel /></RequireAuth>} />
                 <Route path="dashboard">
                   <Route index element={<MyTournaments />} />

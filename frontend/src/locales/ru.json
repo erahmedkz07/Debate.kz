@@ -870,5 +870,91 @@
     "unmute": "Включить уведомления",
     "unlink": "Отключить",
     "unlinked": "Telegram отключён"
+  },
+  "notifications": {
+    "title": "Уведомления",
+    "subtitle": "Всё, что касается ваших турниров: заявки, жеребьёвки, судейство и решения администраторов.",
+    "bellUnread_one": "{{count}} непрочитанное уведомление",
+    "bellUnread_few": "{{count}} непрочитанных уведомления",
+    "bellUnread_many": "{{count}} непрочитанных уведомлений",
+    "bellUnread_other": "{{count}} непрочитанных уведомлений",
+    "all": "Все",
+    "platform": "Вся платформа",
+    "readAll": "Прочитать все",
+    "more": "Показать ещё",
+    "unread": "Не прочитано",
+    "platformHint": "Уведомления всех пользователей — видно только администраторам.",
+    "empty": "Уведомлений пока нет",
+    "emptyText": "Здесь появятся заявки, жеребьёвки, назначения судьёй и решения по вашим турнирам.",
+    "chair": "председатель",
+    "wing": "боковой судья",
+    "kind": {
+      "judge": "судья",
+      "co_organizer": "соорганизатор"
+    },
+    "categories": {
+      "participant": "Участие",
+      "judge": "Судейство",
+      "organizer": "Организация",
+      "admin": "Администрирование"
+    },
+    "types": {
+      "participant": {
+        "registrationConfirmed": {
+          "title": "Заявка подтверждена",
+          "text": "Команда «{{team}}» участвует в турнире «{{tournament}}»."
+        },
+        "registrationRejected": {
+          "title": "Заявка отклонена",
+          "text": "Организатор отклонил заявку команды «{{team}}» на «{{tournament}}»."
+        },
+        "drawReleased": {
+          "title": "Жеребьёвка: {{round}}",
+          "text": "«{{tournament}}»: аудитория {{room}}, вы — {{side}} против «{{opponent}}». Тема: «{{motion}}»."
+        },
+        "roundResult": {
+          "title": "Итог раунда: {{result}}",
+          "text": "«{{tournament}}», {{round}} — результаты в таблице турнира."
+        }
+      },
+      "judge": {
+        "assigned": {
+          "title": "Назначение: {{round}}",
+          "text": "«{{tournament}}»: вы {{role}} в аудитории {{room}} — «{{proposition}}» vs «{{opposition}}». Откройте бюллетень."
+        },
+        "joined": {
+          "title": "Вы судья турнира",
+          "text": "«{{tournament}}»: назначения появятся после жеребьёвки."
+        }
+      },
+      "organizer": {
+        "newRegistration": {
+          "title": "Новая заявка",
+          "text": "Команда «{{team}}» подала заявку на «{{tournament}}»."
+        },
+        "memberJoined": {
+          "title": "Приглашение принято",
+          "text": "{{name}} — {{kind}} турнира «{{tournament}}»."
+        },
+        "approved": {
+          "title": "Турнир одобрен",
+          "text": "«{{tournament}}» опубликован и виден всем."
+        },
+        "rejected": {
+          "title": "Турнир отклонён",
+          "text": "«{{tournament}}». Причина: {{reason}}"
+        },
+        "deleted": {
+          "title": "Турнир удалён администратором",
+          "text": "«{{tournament}}». Причина: {{reason}}"
+        }
+      },
+      "admin": {
+        "tournamentPending": {
+          "title": "Турнир ждёт проверки{{plan}}",
+          "text": "«{{tournament}}» ({{city}}), владелец — {{owner}}."
+        }
+      }
+    }
   }
 }
