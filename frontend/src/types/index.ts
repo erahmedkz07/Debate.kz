@@ -212,6 +212,19 @@ export interface AdminAction {
   createdAt: string
 }
 
+// ---------- motion bank ----------
+export type MotionTopic = 'education' | 'technology' | 'economy' | 'politics' | 'international' | 'environment' | 'society' | 'rights' | 'media' | 'health' | 'culture' | 'sport'
+export interface MotionItem {
+  id: string
+  motion: string
+  infoSlide?: string
+  round: string
+  date: string
+  topics: MotionTopic[]
+  language: 'ru' | 'kz'
+  tournament: { id: string; name: string; level: TournamentLevel; city: string }
+}
+
 // in-app notification: the text is built on the site from type + data (RU/KZ)
 export interface AppNotification {
   id: string

@@ -1,6 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
+  MotionItem, MotionTopic,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
@@ -192,6 +193,10 @@ export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
+// ---------- motion bank ----------
+export const getMotions = (f: { search?: string; level?: 'school' | 'university'; lang?: 'ru' | 'kz'; topic?: MotionTopic; page?: number }) =>
+  http<{ items: MotionItem[]; total: number; page: number; pages: number; topicCounts: Record<MotionTopic, number> }>('GET', `/motions${qs(f)}`)
+
 // ---------- notifications ----------
 export const getNotifications = (before?: string) =>
   http<{ items: AppNotification[]; unread: number; hasMore: boolean }>('GET', `/me/notifications${qs({ before })}`)

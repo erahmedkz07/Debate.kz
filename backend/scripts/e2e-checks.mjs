@@ -493,4 +493,13 @@ if (adN.hasMore) {
   ok(page2.items.every(n => n.createdAt < adN.items.at(-1).createdAt), 'the next page continues where the first ended')
 }
 
+// ---------- 19. motion bank ----------
+const bank = (await client()('GET', '/motions')).data
+ok(bank.total > 0 && bank.items.length <= 24 && bank.items.every(m => m.motion && m.tournament.id), `motion bank lists released motions (${bank.total})`)
+ok((await client()('GET', `/motions?search=${encodeURIComponent('уведомления в Telegram')}`)).data.total === 0, 'motions of non-public tournaments never appear')
+const eduBank = (await client()('GET', '/motions?topic=education')).data
+ok(eduBank.items.every(m => m.topics.includes('education')) && bank.topicCounts.education === eduBank.total, 'topic filter and counters agree')
+ok((await client()('GET', '/motions?lang=kz')).data.items.every(m => m.language === 'kz'), 'language filter')
+ok((await client()('GET', '/motions?topic=astrology')).status === 400, 'unknown topics are rejected')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
