@@ -374,157 +374,69 @@ ok(log.some(a => a.action === 'tournament.approve' && a.targetId === own1.id) &&
 ok(log.some(a => a.action === 'tournament.paid' && a.targetId === unpaid.id && a.adminName), 'payment confirmation is logged with the admin name')
 ok((await student('GET', '/admin/actions')).status === 403, 'only admins can read the audit log')
 
-// ---------- 15. judge feedback and levels ----------
-const fbList = (await student('GET', '/me/feedback')).data
-ok(Array.isArray(fbList) && fbList.length > 0 && fbList[0].judges.length > 0, `participant sees debates to rate (${fbList.length})`)
-const fbItem = fbList[0]
-const fbJudge = fbItem.judges[0].judgeId
-r = await student('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: fbJudge, score: 6 })
-ok(r.status === 400, 'score outside 1..5 rejected')
-r = await student('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: fbJudge, score: 2, comment: 'Не объяснил решение' })
-ok(r.status === 201, 'team member rates a judge of their debate')
-r = await student('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: fbJudge, score: 4, comment: 'Подумав: объяснил нормально' })
-const fbAgain = (await student('GET', '/me/feedback')).data.find(x => x.debateId === fbItem.debateId).judges.find(j => j.judgeId === fbJudge)
-ok(r.status === 201 && fbAgain.given?.score === 4, 'the team can change its score (one per team, not a second vote)')
-const offPanel = t4full.judges.find(j => !fbItem.judges.some(x => x.judgeId === j.id))
-r = await student('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: offPanel.id, score: 5 })
-ok(r.status === 400 && r.data.error === 'invalid_judge', 'only judges of that debate can be rated')
-r = await timur('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: fbJudge, score: 1 })
-ok(r.status === 403 && r.data.error === 'not_in_debate', 'outsiders cannot rate judges (no rating attacks)')
+// ---------- 15. Telegram bot (test mode: e2e plays Telegram, the bot writes to an outbox) ----------
+const bot = client()
+let upd = 1000
+const tgSend = (chatId, fields, type = 'private') => bot('POST', '/telegram/test/update', {
+  update_id: ++upd, message: { message_id: upd, from: { id: chatId, username: `u${chatId}` }, chat: { id: chatId, type }, ...fields },
+})
+const inbox = async (chatId) => (await bot('GET', `/telegram/test/outbox?chat=${chatId}`)).data
+const lastText = async (chatId) => (await inbox(String(chatId))).filter(m => m.method === 'sendMessage').at(-1)?.text ?? ''
+// notifications are sent in the background: wait until the expected message arrives
+const waitFor = async (chatId, re) => { for (let i = 0; i < 20; i++) { if ((await inbox(String(chatId))).some(m => re.test(m.text ?? ''))) return true; await new Promise(r => setTimeout(r, 100)) } return false }
+const linkToken = async c => (await c('POST', '/me/telegram/link')).data.url.split('start=')[1]
 
-const jp = (await judge('GET', '/judge/profile')).data
-ok(jp.level === 'judge' && jp.stats.debates >= 6 && jp.next?.level === 'experienced', `judge earned the "judge" level (${jp.stats.debates} debates)`)
-ok(jp.next.checks.some(c => c.key === 'feedbackCount' && !c.met), 'progress shows what is missing for the next level')
-const sp = (await student('GET', '/judge/profile')).data
-ok(sp.level === 'novice' && sp.stats.debates === 0, 'someone who never judged is a novice')
+const tgConf = (await client()('GET', '/telegram/config')).data
+ok(tgConf.enabled && tgConf.username === 'DebateKzTestBot', 'bot config is public')
+ok((await client()('POST', '/me/telegram/link')).status === 401, 'guests cannot create a link')
+r = await student('POST', '/me/telegram/link')
+ok(r.status === 201 && r.data.url.startsWith('https://t.me/DebateKzTestBot?start='), 'user gets a one-time deep link')
+const stTok = r.data.url.split('start=')[1]
+await tgSend(111, { text: `/start ${stTok}` })
+const hello = await inbox('111')
+ok(hello.some(m => /Готово/.test(m.text)) && hello.some(m => m.reply_markup?.keyboard?.[0]?.[0]?.request_contact), 'the bot links the account and asks for the phone')
+let meTg = (await student('GET', '/auth/me')).data.user
+ok(meTg.telegramLinked && meTg.telegramUsername === 'u111' && !meTg.phoneVerified, 'the site shows Telegram as connected')
+await tgSend(112, { text: `/start ${stTok}` })
+ok(/устарела|использована/.test(await lastText(112)), 'a link works only once')
+await tgSend(111, { text: `/start ${await linkToken(timur)}` })
+ok(/уже подключ[её]н/.test(await lastText(111)), 'one Telegram account cannot be linked to two site accounts')
+await tgSend(555, { text: '/start' }, 'group')
+ok((await inbox('555')).length === 0, 'group chats are ignored')
+await tgSend(111, { contact: { phone_number: '+77015550000', user_id: 999 } })
+ok(/свой номер/.test(await lastText(111)) && !(await student('GET', '/auth/me')).data.user.phoneVerified, "someone else's contact card is not accepted")
+await tgSend(111, { contact: { phone_number: '+79161234567', user_id: 111 } })
+ok(/Казахстана/.test(await lastText(111)), 'only Kazakhstan numbers are accepted')
+await tgSend(111, { contact: { phone_number: '87011234567', user_id: 111 } })
+meTg = (await student('GET', '/auth/me')).data.user
+ok(meTg.phoneVerified && meTg.phone === '+7 701 123 45 67', 'own contact verifies the phone')
+await tgSend(222, { text: `/start ${await linkToken(timur)}` })
+await tgSend(222, { contact: { phone_number: '+7 701 123 45 67', user_id: 222 } })
+ok(/другом аккаунте/.test(await lastText(222)), 'one phone number, one account')
+await tgSend(111, { text: '/stop' })
+ok((await student('GET', '/auth/me')).data.user.telegramNotify === false, '/stop turns notifications off')
+await tgSend(111, { text: '/on' })
+await tgSend(111, { text: '/me' })
+ok(/подтверждён/.test(await lastText(111)), '/me shows the account')
+await tgSend(333, { text: 'привет' })
+ok(/не подключён/.test(await lastText(333)), 'unknown chats get instructions')
 
-const t4pub = (await client()('GET', `/tournaments/${t4id}`)).data
-ok(t4pub.judges.some(j => j.level === 'judge'), 'public tournament page shows earned judge levels')
-
-const insights = (await org('GET', `/tournaments/${t4id}/judge-feedback`)).data
-const fbRow = insights.find(x => x.judgeId === fbJudge)
-ok(fbRow?.items.some(i => i.score === 4 && i.comment?.startsWith('Подумав')), 'organizer sees team feedback with comments')
-ok((await student('GET', `/tournaments/${t4id}/judge-feedback`)).status === 403, 'participants cannot read feedback')
-r = await org('PUT', `/judges/${fbJudge}/review`, { score: 5 })
-ok(r.status === 200, 'organizer rates a judge after the tournament')
-r = await org('POST', `/tournaments/${t4id}/judges`, { name: 'Новый Судья Без Дебатов', rating: 5 })
-r = await org('PUT', `/judges/${r.data.id}/review`, { score: 5 })
-ok(r.status === 400 && r.data.error === 'judge_not_judged_yet', 'a judge who has not judged yet cannot be reviewed')
-
-const studentUser = (await admin('GET', '/admin/users')).data.find(u => u.email === 'student@debate.kz')
-r = await admin('PATCH', `/admin/users/${studentUser.id}`, { judgeLevelMin: 'experienced' })
-ok(r.status === 200 && r.data.judgeLevel === 'experienced', 'admin sets a minimum level for a known judge')
-r = await admin('PATCH', `/admin/users/${studentUser.id}`, { judgeLevelMin: null })
-ok(r.status === 200 && r.data.judgeLevel === undefined, 'removing the minimum returns to the earned level (none for someone who never judged)')
-ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'user.judgeLevel' && a.targetId === studentUser.id), 'level changes are in the audit log')
-r = await student('PATCH', `/admin/users/${studentUser.id}`, { judgeLevelMin: 'chief' })
-ok(r.status === 403, 'a user cannot raise their own judge level')
-
-// ---------- 16. organizer trust ----------
-const orgTrust = (await org('GET', '/organizer/trust')).data
-ok(orgTrust.level === 'trusted' && orgTrust.autoPublish && orgTrust.activeLimit === 5, 'an organizer who ran a real tournament is trusted (limit 5)')
-const freshTrust = (await fresh('GET', '/organizer/trust')).data
-ok(freshTrust.level === 'new' && !freshTrust.autoPublish && freshTrust.checks.find(c => c.key === 'finished').met === false,
-  'a new organizer is not trusted (a finished tournament without played rounds does not count)')
-r = await org('POST', '/tournaments', tBody(11))
-const orgAuto1 = r.data
-ok(r.status === 201 && orgAuto1.moderation === 'approved' && orgAuto1.autoApproved === true, "trusted organizer's tournament is published at once")
-ok((await client()('GET', '/tournaments')).data.some(t => t.id === orgAuto1.id), 'auto-published tournament is in the public list')
-const freshUser = (await admin('GET', '/admin/users')).data.find(u => u.email === freshEmail)
-r = await admin('PATCH', `/admin/users/${freshUser.id}`, { organizerTrust: 'verified' })
-ok(r.status === 200 && r.data.organizerTrust === 'verified', 'admin marks an organizer as a verified organization')
-r = await fresh('POST', '/tournaments', tBody(12))
-ok(r.status === 201 && r.data.moderation === 'approved', 'verified organization publishes at once')
-r = await admin('PATCH', `/admin/users/${freshUser.id}`, { organizerTrust: 'restricted' })
-const restricted = (await fresh('GET', '/organizer/trust')).data
-ok(restricted.level === 'restricted' && !restricted.autoPublish && restricted.activeLimit === 3, 'restricted organizer is always moderated, limit back to 3')
-r = await fresh('POST', '/tournaments', tBody(13))
-ok(r.status === 400 && r.data.error === 'tournament_limit_reached', 'the lower limit applies at once (4 active > 3)')
-await admin('PATCH', `/admin/users/${freshUser.id}`, { organizerTrust: null })
-ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'user.organizerTrust' && a.targetId === freshUser.id), 'trust changes are in the audit log')
-
-// ---------- 17. reports ----------
-const report = (c, id, body = { reason: 'fake' }) => c('POST', `/tournaments/${id}/reports`, body)
-ok((await report(org, orgAuto1.id)).data.error === 'cannot_report_own', 'organizers cannot report their own tournament')
-ok((await report(client(), orgAuto1.id)).status === 401, 'guests cannot report')
-ok((await report(student, orgAuto1.id, { reason: 'other' })).data.error === 'reason_required', '"other" needs an explanation')
-ok((await report(student, orgAuto1.id)).status === 201, 'a participant reports a tournament')
-ok((await report(student, orgAuto1.id)).status === 409, 'one report per user and tournament')
-await report(timur, orgAuto1.id, { reason: 'spam' })
-ok((await client()('GET', `/tournaments/${orgAuto1.id}`)).status === 200, 'two reports are not enough to hide a tournament')
-await report(sabina, orgAuto1.id, { reason: 'inappropriate', text: 'Оскорбительное описание' })
-ok((await client()('GET', `/tournaments/${orgAuto1.id}`)).status === 404, 'after 3 reports the tournament is hidden until an admin decides')
-ok((await org('GET', `/tournaments/${orgAuto1.id}`)).data.reportHold === true, 'the owner still manages it and sees why it is hidden')
-const queue = (await admin('GET', '/admin/reports')).data
-ok(queue.some(q => q.tournament.id === orgAuto1.id && q.reports.length === 3 && q.tournament.reportHold), 'admin sees the report queue')
-ok((await admin('GET', '/admin/stats')).data.openReports >= 1, 'open reports are counted on the admin overview')
-ok((await student('GET', '/admin/reports')).status === 403, 'only admins see reports')
-r = await admin('PATCH', `/admin/reports/${orgAuto1.id}`, { decision: 'dismiss' })
-ok(r.status === 200 && (await client()('GET', `/tournaments/${orgAuto1.id}`)).status === 200, 'dismissed reports: the tournament is public again')
-const logR = (await admin('GET', '/admin/actions')).data
-ok(logR.some(a => a.action === 'tournament.autoHidden' && a.adminName === 'system') && logR.some(a => a.action === 'tournament.reportsDismissed'), 'automatic hiding and the decision are logged')
-
-// false reports cost weight: after two dismissed reports a user no longer hides tournaments
-const orgAuto2 = (await org('POST', '/tournaments', tBody(14))).data
-for (const c of [student, timur, sabina]) await report(c, orgAuto2.id)
-await admin('PATCH', `/admin/reports/${orgAuto2.id}`, { decision: 'dismiss' })
-const orgAuto3 = (await org('POST', '/tournaments', tBody(15))).data
-for (const c of [student, timur, sabina]) await report(c, orgAuto3.id)
-ok((await client()('GET', `/tournaments/${orgAuto3.id}`)).status === 200, 'reporters with repeatedly dismissed reports cannot hide a tournament (mass-report protection)')
-r = await admin('PATCH', `/admin/reports/${orgAuto3.id}`, { decision: 'uphold' })
-ok(r.status === 400 && r.data.error === 'reason_required', 'upholding reports needs a reason')
-r = await admin('PATCH', `/admin/reports/${orgAuto3.id}`, { decision: 'uphold', note: 'Фейковый турнир' })
-ok(r.status === 200 && (await org('GET', `/tournaments/${orgAuto3.id}`)).data.moderation === 'rejected', 'upheld reports reject the tournament')
-const orgTrust2 = (await org('GET', '/organizer/trust')).data
-ok(orgTrust2.level === 'new' && orgTrust2.checks.find(c => c.key === 'noUpheldReports').met === false, 'an organizer with an upheld report loses trust')
-
-// ---------- 18. judge exchange ----------
-r = await org('PUT', `/tournaments/${t1.id}/judge-call`, { needed: 2, minLevel: 'judge', message: 'Нужны судьи на отборочные раунды' })
-ok(r.status === 200, 'organizer posts a judge call')
-r = await fresh('PUT', `/tournaments/${pendingOwn.id}/judge-call`, { needed: 2 })
-ok(r.status === 403 && r.data.error === 'not_approved', 'unmoderated tournaments cannot post on the exchange')
-ok((await student('PUT', `/tournaments/${t1.id}/judge-call`, { needed: 5 })).status === 403, 'only organizers post calls')
-let calls = (await client()('GET', '/judge-calls')).data
-const call1 = calls.find(c => c.tournament.id === t1.id)
-ok(call1?.needed === 2 && call1.accepted === 0 && call1.minLevel === 'judge', 'anyone sees open calls')
-const apply = (c, body = {}) => c('POST', `/judge-calls/${t1.id}/applications`, body)
-r = await apply(student)
-ok(r.status === 403 && r.data.error === 'conflict_of_interest', 'a competitor of the tournament cannot apply to judge it')
-r = await apply(timur)
-ok(r.status === 403 && r.data.error === 'level_too_low', 'the minimum level is enforced by the server')
-r = await apply(judge, { message: 'Судил 10+ дебатов' })
-ok(r.status === 201, 'a judge with a high enough level applies')
-ok((await apply(judge)).status === 409, 'one application per tournament')
-ok((await judge('DELETE', `/judge-calls/${t1.id}/applications/me`)).status === 204, 'an applicant can withdraw')
-ok((await apply(judge, { message: 'Снова готов' })).status === 201, 'a withdrawn application can be sent again')
-ok((await client()('GET', '/judge-calls')).data.length >= 1 && (await judge('GET', '/judge-calls')).data.find(c => c.tournament.id === t1.id).myStatus === 'pending',
-  'the list shows my application status')
-await org('PUT', `/tournaments/${t1.id}/judge-call`, { needed: 2, minLevel: 'novice' })
-ok((await apply(timur)).status === 201 && (await apply(sabina)).status === 201, 'with a lower minimum, novices can apply')
-let board = (await org('GET', `/tournaments/${t1.id}/judge-call`)).data
-ok(board.applications.length === 3 && board.applications[0].level === 'judge' && board.applications[0].stats.debates > 0,
-  'organizer sees applicants with levels and stats, strongest first')
-ok((await student('GET', `/tournaments/${t1.id}/judge-call`)).status === 403, 'participants cannot see applicants')
-ok((await org('GET', `/tournaments/${t1.id}`)).data.pendingApplications === 3, 'pending applications are counted for the organizer menu')
-const allUsers = (await admin('GET', '/admin/users')).data
-const appOf = email => board.applications.find(a => a.user.id === allUsers.find(u => u.email === email).id)
-const judgeApp = board.applications[0]
-ok(judgeApp.user.id === allUsers.find(u => u.email === 'judge@debate.kz').id, 'the experienced applicant is listed first')
-ok((await sabina('PATCH', `/judge-applications/${judgeApp.id}`, { decision: 'accept' })).status === 403, 'applicants cannot accept themselves')
-r = await org('PATCH', `/judge-applications/${judgeApp.id}`, { decision: 'accept' })
-const t1judges = (await org('GET', `/tournaments/${t1.id}`)).data.judges
-ok(r.status === 200 && t1judges.some(j => j.name === judgeApp.user.name && j.level === 'judge' && j.rating === 6), 'accepting makes the applicant a judge of the tournament (rating from level)')
-ok((await org('PATCH', `/judge-applications/${judgeApp.id}`, { decision: 'decline' })).data.error === 'already_processed', 'a decision is final')
-await org('PATCH', `/judge-applications/${appOf('sabina@mail.kz').id}`, { decision: 'decline' })
-ok((await apply(sabina)).status === 409, 'a declined applicant cannot spam the same call')
-const timurApp = appOf('timur@mail.kz')
-r = await org('PATCH', `/judge-applications/${timurApp.id}`, { decision: 'accept' })
-calls = (await client()('GET', '/judge-calls')).data
-ok(r.status === 200 && !calls.some(c => c.tournament.id === t1.id), 'the call closes itself when enough judges are accepted')
-ok((await apply(student)).status === 404, 'a closed call takes no applications')
-board = (await org('GET', `/tournaments/${t1.id}/judge-call`)).data
-ok(board.open === false && board.accepted === 2, 'organizer sees the closed call with 2 accepted')
-const mine1 = (await timur('GET', '/me/judge-applications')).data.concat((await sabina('GET', '/me/judge-applications')).data)
-ok(mine1.some(a => a.status === 'accepted') && mine1.some(a => a.status === 'declined'), 'applicants see accepted / declined')
+// notifications
+const logosReg = (await org('GET', `/tournaments/${t1.id}/registrations`)).data.find(x => x.status === 'pending' && x.user.email === 'student@debate.kz')
+await org('PATCH', `/registrations/${logosReg.id}`, { status: 'rejected' })
+ok(await waitFor(111, /отклонена/), 'registration decision arrives in Telegram')
+await tgSend(333, { text: `/start ${await linkToken(judge)}` })
+// a judge with an account gets their room when the draw is published
+await fresh('POST', `/tournaments/${pendingOwn.id}/judges`, { name: 'Алихан Ахметов', rating: 9, email: 'judge@debate.kz' })
+const round1 = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data.rounds[0]
+await fresh('POST', `/rounds/${round1.id}/draw`)
+await fresh('PATCH', `/rounds/${round1.id}`, { motion: 'Эта палата поддерживает уведомления в Telegram' })
+r = await fresh('PATCH', `/rounds/${round1.id}`, { status: 'released' })
+ok(r.status === 200 && await waitFor(333, /председатель/) && await waitFor(333, /уведомления в Telegram/), 'a released draw tells the judge their room, role and motion')
+await tgSend(444, { text: `/start ${await linkToken(fresh)}` })
+await admin('PATCH', `/admin/tournaments/${pendingOwn.id}`, { moderation: 'rejected', moderationNote: 'Проверка уведомлений' })
+ok(await waitFor(444, /отклонён.*Проверка уведомлений/s), 'moderation decisions arrive to the owner')
+r = await student('DELETE', '/me/telegram')
+ok(r.status === 200 && r.data.user.telegramLinked === false && r.data.user.phoneVerified === true, 'unlinking keeps the verified phone')
 
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

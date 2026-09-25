@@ -14,7 +14,6 @@ const links = [
   { to: '/', key: 'home' },
   { to: '/tournaments', key: 'tournaments' },
   { to: '/rating', key: 'rating' },
-  { to: '/judges', key: 'judges' },
   { to: '/about', key: 'about' },
   { to: '/pricing', key: 'pricing' },
 ] as const
@@ -74,19 +73,18 @@ export function Header() {
       <div className="container-page flex h-16 items-center justify-between gap-4 lg:h-18">
         <Logo inverted={onDark} />
 
-        {/* six links + guest buttons: compact spacing on lg, roomy from xl */}
-        <nav className="hidden items-center gap-0.5 lg:flex xl:gap-1">
+        <nav className="hidden items-center gap-1 lg:flex">
           {links.map(l => (
             <NavLink
               key={l.to}
               to={l.to}
               end={l.to === '/'}
-              className={({ isActive }) => cn('relative rounded-lg px-2.5 py-2 text-sm font-semibold xl:px-3.5 transition-colors hover:text-primary', isActive ? (onDark ? 'text-white' : 'text-primary') : onDark ? 'text-white/80 hover:text-white' : 'text-foreground/80')}
+              className={({ isActive }) => cn('relative rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors hover:text-primary', isActive ? (onDark ? 'text-white' : 'text-primary') : onDark ? 'text-white/80 hover:text-white' : 'text-foreground/80')}
             >
               {({ isActive }) => (
                 <>
                   {t(`nav.${l.key}`)}
-                  {isActive && <span className="absolute inset-x-2.5 -bottom-0.5 h-0.5 xl:inset-x-3.5 rounded-full bg-accent" />}
+                  {isActive && <span className="absolute inset-x-3.5 -bottom-0.5 h-0.5 rounded-full bg-accent" />}
                 </>
               )}
             </NavLink>
@@ -101,8 +99,7 @@ export function Header() {
             : (
               <>
                 <Button asChild variant="ghost" className={cn(onDark && 'text-white hover:bg-white/10')}><Link to="/login">{t('nav.login')}</Link></Button>
-                {/* hidden on lg so six links still fit; the burger menu and the home page have it too */}
-                <Button asChild className="hidden xl:inline-flex"><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>
+                <Button asChild><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>
               </>
             )}
         </div>

@@ -7,8 +7,7 @@ import { publicUser, requireAuth } from '../middleware/auth.js'
 import { sendMail } from '../lib/mail.js'
 import { env } from '../lib/env.js'
 import { summaryInclude, toSummary } from '../services/tournaments.js'
-import { judgeProfiles } from '../services/judgeLevels.js'
-import { trustLevels } from '../services/organizerTrust.js'
+import { background, notifyModeration } from '../services/notify.js'
 import type { User } from '../generated/prisma/client.js'
 
 export const adminRouter = Router()
@@ -30,7 +29,7 @@ adminRouter.get('/admin/actions', async (_req, res) => {
 })
 
 adminRouter.get('/admin/stats', async (_req, res) => {
-  const [users, organizers, judges, tournaments, active, unpaid, pendingModeration, openReports] = await Promise.all([
+  const [users, organizers, judges, tournaments, active, unpaid, pendingModeration] = await Promise.all([
     prisma.user.count(),
     // people who organize / judge at least one tournament (no longer global roles)
     prisma.user.count({ where: { organizedTournaments: { some: {} } } }),
@@ -39,24 +38,18 @@ adminRouter.get('/admin/stats', async (_req, res) => {
     prisma.tournament.count({ where: { status: { not: 'finished' } } }),
     prisma.tournament.count({ where: { plan: 'pro', paid: false } }),
     prisma.tournament.count({ where: { moderation: 'pending' } }),
-    prisma.tournament.count({ where: { reports: { some: { status: 'open' } } } }),
   ])
-  res.json({ users, organizers, judges, tournaments, active, unpaid, pendingModeration, openReports })
+  res.json({ users, organizers, judges, tournaments, active, unpaid, pendingModeration })
 })
 
 adminRouter.get('/admin/tournaments', async (_req, res) => {
   const rows = await prisma.tournament.findMany({
-    include: {
-      ...summaryInclude,
-      organizers: { where: { role: 'owner' }, include: { user: { select: { name: true, email: true } } } },
-      _count: { select: { teams: true, reports: { where: { status: 'open' } } } },
-    },
+    include: { ...summaryInclude, organizers: { where: { role: 'owner' }, include: { user: { select: { name: true, email: true } } } } },
     orderBy: [{ moderation: 'asc' }, { createdAt: 'desc' }], // pending first
   })
   res.json(rows.map(t => ({
     ...toSummary(t), plan: t.plan, paid: t.paid, visible: t.visible, moderation: t.moderation,
     moderationNote: t.moderationNote ?? undefined, owner: t.organizers[0]?.user,
-    autoApproved: t.autoApproved, reportHold: t.reportHold, openReports: t._count.reports,
   })))
 })
 
@@ -85,6 +78,11 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
   if (d.visible !== undefined && d.visible !== t.visible) await logAction(req.user!, d.visible ? 'tournament.show' : 'tournament.hide', target)
   // tell the owner about the moderation decision
   const owner = t.organizers[0]?.user
+  if (d.moderation) {
+    background(notifyModeration(t.id, d.moderation === 'approved'
+      ? `✅ Турнир «${t.name}» одобрен и опубликован.`
+      : `❌ Турнир «${t.name}» отклонён. Причина: ${d.moderationNote}`))
+  }
   if (d.moderation && owner) {
     const approved = d.moderation === 'approved'
     await sendMail({
@@ -103,27 +101,11 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
 
 adminRouter.get('/admin/users', async (_req, res) => {
   const users = await prisma.user.findMany({ orderBy: { createdAt: 'asc' } })
-  const profiles = await judgeProfiles(users.map(u => u.id))
-  // organizer trust only for people who own tournaments or have an override
-  const owners = await prisma.tournamentOrganizer.findMany({ where: { role: 'owner' }, select: { userId: true }, distinct: ['userId'] })
-  const trust = await trustLevels([...owners.map(o => o.userId), ...users.filter(u => u.organizerTrust).map(u => u.id)])
-  // a level is shown only for people who have judged or were given a minimum level
-  const levelOf = (id: string) => { const p = profiles.get(id); return p && (p.stats.debates > 0 || p.minLevel) ? p.level : undefined }
-  res.json(users.map(u => ({
-    ...publicUser(u), judgeLevel: levelOf(u.id), judgeLevelMin: u.judgeLevelMin ?? undefined,
-    organizerTrust: trust.get(u.id), organizerTrustOverride: u.organizerTrust ?? undefined,
-  })))
+  res.json(users.map(publicUser))
 })
 
 adminRouter.patch('/admin/users/:id', async (req, res) => {
-  const d = body(req, z.object({
-    role: z.enum(['user', 'admin']).optional(),
-    blocked: z.boolean().optional(),
-    // minimum judge level for experienced judges who are new to the platform; null = earned level only
-    judgeLevelMin: z.enum(['judge', 'experienced', 'chief']).nullable().optional(),
-    // verified organization (published at once) or restricted (always moderated); null = earned trust
-    organizerTrust: z.enum(['verified', 'restricted']).nullable().optional(),
-  }))
+  const d = body(req, z.object({ role: z.enum(['user', 'admin']).optional(), blocked: z.boolean().optional() }))
   // an admin cannot lock themselves out
   if (param(req, 'id') === req.user!.id) throw badRequest('cannot_change_self')
   const u = await prisma.user.findUnique({ where: { id: param(req, 'id') } })
@@ -132,10 +114,5 @@ adminRouter.patch('/admin/users/:id', async (req, res) => {
   const target = { type: 'user' as const, id: u.id, label: `${u.name} (${u.email})` }
   if (d.role && d.role !== u.role) await logAction(req.user!, 'user.role', target, d.role)
   if (d.blocked !== undefined && d.blocked !== u.blocked) await logAction(req.user!, d.blocked ? 'user.block' : 'user.unblock', target)
-  if (d.judgeLevelMin !== undefined && d.judgeLevelMin !== u.judgeLevelMin) await logAction(req.user!, 'user.judgeLevel', target, d.judgeLevelMin ?? 'auto')
-  if (d.organizerTrust !== undefined && d.organizerTrust !== u.organizerTrust) await logAction(req.user!, 'user.organizerTrust', target, d.organizerTrust ?? 'auto')
-  const profile = (await judgeProfiles([u.id])).get(u.id)
-  const shown = profile && (profile.stats.debates > 0 || profile.minLevel) ? profile.level : undefined
-  const trust = (await trustLevels([u.id])).get(u.id)
-  res.json({ ...publicUser(updated), judgeLevel: shown, judgeLevelMin: updated.judgeLevelMin ?? undefined, organizerTrust: trust, organizerTrustOverride: updated.organizerTrust ?? undefined })
+  res.json(publicUser(updated))
 })

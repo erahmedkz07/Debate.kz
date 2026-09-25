@@ -39,8 +39,6 @@ export interface Team {
   speakers: Speaker[]
 }
 
-export type JudgeLevel = 'novice' | 'judge' | 'experienced' | 'chief'
-
 export interface Judge {
   id: string
   tournamentId: string
@@ -48,37 +46,6 @@ export interface Judge {
   institution: string
   rating: number // 1..10
   isChair?: boolean
-  level?: JudgeLevel // earned level; only judges with an account have one
-}
-
-export interface JudgeProfile {
-  level: JudgeLevel
-  earnedLevel: JudgeLevel
-  minLevel: JudgeLevel | null
-  stats: {
-    debates: number; tournaments: number; panels: number; agreement: number | null
-    feedbackCount: number; feedbackAvg: number | null; organizerCount: number; organizerAvg: number | null
-  }
-  next: { level: JudgeLevel; checks: { key: string; current: number | null; required: number; met: boolean }[] } | null
-}
-
-export interface FeedbackItem {
-  debateId: string
-  tournament: { id: string; name: string }
-  round: { number: number; name: string; date: string }
-  opponent: { id: string; name: string }
-  result: 'win' | 'loss'
-  judges: { judgeId: string; name: string; isChair: boolean; given?: { score: number; comment?: string } }[]
-}
-
-export interface JudgeFeedbackRow {
-  judgeId: string
-  level?: JudgeLevel
-  debates: number
-  feedbackCount: number
-  feedbackAvg: number | null
-  review?: number
-  items: { score: number; comment?: string; teamWon: boolean; team: string; round: string }[]
 }
 
 export interface Round {
@@ -134,12 +101,9 @@ export interface TournamentDetails extends Tournament {
   moderation?: ModerationStatus
   moderationNote?: string
   registrationOpen?: boolean
-  reportHold?: boolean // hidden after reports until an admin decides
-  autoApproved?: boolean // published without review thanks to organizer trust
   registrationDeadline?: string
   rooms?: string[]
   pendingRegistrations?: number
-  pendingApplications?: number // judge exchange
   myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]
   rounds: Round[]
@@ -201,11 +165,11 @@ export interface User {
   createdAt: string
   blocked?: boolean
   emailVerified?: boolean
+  phoneVerified?: boolean // confirmed through the Telegram bot
+  telegramLinked?: boolean
+  telegramUsername?: string
+  telegramNotify?: boolean
   organizes?: boolean // owns or co-organizes at least one tournament
-  judgeLevel?: JudgeLevel // admin list only
-  judgeLevelMin?: JudgeLevel // admin-set floor
-  organizerTrust?: TrustLevel // admin list only
-  organizerTrustOverride?: 'verified' | 'restricted'
   judges?: boolean // judges in at least one tournament
 }
 
@@ -235,54 +199,6 @@ export interface AdminTournament extends Tournament {
   moderation: ModerationStatus
   moderationNote?: string
   owner?: { name: string; email: string }
-  autoApproved?: boolean
-  reportHold?: boolean
-  openReports?: number
-}
-
-export type TrustLevel = 'new' | 'trusted' | 'verified' | 'restricted'
-export interface TrustProfile {
-  level: TrustLevel
-  earned: 'new' | 'trusted'
-  override: 'verified' | 'restricted' | null
-  autoPublish: boolean
-  activeLimit: number
-  active: number
-  checks: { key: 'finished' | 'noUpheldReports' | 'noRecentRejections'; met: boolean; value: number }[]
-}
-
-// ---------- judge exchange ----------
-export type ApplicationStatus = 'pending' | 'accepted' | 'declined' | 'withdrawn'
-export interface JudgeCallPublic {
-  tournament: Tournament
-  needed: number
-  accepted: number
-  minLevel: JudgeLevel
-  message?: string
-  myStatus?: ApplicationStatus
-}
-export interface JudgeCallBoard {
-  needed: number
-  minLevel: JudgeLevel
-  message?: string
-  open: boolean
-  accepted: number
-  applications: {
-    id: string
-    status: ApplicationStatus
-    message?: string
-    createdAt: string
-    user: { id: string; name: string; institution?: string; city?: string; avatarUrl?: string }
-    level: JudgeLevel
-    stats: { debates: number; tournaments: number; feedbackAvg: number | null; agreement: number | null }
-  }[]
-}
-export interface MyJudgeApplication { id: string; status: ApplicationStatus; createdAt: string; tournament: Tournament }
-
-export type ReportReason = 'fake' | 'inappropriate' | 'spam' | 'other'
-export interface ReportQueueItem {
-  tournament: Tournament & { reportHold: boolean; autoApproved: boolean; owner?: { name: string; email: string } }
-  reports: { id: string; reason: ReportReason; text?: string; createdAt: string; reporter?: { name: string; email: string } }[]
 }
 
 export interface AdminAction {
@@ -299,8 +215,6 @@ export interface AdminAction {
 export interface MyTournament extends Tournament {
   moderation: ModerationStatus
   moderationNote?: string
-  reportHold?: boolean
-  autoApproved?: boolean
   myRole: OrganizerRole
 }
 

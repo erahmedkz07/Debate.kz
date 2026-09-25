@@ -2,7 +2,6 @@ import type { Prisma, User } from '../generated/prisma/client.js'
 import { toDay } from '../lib/dates.js'
 import { forbidden, notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
-import { levelsForJudges } from './judgeLevels.js'
 
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
@@ -61,8 +60,7 @@ export async function assertOwner(user: User | undefined, tournamentId: string) 
 }
 
 // Public listing: approved by an admin and not hidden
-// public = approved, not hidden by the organizer, not on hold after reports
-export const publicWhere = { visible: true, moderation: 'approved' as const, reportHold: false }
+export const publicWhere = { visible: true, moderation: 'approved' as const }
 
 // One person cannot be both a judge/organizer and a speaker in the same tournament
 export async function participationIn(userId: string, tournamentId: string) {
@@ -87,12 +85,10 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       teams: { include: teamInclude, orderBy: { createdAt: 'asc' } },
       judges: { include: { institution: true }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] },
       registrations: { where: { status: 'pending' }, select: { id: true } },
-      judgeCall: { select: { _count: { select: { applications: { where: { status: 'pending' } } } } } },
     },
   })
   const manager = await isOrganizerOf(viewer, id)
-  const levels = t ? await levelsForJudges(t.judges) : new Map()
-  if (!t || ((!t.visible || t.moderation !== 'approved' || t.reportHold) && !manager)) throw notFound('tournament_not_found')
+  if (!t || ((!t.visible || t.moderation !== 'approved') && !manager)) throw notFound('tournament_not_found')
   const link = manager ? await organizerLink(viewer, id) : null
 
   // the public never sees unreleased motions or draws
@@ -110,10 +106,9 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     // organizer-only flags
     ...(manager && {
       visible: t.visible, plan: t.plan, paid: t.paid, moderation: t.moderation, moderationNote: t.moderationNote ?? undefined,
-      registrationOpen: t.registrationOpen, reportHold: t.reportHold, autoApproved: t.autoApproved,
+      registrationOpen: t.registrationOpen,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
       rooms: t.rooms, pendingRegistrations: t.registrations.length,
-      pendingApplications: t.judgeCall?._count.applications ?? 0,
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
@@ -121,7 +116,6 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     teams: t.teams.map(toTeam),
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
-      level: levels.get(j.id), // earned judge level; only for judges with an account
     })),
   }
 }

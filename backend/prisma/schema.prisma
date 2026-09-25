@@ -34,6 +34,7 @@ enum InviteKind {
 enum TokenPurpose {
   verify_email
   reset_password
+  telegram_link // one-time deep link t.me/<bot>?start=<token>
 }
 
 enum ModerationStatus {
@@ -76,40 +77,6 @@ enum RegistrationStatus {
   rejected
 }
 
-// judge levels are earned automatically (see services/judgeLevels.ts); an admin may set a minimum
-enum JudgeLevel {
-  novice
-  judge
-  experienced
-  chief
-}
-
-// admin override of the earned organizer trust: verified organization or restricted (always moderated)
-enum OrganizerTrust {
-  verified
-  restricted
-}
-
-enum ReportReason {
-  fake
-  inappropriate
-  spam
-  other
-}
-
-enum ReportStatus {
-  open
-  upheld
-  dismissed
-}
-
-enum ApplicationStatus {
-  pending
-  accepted
-  declined
-  withdrawn
-}
-
 enum Plan {
   free
   pro
@@ -118,23 +85,26 @@ enum Plan {
 // ---------- people ----------
 
 model User {
-  id                String          @id @default(cuid())
-  email             String          @unique
-  passwordHash      String          @map("password_hash")
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String    @map("password_hash")
   name              String
   phone             String?
-  role              Role            @default(user)
+  role              Role      @default(user)
   institution       String?
   city              String?
-  avatarUrl         String?         @map("avatar_url") // /uploads/avatars/<file>.webp
-  blocked           Boolean         @default(false)
-  emailVerifiedAt   DateTime?       @map("email_verified_at")
-  consentAt         DateTime?       @map("consent_at") // consent to personal data processing
-  passwordChangedAt DateTime?       @map("password_changed_at") // sessions issued before this are rejected
-  judgeLevelMin     JudgeLevel?     @map("judge_level_min") // admin-set floor for known judges (cold start)
-  organizerTrust    OrganizerTrust? @map("organizer_trust") // admin override; null = earned trust (services/organizerTrust.ts)
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
+  avatarUrl         String?   @map("avatar_url") // /uploads/avatars/<file>.webp
+  blocked           Boolean   @default(false)
+  emailVerifiedAt   DateTime? @map("email_verified_at")
+  consentAt         DateTime? @map("consent_at") // consent to personal data processing
+  passwordChangedAt DateTime? @map("password_changed_at") // sessions issued before this are rejected
+  telegramChatId    String?   @unique @map("telegram_chat_id") // private chat with the bot (= Telegram user id)
+  telegramUsername  String?   @map("telegram_username")
+  telegramNotify    Boolean   @default(true) @map("telegram_notify")
+  verifiedPhone     String?   @unique @map("verified_phone") // shared via the bot's "share contact": one phone, one account
+  phoneVerifiedAt   DateTime? @map("phone_verified_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   organizedTournaments TournamentOrganizer[]
   judgeProfiles        Judge[]
@@ -144,11 +114,6 @@ model User {
   createdInvites       TournamentInvite[]    @relation("InviteCreatedBy")
   usedInvites          TournamentInvite[]    @relation("InviteUsedBy")
   adminActions         AdminAction[]
-  judgeFeedback        JudgeFeedback[]
-  judgeReviews         JudgeReview[]
-  reports              TournamentReport[]    @relation("ReportAuthor")
-  resolvedReports      TournamentReport[]    @relation("ReportResolver")
-  judgeApplications    JudgeApplication[]
 
   @@map("users")
 }
@@ -207,8 +172,6 @@ model Tournament {
   moderation           ModerationStatus @default(pending) // public only after admin approval
   moderationNote       String?          @map("moderation_note")
   rooms                String[]         @default([]) // organizer's own room names for the draw; empty = default list
-  autoApproved         Boolean          @default(false) @map("auto_approved") // published without review thanks to organizer trust
-  reportHold           Boolean          @default(false) @map("report_hold") // hidden automatically after several reports, until an admin decides
   createdAt            DateTime         @default(now()) @map("created_at")
   updatedAt            DateTime         @updatedAt @map("updated_at")
 
@@ -220,8 +183,6 @@ model Tournament {
   schedule      ScheduleItem[]
   registrations TeamRegistration[]
   invites       TournamentInvite[]
-  reports       TournamentReport[]
-  judgeCall     JudgeCall?
 
   @@index([status, startDate])
   @@index([moderation])
@@ -284,18 +245,17 @@ model ScheduleItem {
 }
 
 model Team {
-  id            String          @id @default(cuid())
-  tournamentId  String          @map("tournament_id")
+  id            String       @id @default(cuid())
+  tournamentId  String       @map("tournament_id")
   name          String
-  institutionId String?         @map("institution_id")
+  institutionId String?      @map("institution_id")
   city          String?
-  createdAt     DateTime        @default(now()) @map("created_at")
-  tournament    Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  institution   Institution?    @relation(fields: [institutionId], references: [id])
+  createdAt     DateTime     @default(now()) @map("created_at")
+  tournament    Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  institution   Institution? @relation(fields: [institutionId], references: [id])
   speakers      Speaker[]
-  propositionIn Debate[]        @relation("PropositionTeam")
-  oppositionIn  Debate[]        @relation("OppositionTeam")
-  judgeFeedback JudgeFeedback[]
+  propositionIn Debate[]     @relation("PropositionTeam")
+  oppositionIn  Debate[]     @relation("OppositionTeam")
 
   @@unique([tournamentId, name])
   @@map("teams")
@@ -316,19 +276,17 @@ model Speaker {
 }
 
 model Judge {
-  id            String          @id @default(cuid())
-  tournamentId  String          @map("tournament_id")
+  id            String        @id @default(cuid())
+  tournamentId  String        @map("tournament_id")
   name          String
-  institutionId String?         @map("institution_id")
-  rating        Int             @default(5) // 1..10
-  userId        String?         @map("user_id")
-  tournament    Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  institution   Institution?    @relation(fields: [institutionId], references: [id])
-  user          User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  institutionId String?       @map("institution_id")
+  rating        Int           @default(5) // 1..10
+  userId        String?       @map("user_id")
+  tournament    Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  institution   Institution?  @relation(fields: [institutionId], references: [id])
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   debates       DebateJudge[]
   ballots       Ballot[]
-  feedback      JudgeFeedback[]
-  review        JudgeReview?
 
   @@index([tournamentId])
   @@index([userId])
@@ -352,19 +310,18 @@ model Round {
 }
 
 model Debate {
-  id                String          @id @default(cuid())
-  roundId           String          @map("round_id")
+  id                String        @id @default(cuid())
+  roundId           String        @map("round_id")
   room              String
-  propositionTeamId String          @map("proposition_team_id")
-  oppositionTeamId  String          @map("opposition_team_id")
+  propositionTeamId String        @map("proposition_team_id")
+  oppositionTeamId  String        @map("opposition_team_id")
   winner            Side?
-  ballotStatus      BallotStatus    @default(pending) @map("ballot_status")
-  round             Round           @relation(fields: [roundId], references: [id], onDelete: Cascade)
-  proposition       Team            @relation("PropositionTeam", fields: [propositionTeamId], references: [id], onDelete: Cascade)
-  opposition        Team            @relation("OppositionTeam", fields: [oppositionTeamId], references: [id], onDelete: Cascade)
+  ballotStatus      BallotStatus  @default(pending) @map("ballot_status")
+  round             Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  proposition       Team          @relation("PropositionTeam", fields: [propositionTeamId], references: [id], onDelete: Cascade)
+  opposition        Team          @relation("OppositionTeam", fields: [oppositionTeamId], references: [id], onDelete: Cascade)
   judges            DebateJudge[]
   ballots           Ballot[]
-  feedback          JudgeFeedback[]
 
   @@index([roundId])
   @@map("debates")
@@ -410,93 +367,6 @@ model SpeakerScore {
   @@unique([ballotId, side, position])
   @@index([speakerId])
   @@map("speaker_scores")
-}
-
-// a team's feedback on a judge of its debate (one per team, judge and debate).
-// Individual rows are seen only by the tournament's organizers and admins; the judge sees aggregates.
-model JudgeFeedback {
-  id         String   @id @default(cuid())
-  debateId   String   @map("debate_id")
-  judgeId    String   @map("judge_id")
-  teamId     String   @map("team_id")
-  fromUserId String?  @map("from_user_id")
-  score      Int // 1..5
-  comment    String?
-  teamWon    Boolean  @map("team_won") // winners and losers are averaged separately (revenge protection)
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-  debate     Debate   @relation(fields: [debateId], references: [id], onDelete: Cascade)
-  judge      Judge    @relation(fields: [judgeId], references: [id], onDelete: Cascade)
-  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  fromUser   User?    @relation(fields: [fromUserId], references: [id], onDelete: SetNull)
-
-  @@unique([debateId, judgeId, teamId])
-  @@index([judgeId])
-  @@map("judge_feedback")
-}
-
-// the organizer's overall rating of a judge for one tournament
-model JudgeReview {
-  judgeId   String   @id @map("judge_id")
-  score     Int // 1..5
-  byUserId  String?  @map("by_user_id")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  judge     Judge    @relation(fields: [judgeId], references: [id], onDelete: Cascade)
-  byUser    User?    @relation(fields: [byUserId], references: [id], onDelete: SetNull)
-
-  @@map("judge_reviews")
-}
-
-// a user's complaint about a public tournament (one per user and tournament)
-model TournamentReport {
-  id           String       @id @default(cuid())
-  tournamentId String       @map("tournament_id")
-  reporterId   String?      @map("reporter_id")
-  reason       ReportReason
-  text         String?
-  status       ReportStatus @default(open)
-  resolvedById String?      @map("resolved_by_id")
-  resolvedAt   DateTime?    @map("resolved_at")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  tournament   Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  reporter     User?        @relation("ReportAuthor", fields: [reporterId], references: [id], onDelete: SetNull)
-  resolvedBy   User?        @relation("ReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
-
-  @@unique([tournamentId, reporterId])
-  @@index([status])
-  @@map("tournament_reports")
-}
-
-// judge exchange: a tournament's open call for judges (one per tournament, can be closed and reopened)
-model JudgeCall {
-  tournamentId String             @id @map("tournament_id")
-  needed       Int // how many judges the organizer wants through the exchange
-  minLevel     JudgeLevel         @default(novice) @map("min_level")
-  message      String?
-  open         Boolean            @default(true)
-  createdAt    DateTime           @default(now()) @map("created_at")
-  updatedAt    DateTime           @updatedAt @map("updated_at")
-  tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  applications JudgeApplication[]
-
-  @@map("judge_calls")
-}
-
-// a person's application to judge a tournament; accepting it creates the Judge row
-model JudgeApplication {
-  id           String            @id @default(cuid())
-  tournamentId String            @map("tournament_id")
-  userId       String            @map("user_id")
-  message      String?
-  status       ApplicationStatus @default(pending)
-  decidedAt    DateTime?         @map("decided_at")
-  createdAt    DateTime          @default(now()) @map("created_at")
-  call         JudgeCall         @relation(fields: [tournamentId], references: [tournamentId], onDelete: Cascade)
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([tournamentId, userId])
-  @@index([userId])
-  @@map("judge_applications")
 }
 
 model TeamRegistration {

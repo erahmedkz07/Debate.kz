@@ -4,16 +4,13 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  AlertTriangle, DoorOpen, Loader2, Megaphone, MessageSquare, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  DoorOpen, Loader2, Megaphone, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  addJudge, addTeam, decideApplication, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getJudgeCall, getJudgeFeedback, getRegistrations, reviewJudge, saveJudgeCall, getTournamentById, NotFoundError, setRegistrationStatus,
+  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
-import type { Debate, Judge, JudgeFeedbackRow, JudgeLevel, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
-import { Avatar } from '@/components/auth/UserMenu'
-import { LevelBadge } from '@/components/judge/LevelBadge'
-import { StarRating } from '@/components/ui/stars'
+import type { Debate, Judge, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn, formatDateRange, initials } from '@/lib/utils'
@@ -268,153 +265,12 @@ function Teams({ data, reload }: SectionProps) {
 }
 
 /* ---------- Judges ---------- */
-const JUDGE_LEVELS: JudgeLevel[] = ['novice', 'judge', 'experienced', 'chief']
-
-// judge exchange: post how many judges are needed, then pick among applicants
-function JudgeCallCard({ data, reload }: SectionProps) {
-  const { t } = useTranslation()
-  const { busy, run } = useAction()
-  const board = useAsync(() => getJudgeCall(data.id), [data.id])
-  const call = board.data
-  const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ needed: 2, minLevel: 'novice' as JudgeLevel, message: '' })
-  useEffect(() => { if (call) setForm({ needed: call.needed, minLevel: call.minLevel, message: call.message ?? '' }) }, [call])
-  const canPost = data.moderation === 'approved' && !data.reportHold && data.status !== 'finished'
-  const save = async (open: boolean) => {
-    const payload = { needed: form.needed, minLevel: form.minLevel, message: form.message.trim() || undefined, open }
-    if (await run('call', () => saveJudgeCall(data.id, payload), t(open ? 'dashboard.exchange.published' : 'dashboard.exchange.closed'))) { setEditing(false); board.reload() }
-  }
-  const decide = async (id: string, decision: 'accept' | 'decline') => {
-    if (await run(id, () => decideApplication(id, decision), t(decision === 'accept' ? 'dashboard.exchange.acceptedToast' : 'dashboard.exchange.declinedToast'))) {
-      board.reload()
-      reload()
-    }
-  }
-  if (board.loading && !call) return <Skeleton className="mb-6 h-32" />
-  const neededBad = !Number.isInteger(form.needed) || form.needed < 1 || form.needed > 64
-  return (
-    <Card className="mb-6 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="flex items-center gap-2 font-bold"><Megaphone className="size-4 text-primary" />{t('dashboard.exchange.title')}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.exchange.text')}</p>
-        </div>
-        {call && <Badge variant={call.open ? 'success' : 'muted'}>{call.open ? t('dashboard.exchange.openBadge') : t('dashboard.exchange.closedBadge')}</Badge>}
-      </div>
-      {!call && !canPost ? <p className="mt-3 rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">{t('dashboard.exchange.needApproval')}</p>
-        : !call || editing ? (
-          <div className="mt-4">
-            <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
-              <div>
-                <Label htmlFor="call-n">{t('dashboard.exchange.needed')}</Label>
-                <Input id="call-n" type="number" min={1} max={64} value={form.needed} aria-invalid={neededBad} onChange={e => setForm({ ...form, needed: Number(e.target.value) })} />
-              </div>
-              <div>
-                <Label htmlFor="call-l">{t('exchange.minLevel')}</Label>
-                <Select id="call-l" value={form.minLevel} onValueChange={v => setForm({ ...form, minLevel: v as JudgeLevel })}
-                  options={JUDGE_LEVELS.map(l => ({ value: l, label: t(`judgeLevel.${l}`) }))} />
-              </div>
-              <div className="sm:col-span-2">
-                <Label htmlFor="call-m">{t('exchange.message')}</Label>
-                <Textarea id="call-m" rows={2} maxLength={500} value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder={t('dashboard.exchange.messagePlaceholder')} />
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              {editing && <Button variant="ghost" onClick={() => setEditing(false)}>{t('common.cancel')}</Button>}
-              <Button disabled={busy === 'call' || neededBad || !canPost} onClick={() => save(true)}><Megaphone className="size-4" />{t('dashboard.exchange.publish')}</Button>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-semibold">{t('dashboard.exchange.summary', { accepted: call.accepted, needed: call.needed })}</span>
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">{t('exchange.minLevel')} <LevelBadge level={call.minLevel} /></span>
-            <div className="ml-auto flex flex-wrap gap-1">
-              <Button size="sm" variant="ghost" onClick={() => setEditing(true)}><Pencil className="size-4" />{t('common.edit')}</Button>
-              {call.open
-                ? <Button size="sm" variant="outline" disabled={busy === 'call'} onClick={() => save(false)}>{t('dashboard.exchange.close')}</Button>
-                : canPost && <Button size="sm" disabled={busy === 'call'} onClick={() => save(true)}>{t('dashboard.exchange.reopen')}</Button>}
-              <Button asChild size="sm" variant="ghost"><Link to="/judges"><ExternalLink className="size-4" />{t('dashboard.exchange.view')}</Link></Button>
-            </div>
-          </div>
-        )}
-      {call && call.applications.length > 0 && (
-        <ul className="mt-5 space-y-2 border-t border-border pt-5">
-          {call.applications.map(a => (
-            <li key={a.id} className={cn('flex flex-wrap items-center gap-3 rounded-xl border border-border p-3', a.status !== 'pending' && 'opacity-70')}>
-              <Avatar name={a.user.name} role="user" src={a.user.avatarUrl} />
-              <div className="min-w-0 flex-1">
-                <p className="flex flex-wrap items-center gap-2 font-semibold">{a.user.name}<LevelBadge level={a.level} /></p>
-                <p className="text-xs text-muted-foreground">
-                  {[a.user.institution, a.user.city].filter(Boolean).join(' · ') || '—'} · {t('dashboard.exchange.stats', { debates: a.stats.debates, tournaments: a.stats.tournaments })}
-                  {a.stats.feedbackAvg !== null && ` · ★ ${a.stats.feedbackAvg.toFixed(1)}`}
-                </p>
-                {a.message && <p className="mt-1 text-sm">«{a.message}»</p>}
-                {/* the same person may already be in the list, added by hand without an account */}
-                {a.status === 'pending' && data.judges.some(j => j.name.trim().toLowerCase() === a.user.name.trim().toLowerCase()) && (
-                  <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-accent-foreground dark:text-accent"><AlertTriangle className="size-3.5" />{t('dashboard.exchange.sameName')}</p>
-                )}
-              </div>
-              {a.status === 'pending' ? (
-                <div className="flex gap-1">
-                  <Button size="sm" disabled={!!busy} onClick={() => decide(a.id, 'accept')}>
-                    {busy === a.id ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t('dashboard.exchange.accept')}
-                  </Button>
-                  <Button size="sm" variant="ghost" className="text-danger" disabled={!!busy} onClick={() => decide(a.id, 'decline')}><X className="size-4" />{t('dashboard.exchange.decline')}</Button>
-                </div>
-              ) : <Badge variant={a.status === 'accepted' ? 'success' : 'muted'}>{t(`dashboard.exchange.status.${a.status}`)}</Badge>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  )
-}
-
-// team feedback about one judge (organizers only) and the organizer's own rating
-function JudgeFeedbackDialog({ judge, row, onClose, onReviewed }: { judge: Judge | null; row?: JudgeFeedbackRow; onClose: () => void; onReviewed: () => void }) {
-  const { t } = useTranslation()
-  const { busy, run } = useAction()
-  if (!judge) return null
-  const review = async (score: number) => { if (await run('review', () => reviewJudge(judge.id, score), t('dashboard.judges.reviewSaved'))) onReviewed() }
-  return (
-    <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent heading={judge.name} description={t('dashboard.judges.feedbackTitle')}>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-muted/60 p-4">
-          <div>
-            <p className="text-sm font-semibold">{t('dashboard.judges.yourReview')}</p>
-            <p className="text-xs text-muted-foreground">{row?.debates ? t('dashboard.judges.reviewHint') : t('dashboard.judges.reviewLater')}</p>
-          </div>
-          {row?.debates ? <StarRating label={t('dashboard.judges.yourReview')} value={row.review ?? 0} onChange={v => busy !== 'review' && review(v)} /> : null}
-        </div>
-        {!row?.items.length ? <p className="mt-4 text-sm text-muted-foreground">{t('dashboard.judges.noFeedback')}</p> : (
-          <ul className="mt-4 max-h-[50vh] space-y-2 overflow-y-auto">
-            {row.items.map((f, i) => (
-              <li key={i} className="rounded-xl border border-border p-3">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <StarRating size="sm" label={t('feedback.score')} value={f.score} />
-                  <span className="font-semibold text-foreground">{f.team}</span>
-                  <Badge variant={f.teamWon ? 'success' : 'danger'}>{t(f.teamWon ? 'profile.result.win' : 'profile.result.loss')}</Badge>
-                  <span>{f.round}</span>
-                </div>
-                {f.comment && <p className="mt-2 text-sm">{f.comment}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 function Judges({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ name: '', institution: '', rating: 7 })
   const [toDelete, setToDelete] = useState<Judge | null>(null)
-  const [feedbackOf, setFeedbackOf] = useState<Judge | null>(null)
-  const feedback = useAsync(() => getJudgeFeedback(data.id), [data.id, data.judges.length])
-  const rowOf = (id: string) => feedback.data?.find(r => r.judgeId === id)
   const remove = async () => {
     if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
   }
@@ -433,39 +289,24 @@ function Judges({ data, reload }: SectionProps) {
           </div>
         } />
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
-      <JudgeCallCard data={data} reload={reload} />
       {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {data.judges.map(j => {
-          const row = rowOf(j.id)
-          return (
-          <Card key={j.id} className="p-4">
-            <div className="flex items-start gap-3">
-              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-bold" title={j.name}>{j.name}</p>
-                <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  <LevelBadge level={j.level} />
-                  {row && row.feedbackCount > 0 && <span className="text-xs text-muted-foreground">★ {row.feedbackAvg?.toFixed(1)} · {t('dashboard.judges.feedbackCount', { count: row.feedbackCount })}</span>}
-                </div>
-              </div>
+        {data.judges.map(j => (
+          <Card key={j.id} className="flex items-center gap-3 p-4">
+            <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-bold">{j.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>
             </div>
-            {/* organizer's rating and actions on their own row so long names are not cut */}
-            <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-              <p className="text-xs text-muted-foreground">{t('tournament.rating')} <b className="text-sm font-extrabold text-primary">{j.rating}/10</b></p>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="sm" onClick={() => setFeedbackOf(j)}>
-                  <MessageSquare className="size-4" />{t('dashboard.judges.feedbackShort')}
-                </Button>
-                <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="size-9 hover:text-danger" onClick={() => setToDelete(j)}>
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">{t('tournament.rating')}</p>
+              <p className="font-extrabold text-primary">{j.rating}/10</p>
             </div>
+            <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(j)}>
+              <Trash2 className="size-4" />
+            </Button>
           </Card>
-          )
-        })}
+        ))}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent heading={t('dashboard.judges.addTitle')}>
@@ -483,7 +324,6 @@ function Judges({ data, reload }: SectionProps) {
           </form>
         </DialogContent>
       </Dialog>
-      <JudgeFeedbackDialog judge={feedbackOf} row={feedbackOf ? rowOf(feedbackOf.id) : undefined} onClose={() => setFeedbackOf(null)} onReviewed={feedback.reload} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t('dashboard.judges.confirmDelete', { name: toDelete?.name })} description={t('dashboard.judges.deleteHint')}>
           <div className="flex justify-end gap-2">
@@ -629,10 +469,7 @@ function Draw({ data, reload }: SectionProps) {
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
                         onValueChange={v => patch(d, { chairJudgeId: v })}
-                        options={data.judges.map(j => ({ value: j.id, label: j.name, hint: [j.level && t(`judgeLevel.${j.level}`), `${j.rating}/10`].filter(Boolean).join(' · ') }))} />
-                      {judge(d.judgeIds[0])?.level === 'novice' && (
-                        <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-accent-foreground dark:text-accent"><AlertTriangle className="size-3.5" />{t('dashboard.draw.noviceChair')}</p>
-                      )}
+                        options={data.judges.map(j => ({ value: j.id, label: j.name, hint: `${j.rating}/10` }))} />
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                         {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
                         {editable && d.ballotStatus === 'pending' && (
@@ -968,8 +805,6 @@ export default function ManageTournament() {
   if (!data) return null
 
   const current = (sections.some(s => s.key === section) ? section : 'overview') as Section
-  // new registrations and judge applications wait for the organizer
-  const badgeOf = (key: Section) => (key === 'registrations' ? data.pendingRegistrations : key === 'judges' ? data.pendingApplications : 0) ?? 0
   const props = { data, reload }
 
   return (
@@ -980,7 +815,7 @@ export default function ManageTournament() {
         <Badge variant="glass" className="border border-border"><StatusDot status={data.status} />{t(`status.${data.status}`)}</Badge>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{formatDateRange(data.startDate, data.endDate)} · {data.city}</p>
-      <ModerationBanner status={data.moderation} note={data.moderationNote} hold={data.reportHold} className="mt-4" />
+      <ModerationBanner status={data.moderation} note={data.moderationNote} className="mt-4" />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[240px_1fr]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-1 lg:px-0">
@@ -990,10 +825,9 @@ export default function ManageTournament() {
                 className={cn('flex shrink-0 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-colors',
                   current === key ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
                 <Icon className="size-4" />{t(`dashboard.nav.${key}`)}
-                {!!badgeOf(key) && (
-                  <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy"
-                    aria-label={t(key === 'judges' ? 'dashboard.pendingApplications' : 'dashboard.pendingCount', { count: badgeOf(key) })}>
-                    {badgeOf(key)}
+                {key === 'registrations' && !!data.pendingRegistrations && (
+                  <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy" aria-label={t('dashboard.pendingCount', { count: data.pendingRegistrations })}>
+                    {data.pendingRegistrations}
                   </span>
                 )}
               </NavLink>

@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  AdminAction, AdminTournament, Debate, JudgeCallBoard, JudgeCallPublic, MyJudgeApplication, ModerationStatus, ReportQueueItem, ReportReason, TrustProfile, FeedbackItem, JudgeFeedbackRow, JudgeLevel, JudgeProfile, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
+  AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
@@ -81,6 +81,11 @@ export const getMe = () => http<{ user: User | null }>('GET', '/auth/me').then(r
 
 export const changePassword = (currentPassword: string, newPassword: string) =>
   http<{ user: User }>('POST', '/me/password', { currentPassword, newPassword }).then(r => r.user)
+// ---------- Telegram bot ----------
+export const getTelegramConfig = () => http<{ enabled: boolean; username?: string }>('GET', '/telegram/config')
+export const createTelegramLink = () => http<{ url: string; expiresInMinutes: number }>('POST', '/me/telegram/link')
+export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATCH', '/me/telegram', { notify }).then(r => r.user)
+export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
 export const deleteAccount = (password: string) => http<void>('DELETE', '/me', { password })
 export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
@@ -141,10 +146,7 @@ export interface CreateTournamentInput {
   preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
 }
-export const createTournament = (data: CreateTournamentInput) =>
-  http<Tournament & { moderation: ModerationStatus; autoApproved: boolean }>('POST', '/tournaments', data)
-export const getOrganizerTrust = () => http<TrustProfile>('GET', '/organizer/trust')
-export const reportTournament = (id: string, data: { reason: ReportReason; text?: string }) => http<{ ok: true }>('POST', `/tournaments/${id}/reports`, data)
+export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
 export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
   city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
@@ -183,31 +185,10 @@ export const acceptInvite = (token: string) =>
 // ---------- admin ----------
 
 export const getAdminStats = () =>
-  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number; openReports: number }>('GET', '/admin/stats')
+  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number }>('GET', '/admin/stats')
 export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/tournaments')
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
 export const getAdminActions = () => http<AdminAction[]>('GET', '/admin/actions')
-export const getReports = () => http<ReportQueueItem[]>('GET', '/admin/reports')
-export const resolveReports = (tournamentId: string, decision: 'dismiss' | 'uphold', note?: string) =>
-  http<{ ok: true }>('PATCH', `/admin/reports/${tournamentId}`, { decision, note })
-export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean; judgeLevelMin: JudgeLevel | null; organizerTrust: 'verified' | 'restricted' | null }>) => http<User>('PATCH', `/admin/users/${id}`, data)
-
-// ---------- judge feedback & levels ----------
-export const getMyFeedback = () => http<FeedbackItem[]>('GET', '/me/feedback')
-export const sendFeedback = (debateId: string, data: { judgeId: string; score: number; comment?: string }) =>
-  http<{ ok: true }>('POST', `/debates/${debateId}/feedback`, data)
-export const getJudgeProfile = () => http<JudgeProfile>('GET', '/judge/profile')
-
-// ---------- judge exchange ----------
-export const getJudgeCalls = () => http<JudgeCallPublic[]>('GET', '/judge-calls')
-export const applyToJudge = (tournamentId: string, message?: string) => http<{ ok: true }>('POST', `/judge-calls/${tournamentId}/applications`, { message })
-export const withdrawApplication = (tournamentId: string) => http<void>('DELETE', `/judge-calls/${tournamentId}/applications/me`)
-export const getMyJudgeApplications = () => http<MyJudgeApplication[]>('GET', '/me/judge-applications')
-export const getJudgeCall = (tournamentId: string) => http<JudgeCallBoard | null>('GET', `/tournaments/${tournamentId}/judge-call`)
-export const saveJudgeCall = (tournamentId: string, data: { needed: number; minLevel: JudgeLevel; message?: string; open: boolean }) =>
-  http<{ ok: true }>('PUT', `/tournaments/${tournamentId}/judge-call`, data)
-export const decideApplication = (id: string, decision: 'accept' | 'decline') => http<{ ok: true }>('PATCH', `/judge-applications/${id}`, { decision })
-export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackRow[]>('GET', `/tournaments/${tournamentId}/judge-feedback`)
-export const reviewJudge = (judgeId: string, score: number) => http<{ judgeId: string; score: number }>('PUT', `/judges/${judgeId}/review`, { score })
+export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)

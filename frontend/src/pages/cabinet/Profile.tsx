@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, KeyRound, Mail, MapPin, Phone, ShieldCheck, Star, Swords, Trash2, Trophy, Users } from 'lucide-react'
-import { changePassword, deleteAccount, getMyDebates, getMyFeedback, getMyRegistrations, sendFeedback, updateProfile } from '@/api'
+import { BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Swords, Trash2, Trophy, Unlink, Users } from 'lucide-react'
+import { changePassword, createTelegramLink, deleteAccount, getMe, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
-import type { FeedbackItem, TeamRegistration } from '@/types'
+import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange } from '@/lib/utils'
@@ -14,101 +14,74 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input, Label, Textarea } from '@/components/ui/input'
-import { StarRating } from '@/components/ui/stars'
+import { Input, Label } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
 
-// teams rate the judges of their debates; judges only ever see averages
-function FeedbackDialog({ item, onClose, onSaved }: { item: FeedbackItem | null; onClose: () => void; onSaved: () => void }) {
+// Telegram: notifications, phone verification and one-tap judge feedback
+function TelegramCard() {
   const { t } = useTranslation()
-  const [form, setForm] = useState<Record<string, { score: number; comment: string }>>({})
+  const { user, signIn } = useAuth()
+  const config = useAsync(getTelegramConfig)
+  const [link, setLink] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    if (item) setForm(Object.fromEntries(item.judges.map(j => [j.judgeId, { score: j.given?.score ?? 0, comment: j.given?.comment ?? '' }])))
-  }, [item])
-  if (!item) return null
-  const changed = item.judges.filter(j => {
-    const f = form[j.judgeId]
-    return f && f.score > 0 && (f.score !== j.given?.score || f.comment.trim() !== (j.given?.comment ?? ''))
-  })
-  const save = async () => {
+  if (!config.data?.enabled || !user) return null
+  const act = async (fn: () => Promise<void>) => {
     setBusy(true)
-    try {
-      for (const j of changed) {
-        const f = form[j.judgeId]
-        await sendFeedback(item.debateId, { judgeId: j.judgeId, score: f.score, comment: f.comment.trim() || undefined })
-      }
-      toast.success(t('feedback.saved'))
-      onSaved()
-      onClose()
-    } catch (err) {
-      toast.error(errorMessage(err, t))
-    } finally {
-      setBusy(false)
-    }
+    try { await fn() } catch (e) { toast.error(errorMessage(e, t)) } finally { setBusy(false) }
   }
+  const connect = () => act(async () => {
+    const { url } = await createTelegramLink()
+    setLink(url)
+    window.open(url, '_blank', 'noopener')
+  })
+  // after pressing Start in Telegram the user comes back and refreshes the status
+  const refresh = () => act(async () => {
+    const me = await getMe()
+    if (me) signIn(me)
+    if (me?.telegramLinked) { setLink(null); toast.success(t('telegram.connected')) } else toast(t('telegram.notYet'))
+  })
   return (
-    <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent heading={t('feedback.dialogTitle')} description={`${item.tournament.name} · ${item.round.name} · vs ${item.opponent.name}`}>
-        <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-          {item.judges.map(j => (
-            <div key={j.judgeId} className="rounded-2xl border border-border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-bold">{j.name}{j.isChair && <Badge variant="primary" className="ml-2">{t('tournament.chair')}</Badge>}</p>
-                <StarRating label={t('feedback.scoreFor', { name: j.name })} value={form[j.judgeId]?.score ?? 0}
-                  onChange={v => setForm(f => ({ ...f, [j.judgeId]: { ...f[j.judgeId], score: v } }))} />
-              </div>
-              <Textarea rows={2} className="mt-3" maxLength={500} placeholder={t('feedback.commentPlaceholder')} aria-label={t('feedback.comment')}
-                value={form[j.judgeId]?.comment ?? ''} onChange={e => setForm(f => ({ ...f, [j.judgeId]: { ...f[j.judgeId], comment: e.target.value } }))} />
-            </div>
-          ))}
-        </div>
-        <p className="mt-3 flex items-start gap-2 text-xs text-muted-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />{t('feedback.privacy')}</p>
-        <div className="mt-4 flex justify-end gap-2">
-          <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
-          <Button disabled={busy || changed.length === 0} onClick={save}>{t('feedback.send')}</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function FeedbackCard() {
-  const { t } = useTranslation()
-  const { data, reload } = useAsync(getMyFeedback)
-  const [open, setOpen] = useState<FeedbackItem | null>(null)
-  if (!data?.length) return null
-  const todo = data.filter(d => d.judges.some(j => !j.given)).length
-  return (
-    <Card className="mt-6 p-6">
+    <Card className="p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="flex items-center gap-2 text-lg font-bold"><Star className="size-5 fill-accent text-accent" />{t('feedback.title')}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t('feedback.text')}</p>
+          <h3 className="flex items-center gap-2 font-bold"><Send className="size-4 text-primary" />Telegram</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{t('telegram.text')}</p>
         </div>
-        {todo > 0 && <Badge variant="accent">{t('feedback.todo', { count: todo })}</Badge>}
+        {user.telegramLinked && <Badge variant="success"><CheckCircle2 className="size-3" />{t('telegram.linked')}{user.telegramUsername && ` · @${user.telegramUsername}`}</Badge>}
       </div>
-      <ul className="mt-4 divide-y divide-border">
-        {data.map(item => {
-          const done = item.judges.every(j => j.given)
-          return (
-            <li key={item.debateId} className="flex flex-wrap items-center gap-3 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">{item.round.name} <span className="font-normal text-muted-foreground">vs</span> {item.opponent.name}</p>
-                <p className="text-xs text-muted-foreground">{item.tournament.name} · {t(`profile.result.${item.result}`)} · {t('feedback.judgesCount', { count: item.judges.length })}</p>
-              </div>
-              <Button size="sm" variant={done ? 'ghost' : 'accent'} onClick={() => setOpen(item)}>
-                {done ? <><CheckCircle2 className="size-4 text-success" />{t('feedback.edit')}</> : <><Star className="size-4" />{t('feedback.rate')}</>}
-              </Button>
-            </li>
-          )
-        })}
+      <ul className="mt-4 space-y-1.5 text-sm">
+        <li className="flex items-center gap-2"><Bell className="size-4 text-primary" />{t('telegram.f1')}</li>
+        <li className="flex items-center gap-2"><CheckCircle2 className="size-4 text-primary" />{t('telegram.f2')}</li>
+        <li className="flex items-center gap-2"><BadgeCheck className="size-4 text-primary" />{t('telegram.f3')}</li>
       </ul>
-      <FeedbackDialog item={open} onClose={() => setOpen(null)} onSaved={reload} />
+      {user.telegramLinked ? (
+        <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+          <p className="mr-auto text-sm">{user.phoneVerified ? <span className="flex items-center gap-1.5 text-success"><BadgeCheck className="size-4" />{t('telegram.phoneOk')}</span> : t('telegram.phoneHint')}</p>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => act(async () => { signIn(await setTelegramNotify(!user.telegramNotify)) })}>
+            {user.telegramNotify ? <><BellOff className="size-4" />{t('telegram.mute')}</> : <><Bell className="size-4" />{t('telegram.unmute')}</>}
+          </Button>
+          <Button size="sm" variant="ghost" className="text-danger" disabled={busy} onClick={() => act(async () => { signIn(await unlinkTelegram()); toast(t('telegram.unlinked')) })}>
+            <Unlink className="size-4" />{t('telegram.unlink')}
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-5 border-t border-border pt-4">
+          {link ? (
+            <div className="space-y-3">
+              <p className="text-sm">{t('telegram.step')}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="outline"><a href={link} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4" />{t('telegram.openAgain')}</a></Button>
+                <Button disabled={busy} onClick={refresh}><RefreshCw className="size-4" />{t('telegram.done')}</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('telegram.linkTtl')}</p>
+            </div>
+          ) : <Button disabled={busy} onClick={connect}><Send className="size-4" />{t('telegram.connect', { bot: config.data.username })}</Button>}
+        </div>
+      )}
     </Card>
   )
 }
@@ -236,7 +209,11 @@ export default function Profile() {
             </div>
             <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground sm:justify-start">
               <span className="flex items-center gap-1.5"><Mail className="size-4 text-primary" />{user.email}</span>
-              {user.phone && <span className="flex items-center gap-1.5"><Phone className="size-4 text-primary" />{user.phone}</span>}
+              {user.phone && (
+                <span className="flex items-center gap-1.5"><Phone className="size-4 text-primary" />{user.phone}
+                  {user.phoneVerified && <BadgeCheck className="size-4 text-success" aria-label={t('telegram.phoneOk')} />}
+                </span>
+              )}
               {user.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{user.institution}</span>}
               {user.city && <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{user.city}</span>}
             </div>
@@ -259,8 +236,6 @@ export default function Profile() {
           </Card>
         ))}
       </div>}
-
-      {!isAdmin && <FeedbackCard />}
 
       <Tabs defaultValue={isAdmin ? 'settings' : 'registrations'} className="mt-8">
         <TabsList className="w-fit">
@@ -344,6 +319,7 @@ export default function Profile() {
               <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!form.name.trim()}>{t('common.save')}</Button></div>
             </form>
           </Card>
+          <TelegramCard />
           <PasswordCard />
           {/* admins are demoted by another admin before they can leave */}
           {!isAdmin && <DeleteAccountCard />}
