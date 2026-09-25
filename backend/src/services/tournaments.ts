@@ -87,7 +87,6 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       teams: { include: teamInclude, orderBy: { createdAt: 'asc' } },
       judges: { include: { institution: true }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] },
       registrations: { where: { status: 'pending' }, select: { id: true } },
-      judgeCall: { select: { _count: { select: { applications: { where: { status: 'pending' } } } } } },
     },
   })
   const manager = await isOrganizerOf(viewer, id)
@@ -113,7 +112,6 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       registrationOpen: t.registrationOpen, reportHold: t.reportHold, autoApproved: t.autoApproved,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
       rooms: t.rooms, pendingRegistrations: t.registrations.length,
-      pendingApplications: t.judgeCall?._count.applications ?? 0,
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),

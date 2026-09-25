@@ -272,16 +272,6 @@ If you really want to reset to demo data: npm run db:seed:force`)
     ],
   })
 
-  // ---------- judge exchange: open calls ----------
-  const [t2, t3] = await Promise.all([1, 2].map(i => prisma.tournament.findFirstOrThrow({ where: { name: tournaments[i].name } })))
-  await prisma.judgeCall.createMany({
-    data: [
-      { tournamentId: t1.id, needed: 4, minLevel: 'novice', message: 'Ищем судей на отборочные раунды. Новичкам рады — поставим боковыми рядом с опытными.' },
-      { tournamentId: t2.id, needed: 8, minLevel: 'judge', message: 'Университетский турнир, 5 раундов. Нужен опыт судейства WSDC.' },
-      { tournamentId: t3.id, needed: 3, minLevel: 'novice', message: 'Турнир на казахском языке — нужны судьи со знанием казахского.' },
-    ],
-  })
-
   const counts = await Promise.all([prisma.user.count(), prisma.tournament.count(), prisma.team.count(), prisma.debate.count(), prisma.ballot.count(), prisma.speakerScore.count()])
   console.log(`Done: ${counts[0]} users, ${counts[1]} tournaments, ${counts[2]} teams, ${counts[3]} debates, ${counts[4]} ballots, ${counts[5]} speaker scores`)
   console.log(`Admin: ${admin.email} / demo1234`)

@@ -7,11 +7,10 @@ import {
   AlertTriangle, DoorOpen, Loader2, Megaphone, MessageSquare, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  addJudge, addTeam, decideApplication, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getJudgeCall, getJudgeFeedback, getRegistrations, reviewJudge, saveJudgeCall, getTournamentById, NotFoundError, setRegistrationStatus,
+  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getJudgeFeedback, getRegistrations, reviewJudge, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
-import type { Debate, Judge, JudgeFeedbackRow, JudgeLevel, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
-import { Avatar } from '@/components/auth/UserMenu'
+import type { Debate, Judge, JudgeFeedbackRow, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { LevelBadge } from '@/components/judge/LevelBadge'
 import { StarRating } from '@/components/ui/stars'
 import { useAsync } from '@/lib/hooks'
@@ -268,108 +267,6 @@ function Teams({ data, reload }: SectionProps) {
 }
 
 /* ---------- Judges ---------- */
-const JUDGE_LEVELS: JudgeLevel[] = ['novice', 'judge', 'experienced', 'chief']
-
-// judge exchange: post how many judges are needed, then pick among applicants
-function JudgeCallCard({ data, reload }: SectionProps) {
-  const { t } = useTranslation()
-  const { busy, run } = useAction()
-  const board = useAsync(() => getJudgeCall(data.id), [data.id])
-  const call = board.data
-  const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ needed: 2, minLevel: 'novice' as JudgeLevel, message: '' })
-  useEffect(() => { if (call) setForm({ needed: call.needed, minLevel: call.minLevel, message: call.message ?? '' }) }, [call])
-  const canPost = data.moderation === 'approved' && !data.reportHold && data.status !== 'finished'
-  const save = async (open: boolean) => {
-    const payload = { needed: form.needed, minLevel: form.minLevel, message: form.message.trim() || undefined, open }
-    if (await run('call', () => saveJudgeCall(data.id, payload), t(open ? 'dashboard.exchange.published' : 'dashboard.exchange.closed'))) { setEditing(false); board.reload() }
-  }
-  const decide = async (id: string, decision: 'accept' | 'decline') => {
-    if (await run(id, () => decideApplication(id, decision), t(decision === 'accept' ? 'dashboard.exchange.acceptedToast' : 'dashboard.exchange.declinedToast'))) {
-      board.reload()
-      reload()
-    }
-  }
-  if (board.loading && !call) return <Skeleton className="mb-6 h-32" />
-  const neededBad = !Number.isInteger(form.needed) || form.needed < 1 || form.needed > 64
-  return (
-    <Card className="mb-6 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="flex items-center gap-2 font-bold"><Megaphone className="size-4 text-primary" />{t('dashboard.exchange.title')}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.exchange.text')}</p>
-        </div>
-        {call && <Badge variant={call.open ? 'success' : 'muted'}>{call.open ? t('dashboard.exchange.openBadge') : t('dashboard.exchange.closedBadge')}</Badge>}
-      </div>
-      {!call && !canPost ? <p className="mt-3 rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">{t('dashboard.exchange.needApproval')}</p>
-        : !call || editing ? (
-          <div className="mt-4">
-            <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
-              <div>
-                <Label htmlFor="call-n">{t('dashboard.exchange.needed')}</Label>
-                <Input id="call-n" type="number" min={1} max={64} value={form.needed} aria-invalid={neededBad} onChange={e => setForm({ ...form, needed: Number(e.target.value) })} />
-              </div>
-              <div>
-                <Label htmlFor="call-l">{t('exchange.minLevel')}</Label>
-                <Select id="call-l" value={form.minLevel} onValueChange={v => setForm({ ...form, minLevel: v as JudgeLevel })}
-                  options={JUDGE_LEVELS.map(l => ({ value: l, label: t(`judgeLevel.${l}`) }))} />
-              </div>
-              <div className="sm:col-span-2">
-                <Label htmlFor="call-m">{t('exchange.message')}</Label>
-                <Textarea id="call-m" rows={2} maxLength={500} value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder={t('dashboard.exchange.messagePlaceholder')} />
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              {editing && <Button variant="ghost" onClick={() => setEditing(false)}>{t('common.cancel')}</Button>}
-              <Button disabled={busy === 'call' || neededBad || !canPost} onClick={() => save(true)}><Megaphone className="size-4" />{t('dashboard.exchange.publish')}</Button>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-semibold">{t('dashboard.exchange.summary', { accepted: call.accepted, needed: call.needed })}</span>
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">{t('exchange.minLevel')} <LevelBadge level={call.minLevel} /></span>
-            <div className="ml-auto flex flex-wrap gap-1">
-              <Button size="sm" variant="ghost" onClick={() => setEditing(true)}><Pencil className="size-4" />{t('common.edit')}</Button>
-              {call.open
-                ? <Button size="sm" variant="outline" disabled={busy === 'call'} onClick={() => save(false)}>{t('dashboard.exchange.close')}</Button>
-                : canPost && <Button size="sm" disabled={busy === 'call'} onClick={() => save(true)}>{t('dashboard.exchange.reopen')}</Button>}
-              <Button asChild size="sm" variant="ghost"><Link to="/judges"><ExternalLink className="size-4" />{t('dashboard.exchange.view')}</Link></Button>
-            </div>
-          </div>
-        )}
-      {call && call.applications.length > 0 && (
-        <ul className="mt-5 space-y-2 border-t border-border pt-5">
-          {call.applications.map(a => (
-            <li key={a.id} className={cn('flex flex-wrap items-center gap-3 rounded-xl border border-border p-3', a.status !== 'pending' && 'opacity-70')}>
-              <Avatar name={a.user.name} role="user" src={a.user.avatarUrl} />
-              <div className="min-w-0 flex-1">
-                <p className="flex flex-wrap items-center gap-2 font-semibold">{a.user.name}<LevelBadge level={a.level} /></p>
-                <p className="text-xs text-muted-foreground">
-                  {[a.user.institution, a.user.city].filter(Boolean).join(' · ') || '—'} · {t('dashboard.exchange.stats', { debates: a.stats.debates, tournaments: a.stats.tournaments })}
-                  {a.stats.feedbackAvg !== null && ` · ★ ${a.stats.feedbackAvg.toFixed(1)}`}
-                </p>
-                {a.message && <p className="mt-1 text-sm">«{a.message}»</p>}
-                {/* the same person may already be in the list, added by hand without an account */}
-                {a.status === 'pending' && data.judges.some(j => j.name.trim().toLowerCase() === a.user.name.trim().toLowerCase()) && (
-                  <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-accent-foreground dark:text-accent"><AlertTriangle className="size-3.5" />{t('dashboard.exchange.sameName')}</p>
-                )}
-              </div>
-              {a.status === 'pending' ? (
-                <div className="flex gap-1">
-                  <Button size="sm" disabled={!!busy} onClick={() => decide(a.id, 'accept')}>
-                    {busy === a.id ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t('dashboard.exchange.accept')}
-                  </Button>
-                  <Button size="sm" variant="ghost" className="text-danger" disabled={!!busy} onClick={() => decide(a.id, 'decline')}><X className="size-4" />{t('dashboard.exchange.decline')}</Button>
-                </div>
-              ) : <Badge variant={a.status === 'accepted' ? 'success' : 'muted'}>{t(`dashboard.exchange.status.${a.status}`)}</Badge>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  )
-}
-
 // team feedback about one judge (organizers only) and the organizer's own rating
 function JudgeFeedbackDialog({ judge, row, onClose, onReviewed }: { judge: Judge | null; row?: JudgeFeedbackRow; onClose: () => void; onReviewed: () => void }) {
   const { t } = useTranslation()
@@ -433,7 +330,6 @@ function Judges({ data, reload }: SectionProps) {
           </div>
         } />
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
-      <JudgeCallCard data={data} reload={reload} />
       {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {data.judges.map(j => {
@@ -968,8 +864,6 @@ export default function ManageTournament() {
   if (!data) return null
 
   const current = (sections.some(s => s.key === section) ? section : 'overview') as Section
-  // new registrations and judge applications wait for the organizer
-  const badgeOf = (key: Section) => (key === 'registrations' ? data.pendingRegistrations : key === 'judges' ? data.pendingApplications : 0) ?? 0
   const props = { data, reload }
 
   return (
@@ -990,10 +884,9 @@ export default function ManageTournament() {
                 className={cn('flex shrink-0 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-colors',
                   current === key ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
                 <Icon className="size-4" />{t(`dashboard.nav.${key}`)}
-                {!!badgeOf(key) && (
-                  <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy"
-                    aria-label={t(key === 'judges' ? 'dashboard.pendingApplications' : 'dashboard.pendingCount', { count: badgeOf(key) })}>
-                    {badgeOf(key)}
+                {key === 'registrations' && !!data.pendingRegistrations && (
+                  <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy" aria-label={t('dashboard.pendingCount', { count: data.pendingRegistrations })}>
+                    {data.pendingRegistrations}
                   </span>
                 )}
               </NavLink>

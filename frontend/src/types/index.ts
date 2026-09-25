@@ -139,7 +139,6 @@ export interface TournamentDetails extends Tournament {
   registrationDeadline?: string
   rooms?: string[]
   pendingRegistrations?: number
-  pendingApplications?: number // judge exchange
   myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]
   rounds: Round[]
@@ -250,34 +249,6 @@ export interface TrustProfile {
   active: number
   checks: { key: 'finished' | 'noUpheldReports' | 'noRecentRejections'; met: boolean; value: number }[]
 }
-
-// ---------- judge exchange ----------
-export type ApplicationStatus = 'pending' | 'accepted' | 'declined' | 'withdrawn'
-export interface JudgeCallPublic {
-  tournament: Tournament
-  needed: number
-  accepted: number
-  minLevel: JudgeLevel
-  message?: string
-  myStatus?: ApplicationStatus
-}
-export interface JudgeCallBoard {
-  needed: number
-  minLevel: JudgeLevel
-  message?: string
-  open: boolean
-  accepted: number
-  applications: {
-    id: string
-    status: ApplicationStatus
-    message?: string
-    createdAt: string
-    user: { id: string; name: string; institution?: string; city?: string; avatarUrl?: string }
-    level: JudgeLevel
-    stats: { debates: number; tournaments: number; feedbackAvg: number | null; agreement: number | null }
-  }[]
-}
-export interface MyJudgeApplication { id: string; status: ApplicationStatus; createdAt: string; tournament: Tournament }
 
 export type ReportReason = 'fake' | 'inappropriate' | 'spam' | 'other'
 export interface ReportQueueItem {

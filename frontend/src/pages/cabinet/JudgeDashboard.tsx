@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, ClipboardList, ClipboardPen, DoorOpen, Gavel, History, Megaphone, Star, Trophy } from 'lucide-react'
-import { getJudgeAssignments, getJudgeProfile, getMyJudgeApplications } from '@/api'
+import { CheckCircle2, ClipboardList, ClipboardPen, DoorOpen, Gavel, History, Star, Trophy } from 'lucide-react'
+import { getJudgeAssignments, getJudgeProfile } from '@/api'
 import type { JudgeAssignment, JudgeProfile } from '@/types'
 import { LevelBadge } from '@/components/judge/LevelBadge'
 import { useAuth } from '@/lib/auth'
@@ -114,38 +114,6 @@ function LevelCard({ p }: { p: JudgeProfile }) {
   )
 }
 
-// applications sent through the judge exchange
-function ApplicationsCard() {
-  const { t } = useTranslation()
-  const { data } = useAsync(getMyJudgeApplications)
-  if (!data) return null
-  const variant = { pending: 'accent', accepted: 'success', declined: 'muted', withdrawn: 'muted' } as const
-  return (
-    <Card className="mt-6 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-bold"><Megaphone className="size-5 text-primary" />{t('exchange.myTitle')}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t('exchange.myText')}</p>
-        </div>
-        <Button asChild variant={data.length ? 'outline' : 'primary'}><Link to="/judges"><Megaphone className="size-4" />{t('exchange.open')}</Link></Button>
-      </div>
-      {data.length > 0 && (
-        <ul className="mt-4 divide-y divide-border">
-          {data.map(a => (
-            <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
-              <Link to={`/tournaments/${a.tournament.id}`} className="min-w-0 font-semibold hover:text-primary">
-                {a.tournament.name}
-                <span className="block text-xs font-normal text-muted-foreground">{formatDate(a.tournament.startDate)} · {a.tournament.city}</span>
-              </Link>
-              <Badge variant={variant[a.status]}>{t(`exchange.status.${a.status}`)}</Badge>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  )
-}
-
 export default function JudgeDashboard() {
   const { t } = useTranslation()
   const { user } = useAuth()
@@ -164,7 +132,6 @@ export default function JudgeDashboard() {
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
       <CabinetHeader title={t('judge.title')} subtitle={t('judge.subtitle')} />
       {profile.data ? <LevelCard p={profile.data} /> : !profile.error && <Skeleton className="mt-6 h-44" />}
-      <ApplicationsCard />
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
