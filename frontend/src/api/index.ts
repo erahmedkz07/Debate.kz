@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  AdminAction, AdminTournament, Debate, FeedbackItem, JudgeFeedbackRow, JudgeLevel, JudgeProfile, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
+  AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
@@ -186,12 +186,4 @@ export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean;
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
 export const getAdminActions = () => http<AdminAction[]>('GET', '/admin/actions')
-export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean; judgeLevelMin: JudgeLevel | null }>) => http<User>('PATCH', `/admin/users/${id}`, data)
-
-// ---------- judge feedback & levels ----------
-export const getMyFeedback = () => http<FeedbackItem[]>('GET', '/me/feedback')
-export const sendFeedback = (debateId: string, data: { judgeId: string; score: number; comment?: string }) =>
-  http<{ ok: true }>('POST', `/debates/${debateId}/feedback`, data)
-export const getJudgeProfile = () => http<JudgeProfile>('GET', '/judge/profile')
-export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackRow[]>('GET', `/tournaments/${tournamentId}/judge-feedback`)
-export const reviewJudge = (judgeId: string, score: number) => http<{ judgeId: string; score: number }>('PUT', `/judges/${judgeId}/review`, { score })
+export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)

@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, KeyRound, Mail, MapPin, Phone, ShieldCheck, Star, Swords, Trash2, Trophy, Users } from 'lucide-react'
-import { changePassword, deleteAccount, getMyDebates, getMyFeedback, getMyRegistrations, sendFeedback, updateProfile } from '@/api'
+import { Building2, CalendarDays, ChevronRight, DoorOpen, KeyRound, Mail, MapPin, Phone, Swords, Trash2, Trophy, Users } from 'lucide-react'
+import { changePassword, deleteAccount, getMyDebates, getMyRegistrations, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
-import type { FeedbackItem, TeamRegistration } from '@/types'
+import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange } from '@/lib/utils'
@@ -14,104 +14,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input, Label, Textarea } from '@/components/ui/input'
-import { StarRating } from '@/components/ui/stars'
+import { Input, Label } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
-
-// teams rate the judges of their debates; judges only ever see averages
-function FeedbackDialog({ item, onClose, onSaved }: { item: FeedbackItem | null; onClose: () => void; onSaved: () => void }) {
-  const { t } = useTranslation()
-  const [form, setForm] = useState<Record<string, { score: number; comment: string }>>({})
-  const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    if (item) setForm(Object.fromEntries(item.judges.map(j => [j.judgeId, { score: j.given?.score ?? 0, comment: j.given?.comment ?? '' }])))
-  }, [item])
-  if (!item) return null
-  const changed = item.judges.filter(j => {
-    const f = form[j.judgeId]
-    return f && f.score > 0 && (f.score !== j.given?.score || f.comment.trim() !== (j.given?.comment ?? ''))
-  })
-  const save = async () => {
-    setBusy(true)
-    try {
-      for (const j of changed) {
-        const f = form[j.judgeId]
-        await sendFeedback(item.debateId, { judgeId: j.judgeId, score: f.score, comment: f.comment.trim() || undefined })
-      }
-      toast.success(t('feedback.saved'))
-      onSaved()
-      onClose()
-    } catch (err) {
-      toast.error(errorMessage(err, t))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent heading={t('feedback.dialogTitle')} description={`${item.tournament.name} · ${item.round.name} · vs ${item.opponent.name}`}>
-        <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-          {item.judges.map(j => (
-            <div key={j.judgeId} className="rounded-2xl border border-border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-bold">{j.name}{j.isChair && <Badge variant="primary" className="ml-2">{t('tournament.chair')}</Badge>}</p>
-                <StarRating label={t('feedback.scoreFor', { name: j.name })} value={form[j.judgeId]?.score ?? 0}
-                  onChange={v => setForm(f => ({ ...f, [j.judgeId]: { ...f[j.judgeId], score: v } }))} />
-              </div>
-              <Textarea rows={2} className="mt-3" maxLength={500} placeholder={t('feedback.commentPlaceholder')} aria-label={t('feedback.comment')}
-                value={form[j.judgeId]?.comment ?? ''} onChange={e => setForm(f => ({ ...f, [j.judgeId]: { ...f[j.judgeId], comment: e.target.value } }))} />
-            </div>
-          ))}
-        </div>
-        <p className="mt-3 flex items-start gap-2 text-xs text-muted-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />{t('feedback.privacy')}</p>
-        <div className="mt-4 flex justify-end gap-2">
-          <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
-          <Button disabled={busy || changed.length === 0} onClick={save}>{t('feedback.send')}</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function FeedbackCard() {
-  const { t } = useTranslation()
-  const { data, reload } = useAsync(getMyFeedback)
-  const [open, setOpen] = useState<FeedbackItem | null>(null)
-  if (!data?.length) return null
-  const todo = data.filter(d => d.judges.some(j => !j.given)).length
-  return (
-    <Card className="mt-6 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-bold"><Star className="size-5 fill-accent text-accent" />{t('feedback.title')}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t('feedback.text')}</p>
-        </div>
-        {todo > 0 && <Badge variant="accent">{t('feedback.todo', { count: todo })}</Badge>}
-      </div>
-      <ul className="mt-4 divide-y divide-border">
-        {data.map(item => {
-          const done = item.judges.every(j => j.given)
-          return (
-            <li key={item.debateId} className="flex flex-wrap items-center gap-3 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">{item.round.name} <span className="font-normal text-muted-foreground">vs</span> {item.opponent.name}</p>
-                <p className="text-xs text-muted-foreground">{item.tournament.name} · {t(`profile.result.${item.result}`)} · {t('feedback.judgesCount', { count: item.judges.length })}</p>
-              </div>
-              <Button size="sm" variant={done ? 'ghost' : 'accent'} onClick={() => setOpen(item)}>
-                {done ? <><CheckCircle2 className="size-4 text-success" />{t('feedback.edit')}</> : <><Star className="size-4" />{t('feedback.rate')}</>}
-              </Button>
-            </li>
-          )
-        })}
-      </ul>
-      <FeedbackDialog item={open} onClose={() => setOpen(null)} onSaved={reload} />
-    </Card>
-  )
-}
 
 function PasswordCard() {
   const { t } = useTranslation()
@@ -259,8 +167,6 @@ export default function Profile() {
           </Card>
         ))}
       </div>}
-
-      {!isAdmin && <FeedbackCard />}
 
       <Tabs defaultValue={isAdmin ? 'settings' : 'registrations'} className="mt-8">
         <TabsList className="w-fit">

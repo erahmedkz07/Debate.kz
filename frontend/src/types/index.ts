@@ -39,8 +39,6 @@ export interface Team {
   speakers: Speaker[]
 }
 
-export type JudgeLevel = 'novice' | 'judge' | 'experienced' | 'chief'
-
 export interface Judge {
   id: string
   tournamentId: string
@@ -48,37 +46,6 @@ export interface Judge {
   institution: string
   rating: number // 1..10
   isChair?: boolean
-  level?: JudgeLevel // earned level; only judges with an account have one
-}
-
-export interface JudgeProfile {
-  level: JudgeLevel
-  earnedLevel: JudgeLevel
-  minLevel: JudgeLevel | null
-  stats: {
-    debates: number; tournaments: number; panels: number; agreement: number | null
-    feedbackCount: number; feedbackAvg: number | null; organizerCount: number; organizerAvg: number | null
-  }
-  next: { level: JudgeLevel; checks: { key: string; current: number | null; required: number; met: boolean }[] } | null
-}
-
-export interface FeedbackItem {
-  debateId: string
-  tournament: { id: string; name: string }
-  round: { number: number; name: string; date: string }
-  opponent: { id: string; name: string }
-  result: 'win' | 'loss'
-  judges: { judgeId: string; name: string; isChair: boolean; given?: { score: number; comment?: string } }[]
-}
-
-export interface JudgeFeedbackRow {
-  judgeId: string
-  level?: JudgeLevel
-  debates: number
-  feedbackCount: number
-  feedbackAvg: number | null
-  review?: number
-  items: { score: number; comment?: string; teamWon: boolean; team: string; round: string }[]
 }
 
 export interface Round {
@@ -199,8 +166,6 @@ export interface User {
   blocked?: boolean
   emailVerified?: boolean
   organizes?: boolean // owns or co-organizes at least one tournament
-  judgeLevel?: JudgeLevel // admin list only
-  judgeLevelMin?: JudgeLevel // admin-set floor
   judges?: boolean // judges in at least one tournament
 }
 

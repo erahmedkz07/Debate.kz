@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { LevelBadge } from '@/components/judge/LevelBadge'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
@@ -367,10 +366,7 @@ function JudgesTab({ data }: { data: TournamentDetails }) {
             <p className="truncate font-bold">{j.name}</p>
             <p className="truncate text-xs text-muted-foreground">{j.institution}</p>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            {j.isChair && <Badge variant="accent">{t('tournament.chair')}</Badge>}
-            <LevelBadge level={j.level} />
-          </div>
+          {j.isChair && <Badge variant="accent">{t('tournament.chair')}</Badge>}
         </Card>
       ))}
     </div>

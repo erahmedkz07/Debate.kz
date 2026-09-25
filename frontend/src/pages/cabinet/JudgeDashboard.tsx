@@ -2,9 +2,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, ClipboardList, ClipboardPen, DoorOpen, Gavel, History, Star, Trophy } from 'lucide-react'
-import { getJudgeAssignments, getJudgeProfile } from '@/api'
-import type { JudgeAssignment, JudgeProfile } from '@/types'
-import { LevelBadge } from '@/components/judge/LevelBadge'
+import { getJudgeAssignments } from '@/api'
+import type { JudgeAssignment } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate } from '@/lib/utils'
@@ -63,62 +62,10 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
   )
 }
 
-const fmt = (key: string, v: number | null) =>
-  v === null ? null : key === 'agreement' ? `${Math.round(v * 100)}%` : key === 'feedbackAvg' || key === 'organizer' ? v.toFixed(1) : String(v)
-
-// level, stats and what is missing for the next level
-function LevelCard({ p }: { p: JudgeProfile }) {
-  const { t } = useTranslation()
-  const s = p.stats
-  const stats = [
-    { label: t('judgeProfile.stats.debates'), value: s.debates },
-    { label: t('judgeProfile.stats.tournaments'), value: s.tournaments },
-    { label: t('judgeProfile.stats.agreement'), value: fmt('agreement', s.agreement) ?? '—' },
-    { label: t('judgeProfile.stats.feedback', { count: s.feedbackCount }), value: fmt('feedbackAvg', s.feedbackAvg) ?? '—' },
-    { label: t('judgeProfile.stats.organizer', { count: s.organizerCount }), value: fmt('organizer', s.organizerAvg) ?? '—' },
-  ]
-  return (
-    <Card className="mt-6 p-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm text-muted-foreground">{t('judgeProfile.yourLevel')}</p>
-        <LevelBadge level={p.level} className="px-3 py-1 text-sm" />
-        {p.level !== p.earnedLevel && <p className="w-full text-xs text-muted-foreground">{t('judgeProfile.setByAdmin', { level: t(`judgeLevel.${p.earnedLevel}`) })}</p>}
-      </div>
-      <div>
-        <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {stats.map(x => (
-            <div key={x.label}>
-              <dt className="text-xs text-muted-foreground">{x.label}</dt>
-              <dd className="mt-1 text-xl font-extrabold tabular-nums">{x.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </div>
-      {p.next ? (
-        <div className="mt-6 border-t border-border pt-5">
-          <p className="text-sm font-semibold">{t('judgeProfile.toNext')} <LevelBadge level={p.next.level} className="ml-1" /></p>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {p.next.checks.map(c => (
-              <li key={c.key} className="flex items-start gap-2 text-sm">
-                <CheckCircle2 className={cn('mt-0.5 size-4 shrink-0', c.met ? 'text-success' : 'text-border')} />
-                <span className={cn(c.met && 'text-muted-foreground')}>
-                  {t(`judgeProfile.check.${c.key}`, { required: fmt(c.key, c.required), current: fmt(c.key, c.current) ?? t('judgeProfile.noData') })}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-4 text-xs text-muted-foreground">{t('judgeProfile.privacy')}</p>
-        </div>
-      ) : <p className="mt-5 text-sm font-semibold text-success">{t('judgeProfile.top')}</p>}
-    </Card>
-  )
-}
-
 export default function JudgeDashboard() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const { data, loading, error, reload } = useAsync(getJudgeAssignments, [user?.id])
-  const profile = useAsync(getJudgeProfile, [user?.id])
   const [tournament, setTournament] = useState('all')
   // judges who work several tournaments can narrow the list to one
   const tournaments = [...new Map((data ?? []).map(a => [a.tournament.id, a.tournament.name])).entries()]
@@ -131,7 +78,6 @@ export default function JudgeDashboard() {
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
       <CabinetHeader title={t('judge.title')} subtitle={t('judge.subtitle')} />
-      {profile.data ? <LevelCard p={profile.data} /> : !profile.error && <Skeleton className="mt-6 h-44" />}
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
