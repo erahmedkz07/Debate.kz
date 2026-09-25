@@ -4,13 +4,15 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  DoorOpen, Loader2, Megaphone, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  AlertTriangle, DoorOpen, Loader2, Megaphone, MessageSquare, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getJudgeFeedback, getRegistrations, reviewJudge, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
-import type { Debate, Judge, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
+import type { Debate, Judge, JudgeFeedbackRow, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
+import { LevelBadge } from '@/components/judge/LevelBadge'
+import { StarRating } from '@/components/ui/stars'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn, formatDateRange, initials } from '@/lib/utils'
@@ -265,12 +267,51 @@ function Teams({ data, reload }: SectionProps) {
 }
 
 /* ---------- Judges ---------- */
+// team feedback about one judge (organizers only) and the organizer's own rating
+function JudgeFeedbackDialog({ judge, row, onClose, onReviewed }: { judge: Judge | null; row?: JudgeFeedbackRow; onClose: () => void; onReviewed: () => void }) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  if (!judge) return null
+  const review = async (score: number) => { if (await run('review', () => reviewJudge(judge.id, score), t('dashboard.judges.reviewSaved'))) onReviewed() }
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent heading={judge.name} description={t('dashboard.judges.feedbackTitle')}>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-muted/60 p-4">
+          <div>
+            <p className="text-sm font-semibold">{t('dashboard.judges.yourReview')}</p>
+            <p className="text-xs text-muted-foreground">{row?.debates ? t('dashboard.judges.reviewHint') : t('dashboard.judges.reviewLater')}</p>
+          </div>
+          {row?.debates ? <StarRating label={t('dashboard.judges.yourReview')} value={row.review ?? 0} onChange={v => busy !== 'review' && review(v)} /> : null}
+        </div>
+        {!row?.items.length ? <p className="mt-4 text-sm text-muted-foreground">{t('dashboard.judges.noFeedback')}</p> : (
+          <ul className="mt-4 max-h-[50vh] space-y-2 overflow-y-auto">
+            {row.items.map((f, i) => (
+              <li key={i} className="rounded-xl border border-border p-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <StarRating size="sm" label={t('feedback.score')} value={f.score} />
+                  <span className="font-semibold text-foreground">{f.team}</span>
+                  <Badge variant={f.teamWon ? 'success' : 'danger'}>{t(f.teamWon ? 'profile.result.win' : 'profile.result.loss')}</Badge>
+                  <span>{f.round}</span>
+                </div>
+                {f.comment && <p className="mt-2 text-sm">{f.comment}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function Judges({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ name: '', institution: '', rating: 7 })
   const [toDelete, setToDelete] = useState<Judge | null>(null)
+  const [feedbackOf, setFeedbackOf] = useState<Judge | null>(null)
+  const feedback = useAsync(() => getJudgeFeedback(data.id), [data.id, data.judges.length])
+  const rowOf = (id: string) => feedback.data?.find(r => r.judgeId === id)
   const remove = async () => {
     if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
   }
@@ -291,22 +332,36 @@ function Judges({ data, reload }: SectionProps) {
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
       {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {data.judges.map(j => (
-          <Card key={j.id} className="flex items-center gap-3 p-4">
-            <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-bold">{j.name}</p>
-              <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>
+        {data.judges.map(j => {
+          const row = rowOf(j.id)
+          return (
+          <Card key={j.id} className="p-4">
+            <div className="flex items-start gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-bold" title={j.name}>{j.name}</p>
+                <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <LevelBadge level={j.level} />
+                  {row && row.feedbackCount > 0 && <span className="text-xs text-muted-foreground">★ {row.feedbackAvg?.toFixed(1)} · {t('dashboard.judges.feedbackCount', { count: row.feedbackCount })}</span>}
+                </div>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">{t('tournament.rating')}</p>
-              <p className="font-extrabold text-primary">{j.rating}/10</p>
+            {/* organizer's rating and actions on their own row so long names are not cut */}
+            <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+              <p className="text-xs text-muted-foreground">{t('tournament.rating')} <b className="text-sm font-extrabold text-primary">{j.rating}/10</b></p>
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={() => setFeedbackOf(j)}>
+                  <MessageSquare className="size-4" />{t('dashboard.judges.feedbackShort')}
+                </Button>
+                <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="size-9 hover:text-danger" onClick={() => setToDelete(j)}>
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
             </div>
-            <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(j)}>
-              <Trash2 className="size-4" />
-            </Button>
           </Card>
-        ))}
+          )
+        })}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent heading={t('dashboard.judges.addTitle')}>
@@ -324,6 +379,7 @@ function Judges({ data, reload }: SectionProps) {
           </form>
         </DialogContent>
       </Dialog>
+      <JudgeFeedbackDialog judge={feedbackOf} row={feedbackOf ? rowOf(feedbackOf.id) : undefined} onClose={() => setFeedbackOf(null)} onReviewed={feedback.reload} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t('dashboard.judges.confirmDelete', { name: toDelete?.name })} description={t('dashboard.judges.deleteHint')}>
           <div className="flex justify-end gap-2">
@@ -469,7 +525,10 @@ function Draw({ data, reload }: SectionProps) {
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
                         onValueChange={v => patch(d, { chairJudgeId: v })}
-                        options={data.judges.map(j => ({ value: j.id, label: j.name, hint: `${j.rating}/10` }))} />
+                        options={data.judges.map(j => ({ value: j.id, label: j.name, hint: [j.level && t(`judgeLevel.${j.level}`), `${j.rating}/10`].filter(Boolean).join(' · ') }))} />
+                      {judge(d.judgeIds[0])?.level === 'novice' && (
+                        <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-accent-foreground dark:text-accent"><AlertTriangle className="size-3.5" />{t('dashboard.draw.noviceChair')}</p>
+                      )}
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                         {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
                         {editable && d.ballotStatus === 'pending' && (

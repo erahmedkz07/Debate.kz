@@ -5,7 +5,8 @@ import { toast } from 'sonner'
 import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Gavel, History, LayoutGrid, Search, ShieldCheck, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
 import { getAdminActions, getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
 import { errorMessage } from '@/lib/errors'
-import type { AdminTournament, Role, User } from '@/types'
+import type { AdminTournament, JudgeLevel, Role, User } from '@/types'
+import { LevelBadge } from '@/components/judge/LevelBadge'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange, formatDateTime } from '@/lib/utils'
@@ -224,7 +225,7 @@ function UsersTab() {
 
   const shown = list.filter(u => (role === 'all' || u.role === role) &&
     (!q || u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase())))
-  const patch = async (id: string, p: { role?: Role; blocked?: boolean }) => {
+  const patch = async (id: string, p: { role?: Role; blocked?: boolean; judgeLevelMin?: JudgeLevel | null }) => {
     try {
       const updated = await updateUser(id, p)
       setList(list.map(u => (u.id === id ? updated : u)))
@@ -247,13 +248,14 @@ function UsersTab() {
       </div>
       {shown.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('admin.noUsers')} /> : (
         <Card className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[1000px] text-sm">
             <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-5 py-3">{t('admin.user')}</th>
                 <th className="px-5 py-3">{t('common.institution')}</th>
                 <th className="px-5 py-3">{t('admin.registered')}</th>
                 <th className="px-5 py-3">{t('admin.role')}</th>
+                <th className="px-5 py-3">{t('admin.judgeLevel')}</th>
                 <th className="px-5 py-3 text-right">{t('admin.actions')}</th>
               </tr>
             </thead>
@@ -276,6 +278,17 @@ function UsersTab() {
                       onValueChange={async v => { if (await patch(u.id, { role: v as Role })) toast.success(t('admin.roleChanged', { name: u.name, role: t(`roles.${v}`) })) }}
                       options={roles.map(r => ({ value: r, label: t(`roles.${r}`) }))} />
                   </td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <LevelBadge level={u.judgeLevel} />
+                      {/* a floor for experienced judges who are new to the platform; the earned level can still be higher */}
+                      <Select size="sm" className="w-36" value={u.judgeLevelMin ?? 'auto'} aria-label={t('admin.judgeLevelMin')}
+                        onValueChange={async v => {
+                          if (await patch(u.id, { judgeLevelMin: v === 'auto' ? null : (v as JudgeLevel) })) toast.success(t('admin.judgeLevelChanged', { name: u.name }))
+                        }}
+                        options={[{ value: 'auto', label: t('admin.levelAuto') }, ...(['judge', 'experienced', 'chief'] as const).map(l => ({ value: l, label: `≥ ${t(`judgeLevel.${l}`)}` }))]} />
+                    </div>
+                  </td>
                   <td className="px-5 py-3 text-right">
                     {u.id !== me?.id && (
                       <Button size="sm" variant="ghost" className={u.blocked ? 'text-success' : 'text-danger'}
@@ -297,7 +310,7 @@ function UsersTab() {
 // audit log: who approved, rejected, marked paid, hid, blocked or changed a role
 const actionIcon: Record<string, typeof Check> = {
   'tournament.approve': CheckCircle2, 'tournament.reject': X, 'tournament.paid': CircleDollarSign, 'tournament.unpaid': CircleDollarSign,
-  'tournament.show': Eye, 'tournament.hide': EyeOff, 'user.role': UserCog, 'user.block': Ban, 'user.unblock': Unlock,
+  'tournament.show': Eye, 'tournament.hide': EyeOff, 'user.role': UserCog, 'user.block': Ban, 'user.unblock': Unlock, 'user.judgeLevel': Gavel,
 }
 const actionColor = (a: string) => (a.endsWith('reject') || a.endsWith('block') || a.endsWith('hide') ? 'bg-danger-soft text-danger'
   : a.endsWith('approve') || a.endsWith('paid') || a.endsWith('unblock') || a.endsWith('show') ? 'bg-success-soft text-success' : 'bg-primary-soft text-primary')
@@ -322,6 +335,7 @@ function LogTab() {
                   ? <Link to={`/tournaments/${a.targetId}`} className="font-semibold text-primary hover:underline">«{a.targetLabel}»</Link>
                   : <span className="font-semibold">{a.targetLabel}</span>}
                 {a.action === 'user.role' && a.note && <> → {t(`roles.${a.note}`)}</>}
+                {a.action === 'user.judgeLevel' && a.note && <> → {a.note === 'auto' ? t('admin.levelAuto') : `≥ ${t(`judgeLevel.${a.note}`)}`}</>}
               </p>
               {a.action === 'tournament.reject' && a.note && <p className="mt-1 text-xs text-muted-foreground">{t('admin.log.reason')}: {a.note}</p>}
             </div>
