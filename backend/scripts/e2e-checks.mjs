@@ -374,4 +374,50 @@ ok(log.some(a => a.action === 'tournament.approve' && a.targetId === own1.id) &&
 ok(log.some(a => a.action === 'tournament.paid' && a.targetId === unpaid.id && a.adminName), 'payment confirmation is logged with the admin name')
 ok((await student('GET', '/admin/actions')).status === 403, 'only admins can read the audit log')
 
+// ---------- 15. judge feedback and levels ----------
+const fbList = (await student('GET', '/me/feedback')).data
+ok(Array.isArray(fbList) && fbList.length > 0 && fbList[0].judges.length > 0, `participant sees debates to rate (${fbList.length})`)
+const fbItem = fbList[0]
+const fbJudge = fbItem.judges[0].judgeId
+r = await student('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: fbJudge, score: 6 })
+ok(r.status === 400, 'score outside 1..5 rejected')
+r = await student('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: fbJudge, score: 2, comment: 'Не объяснил решение' })
+ok(r.status === 201, 'team member rates a judge of their debate')
+r = await student('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: fbJudge, score: 4, comment: 'Подумав: объяснил нормально' })
+const fbAgain = (await student('GET', '/me/feedback')).data.find(x => x.debateId === fbItem.debateId).judges.find(j => j.judgeId === fbJudge)
+ok(r.status === 201 && fbAgain.given?.score === 4, 'the team can change its score (one per team, not a second vote)')
+const offPanel = t4full.judges.find(j => !fbItem.judges.some(x => x.judgeId === j.id))
+r = await student('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: offPanel.id, score: 5 })
+ok(r.status === 400 && r.data.error === 'invalid_judge', 'only judges of that debate can be rated')
+r = await timur('POST', `/debates/${fbItem.debateId}/feedback`, { judgeId: fbJudge, score: 1 })
+ok(r.status === 403 && r.data.error === 'not_in_debate', 'outsiders cannot rate judges (no rating attacks)')
+
+const jp = (await judge('GET', '/judge/profile')).data
+ok(jp.level === 'judge' && jp.stats.debates >= 6 && jp.next?.level === 'experienced', `judge earned the "judge" level (${jp.stats.debates} debates)`)
+ok(jp.next.checks.some(c => c.key === 'feedbackCount' && !c.met), 'progress shows what is missing for the next level')
+const sp = (await student('GET', '/judge/profile')).data
+ok(sp.level === 'novice' && sp.stats.debates === 0, 'someone who never judged is a novice')
+
+const t4pub = (await client()('GET', `/tournaments/${t4id}`)).data
+ok(t4pub.judges.some(j => j.level === 'judge'), 'public tournament page shows earned judge levels')
+
+const insights = (await org('GET', `/tournaments/${t4id}/judge-feedback`)).data
+const fbRow = insights.find(x => x.judgeId === fbJudge)
+ok(fbRow?.items.some(i => i.score === 4 && i.comment?.startsWith('Подумав')), 'organizer sees team feedback with comments')
+ok((await student('GET', `/tournaments/${t4id}/judge-feedback`)).status === 403, 'participants cannot read feedback')
+r = await org('PUT', `/judges/${fbJudge}/review`, { score: 5 })
+ok(r.status === 200, 'organizer rates a judge after the tournament')
+r = await org('POST', `/tournaments/${t4id}/judges`, { name: 'Новый Судья Без Дебатов', rating: 5 })
+r = await org('PUT', `/judges/${r.data.id}/review`, { score: 5 })
+ok(r.status === 400 && r.data.error === 'judge_not_judged_yet', 'a judge who has not judged yet cannot be reviewed')
+
+const studentUser = (await admin('GET', '/admin/users')).data.find(u => u.email === 'student@debate.kz')
+r = await admin('PATCH', `/admin/users/${studentUser.id}`, { judgeLevelMin: 'experienced' })
+ok(r.status === 200 && r.data.judgeLevel === 'experienced', 'admin sets a minimum level for a known judge')
+r = await admin('PATCH', `/admin/users/${studentUser.id}`, { judgeLevelMin: null })
+ok(r.status === 200 && r.data.judgeLevel === undefined, 'removing the minimum returns to the earned level (none for someone who never judged)')
+ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'user.judgeLevel' && a.targetId === studentUser.id), 'level changes are in the audit log')
+r = await student('PATCH', `/admin/users/${studentUser.id}`, { judgeLevelMin: 'chief' })
+ok(r.status === 403, 'a user cannot raise their own judge level')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
