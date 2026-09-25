@@ -1,11 +1,9 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Globe, Plus } from 'lucide-react'
 import { Logo } from '@/components/brand'
 import { LangSwitch, ThemeToggle } from '@/components/layout/Header'
 import { UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
 import { EmailBanner } from '@/components/auth/EmailBanner'
-import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
@@ -15,7 +13,6 @@ export default function DashboardLayout() {
   const { user } = useAuth()
   if (!user) return null
   const links = cabinetLinks(user)
-  const canCreate = true // anyone can create a tournament
 
   return (
     <div className="min-h-dvh bg-muted/40">
@@ -29,12 +26,8 @@ export default function DashboardLayout() {
                 <Icon className="size-4" />{t(`cabinet.${key}`)}
               </NavLink>
             ))}
-            <Link to="/" className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground">
-              <Globe className="size-4" />{t('cabinet.site')}
-            </Link>
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            {canCreate && <Button asChild size="sm" className="hidden sm:inline-flex"><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>}
             <LangSwitch className="hidden sm:flex" />
             <ThemeToggle />
             <UserMenu />
@@ -48,7 +41,6 @@ export default function DashboardLayout() {
               <Icon className="size-4" />{t(`cabinet.${key}`)}
             </NavLink>
           ))}
-          <Link to="/" className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground"><Globe className="size-4" />{t('cabinet.site')}</Link>
         </nav>
       </header>
       <EmailBanner />

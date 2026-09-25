@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Building2, CalendarDays, DoorOpen, Mail, MapPin, Phone, Search, Swords, Trophy, Users } from 'lucide-react'
+import { Building2, CalendarDays, ChevronRight, DoorOpen, Mail, MapPin, Phone, Swords, Trophy, Users } from 'lucide-react'
 import { getMyDebates, getMyRegistrations, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
@@ -23,8 +23,10 @@ const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'dan
 export default function Profile() {
   const { t } = useTranslation()
   const { user, signIn } = useAuth()
-  const regs = useAsync(getMyRegistrations, [user?.id])
-  const debates = useAsync(getMyDebates, [user?.id])
+  const isAdmin = user?.role === 'admin'
+  // admins don't compete, so their participant data is not loaded at all
+  const regs = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyRegistrations()), [user?.id])
+  const debates = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyDebates()), [user?.id])
   const [form, setForm] = useState({ name: user!.name, phone: user!.phone ?? '', institution: user!.institution ?? '', city: user!.city ?? '' })
   if (!user) return null
 
@@ -56,12 +58,11 @@ export default function Profile() {
               {user.city && <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{user.city}</span>}
             </div>
           </div>
-          <Button asChild variant="outline" className="sm:mt-6"><Link to="/tournaments"><Search className="size-4" />{t('home.audience.partCta')}</Link></Button>
         </div>
       </Card>
 
-      {/* stats */}
-      <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* stats: participant sections are hidden for admins (they don't compete) */}
+      {!isAdmin && <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
           { label: t('profile.stats.registrations'), value: regs.data?.length, icon: Users },
           { label: t('profile.stats.debates'), value: played.length, icon: Swords },
@@ -74,12 +75,12 @@ export default function Profile() {
             <p className="text-sm text-muted-foreground">{label}</p>
           </Card>
         ))}
-      </div>
+      </div>}
 
-      <Tabs defaultValue="registrations" className="mt-8">
+      <Tabs defaultValue={isAdmin ? 'settings' : 'registrations'} className="mt-8">
         <TabsList className="w-fit">
-          <TabsTrigger value="registrations">{t('profile.tabs.registrations')}</TabsTrigger>
-          <TabsTrigger value="debates">{t('profile.tabs.debates')}</TabsTrigger>
+          {!isAdmin && <TabsTrigger value="registrations">{t('profile.tabs.registrations')}</TabsTrigger>}
+          {!isAdmin && <TabsTrigger value="debates">{t('profile.tabs.debates')}</TabsTrigger>}
           <TabsTrigger value="settings">{t('profile.tabs.settings')}</TabsTrigger>
         </TabsList>
 
@@ -90,18 +91,20 @@ export default function Profile() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {regs.data.map(r => (
-                <Card key={r.id} className="flex gap-4 overflow-hidden p-0">
+                <Link key={r.id} to={`/tournaments/${r.tournamentId}`}
+                  className="group flex gap-4 overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20">
                   <img src={r.tournament.cover} alt="" className="w-28 shrink-0 object-cover sm:w-36" />
                   <div className="min-w-0 flex-1 py-4 pr-4">
                     <div className="flex items-start justify-between gap-2">
-                      <Link to={`/tournaments/${r.tournamentId}`} className="font-bold leading-snug hover:text-primary">{r.tournament.name}</Link>
+                      <p className="font-bold leading-snug group-hover:text-primary">{r.tournament.name}</p>
                       <Badge variant={regVariant[r.status]}>{t(`profile.regStatus.${r.status}`)}</Badge>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">{formatDateRange(r.tournament.startDate, r.tournament.endDate)} · {r.tournament.city}</p>
                     <p className="mt-3 text-sm"><b>{r.teamName}</b> <span className="text-muted-foreground">· {r.institution}</span></p>
                     <p className="mt-1 truncate text-xs text-muted-foreground">{r.speakers.join(', ')}</p>
                   </div>
-                </Card>
+                  <ChevronRight className="mr-3 size-5 shrink-0 self-center text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                </Link>
               ))}
             </div>
           )}
@@ -113,7 +116,8 @@ export default function Profile() {
           ) : (
             <div className="space-y-3">
               {debates.data.map(d => (
-                <Card key={d.debate.id} className="flex flex-wrap items-center gap-4 p-4">
+                <Link key={d.debate.id} to={`/tournaments/${d.tournament.id}?tab=draw`}
+                  className="group flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20">
                   <span className={cn('grid size-12 shrink-0 place-items-center rounded-xl text-sm font-extrabold',
                     d.result === 'win' ? 'bg-success-soft text-success' : d.result === 'loss' ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-navy dark:text-accent')}>
                     {d.round.number}
@@ -130,7 +134,8 @@ export default function Profile() {
                   <Badge variant={d.result === 'win' ? 'success' : d.result === 'loss' ? 'danger' : 'accent'}>
                     {d.result ? t(`profile.result.${d.result}`) : t('profile.result.upcoming')}
                   </Badge>
-                </Card>
+                  <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                </Link>
               ))}
             </div>
           )}

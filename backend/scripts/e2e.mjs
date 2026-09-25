@@ -268,4 +268,8 @@ ok(r.status === 400, '"judge" is not a global role anymore')
   ok(r.status === 200, 'new password works')
 }
 
+// ---------- 9. admins never compete ----------
+r = await admin('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'Команда админа', institution: 'Лицей №1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+ok(r.status === 403 && r.data.error === 'admins_cannot_compete', 'an admin cannot register a team')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

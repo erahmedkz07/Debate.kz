@@ -73,6 +73,8 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   const data = body(req, registrationSchema)
   const t = await prisma.tournament.findFirst({ where: { id: param(req, 'id'), ...publicWhere }, include: { _count: { select: { teams: true } } } })
   if (!t) throw notFound('tournament_not_found')
+  // platform admins may judge or organize, but never compete as speakers
+  if (req.user!.role === 'admin') throw forbidden('admins_cannot_compete')
   const role = await participationIn(req.user!.id, t.id)
   if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
