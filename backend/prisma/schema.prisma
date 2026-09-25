@@ -103,6 +103,13 @@ enum ReportStatus {
   dismissed
 }
 
+enum ApplicationStatus {
+  pending
+  accepted
+  declined
+  withdrawn
+}
+
 enum Plan {
   free
   pro
@@ -141,6 +148,7 @@ model User {
   judgeReviews         JudgeReview[]
   reports              TournamentReport[]    @relation("ReportAuthor")
   resolvedReports      TournamentReport[]    @relation("ReportResolver")
+  judgeApplications    JudgeApplication[]
 
   @@map("users")
 }
@@ -213,6 +221,7 @@ model Tournament {
   registrations TeamRegistration[]
   invites       TournamentInvite[]
   reports       TournamentReport[]
+  judgeCall     JudgeCall?
 
   @@index([status, startDate])
   @@index([moderation])
@@ -456,6 +465,38 @@ model TournamentReport {
   @@unique([tournamentId, reporterId])
   @@index([status])
   @@map("tournament_reports")
+}
+
+// judge exchange: a tournament's open call for judges (one per tournament, can be closed and reopened)
+model JudgeCall {
+  tournamentId String             @id @map("tournament_id")
+  needed       Int // how many judges the organizer wants through the exchange
+  minLevel     JudgeLevel         @default(novice) @map("min_level")
+  message      String?
+  open         Boolean            @default(true)
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  applications JudgeApplication[]
+
+  @@map("judge_calls")
+}
+
+// a person's application to judge a tournament; accepting it creates the Judge row
+model JudgeApplication {
+  id           String            @id @default(cuid())
+  tournamentId String            @map("tournament_id")
+  userId       String            @map("user_id")
+  message      String?
+  status       ApplicationStatus @default(pending)
+  decidedAt    DateTime?         @map("decided_at")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  call         JudgeCall         @relation(fields: [tournamentId], references: [tournamentId], onDelete: Cascade)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@index([userId])
+  @@map("judge_applications")
 }
 
 model TeamRegistration {
