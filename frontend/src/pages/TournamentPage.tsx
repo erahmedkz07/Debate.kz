@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { LevelBadge } from '@/components/judge/LevelBadge'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
@@ -7,25 +6,95 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  ArrowLeft, Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users,
+  ArrowLeft, Building2, CalendarDays, Clock, DoorOpen, Flag, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users,
 } from 'lucide-react'
-import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
+import { getStandings, getTournamentById, NotFoundError, registerTeam, reportTournament } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
-import type { Debate, Round, TournamentDetails } from '@/types'
+import type { Debate, ReportReason, Round, TournamentDetails } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
 import { Badge, StatusDot, statusVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
-import { FieldError, Input, Label } from '@/components/ui/input'
+import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog'
+import { FieldError, Input, Label, Textarea } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { LevelBadge } from '@/components/judge/LevelBadge'
 import NotFound from './NotFound'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
+
+const reasons: ReportReason[] = ['fake', 'inappropriate', 'spam', 'other']
+
+// reports protect the public list: after several of them the tournament is hidden until an admin checks it
+function ReportButton({ tournament }: { tournament: TournamentDetails }) {
+  const { t } = useTranslation()
+  const { user } = useAuth()
+  const [open, setOpen] = useState(false)
+  const [gate, setGate] = useState(false)
+  const [reason, setReason] = useState<ReportReason>('fake')
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  // organizers manage their own tournament instead of reporting it
+  if (tournament.myRole && tournament.myRole !== 'admin') return null
+  const start = () => {
+    if (!user) return setGate(true)
+    if (!user.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
+    setOpen(true)
+  }
+  const send = async () => {
+    setBusy(true)
+    try {
+      await reportTournament(tournament.id, { reason, text: text.trim() || undefined })
+      toast.success(t('report.sent'))
+      setOpen(false)
+      setText('')
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <LoginRequiredDialog open={gate} onOpenChange={setGate} text={t('report.loginText')} />
+      <button type="button" onClick={start} className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-white/70 hover:text-white">
+        <Flag className="size-3.5" />{t('report.button')}
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent heading={t('report.title')} description={tournament.name}>
+          <div className="space-y-2" role="radiogroup" aria-label={t('report.reason')}>
+            {reasons.map(r => (
+              <button key={r} type="button" role="radio" aria-checked={reason === r} onClick={() => setReason(r)}
+                className={cn('flex w-full cursor-pointer items-start gap-3 rounded-xl border-2 p-3 text-left text-sm transition-colors',
+                  reason === r ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
+                <span className={cn('mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border-2', reason === r ? 'border-primary' : 'border-border')}>
+                  {reason === r && <span className="size-2 rounded-full bg-primary" />}
+                </span>
+                <span>
+                  <span className="block font-semibold">{t(`report.reasons.${r}`)}</span>
+                  <span className="block text-xs text-muted-foreground">{t(`report.hints.${r}`)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-4">
+            <Label htmlFor="rep-text">{reason === 'other' ? t('report.detailsRequired') : t('report.details')}</Label>
+            <Textarea id="rep-text" rows={3} maxLength={1000} value={text} onChange={e => setText(e.target.value)} placeholder={t('report.detailsPlaceholder')} />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{t('report.hint')}</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button variant="danger" disabled={busy || (reason === 'other' && !text.trim())} onClick={send}><Flag className="size-4" />{t('report.send')}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
 
 function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   const { t } = useTranslation()
@@ -420,7 +489,10 @@ export default function TournamentPage() {
             <span className="flex items-center gap-2"><MapPin className="size-4 text-accent" />{data.city}</span>
             <span className="flex items-center gap-2"><Building2 className="size-4 text-accent" />{t('tournament.organizer')}: {data.organizer}</span>
           </div>
-          <div className="mt-8"><RegisterTeamDialog tournament={data} /></div>
+          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <RegisterTeamDialog tournament={data} />
+            <ReportButton tournament={data} />
+          </div>
         </div>
       </section>
 

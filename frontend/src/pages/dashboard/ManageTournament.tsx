@@ -874,7 +874,7 @@ export default function ManageTournament() {
         <Badge variant="glass" className="border border-border"><StatusDot status={data.status} />{t(`status.${data.status}`)}</Badge>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{formatDateRange(data.startDate, data.endDate)} · {data.city}</p>
-      <ModerationBanner status={data.moderation} note={data.moderationNote} className="mt-4" />
+      <ModerationBanner status={data.moderation} note={data.moderationNote} hold={data.reportHold} className="mt-4" />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[240px_1fr]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-1 lg:px-0">
