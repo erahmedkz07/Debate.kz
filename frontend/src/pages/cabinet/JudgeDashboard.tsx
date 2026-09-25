@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, ClipboardList, ClipboardPen, DoorOpen, Gavel, History, Star, Trophy } from 'lucide-react'
@@ -9,6 +10,7 @@ import { cn, formatDate } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { CabinetHeader } from '@/pages/dashboard/DashboardLayout'
 
@@ -21,7 +23,7 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
     <Card className={cn('overflow-hidden', pending && 'ring-2 ring-accent')}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/50 px-5 py-3">
         <div className="flex items-center gap-2 text-sm">
-          <span className="font-bold">{a.tournament.name}</span>
+          <Link to={`/tournaments/${a.tournament.id}`} className="font-bold hover:text-primary hover:underline">{a.tournament.name}</Link>
           <span className="text-muted-foreground">· {a.round.name}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -64,9 +66,13 @@ export default function JudgeDashboard() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const { data, loading, error, reload } = useAsync(getJudgeAssignments, [user?.id])
+  const [tournament, setTournament] = useState('all')
+  // judges who work several tournaments can narrow the list to one
+  const tournaments = [...new Map((data ?? []).map(a => [a.tournament.id, a.tournament.name])).entries()]
+  const shown = (data ?? []).filter(a => tournament === 'all' || a.tournament.id === tournament)
 
-  const active = data?.filter(a => a.debate.ballotStatus !== 'confirmed') ?? []
-  const history = data?.filter(a => a.debate.ballotStatus === 'confirmed') ?? []
+  const active = shown.filter(a => a.debate.ballotStatus !== 'confirmed')
+  const history = shown.filter(a => a.debate.ballotStatus === 'confirmed')
   const pending = active.filter(a => a.debate.ballotStatus === 'pending').length
 
   return (
@@ -87,6 +93,13 @@ export default function JudgeDashboard() {
           </Card>
         ))}
       </div>
+
+      {tournaments.length > 1 && (
+        <div className="mt-6 max-w-sm">
+          <Select value={tournament} onValueChange={setTournament} aria-label={t('judge.filter')}
+            options={[{ value: 'all', label: t('judge.allTournaments') }, ...tournaments.map(([id, name]) => ({ value: id, label: name }))]} />
+        </div>
+      )}
 
       {error ? <div className="mt-8"><ErrorState onRetry={reload} /></div> : loading || !data ? (
         <div className="mt-8 grid gap-4 lg:grid-cols-2"><Skeleton className="h-64" /><Skeleton className="h-64" /></div>

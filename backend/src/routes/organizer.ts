@@ -7,6 +7,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
+import type { Prisma } from '../generated/prisma/client.js'
 
 export const organizerRouter = Router()
 // any signed-in user; per-tournament rights are checked with assertCanManage / assertOwner
@@ -91,9 +92,48 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     visible: z.boolean().optional(),
     registrationOpen: z.boolean().optional(),
     status: z.enum(['registration', 'ongoing', 'finished']).optional(),
+    city: z.string().trim().min(2).max(60).optional(),
+    startDate: day.optional(),
+    endDate: day.optional(),
+    registrationDeadline: day.nullable().optional(),
+    maxTeams: z.number().int().min(4).max(128).optional(),
+    rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
   }))
-  if (d.status) await assertStageChange(param(req, 'id'), d.status)
-  const t = await prisma.tournament.update({ where: { id: param(req, 'id') }, data: d, include: summaryInclude })
+  const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: true } } } })
+  if (d.status) await assertStageChange(cur.id, d.status)
+  const { startDate, endDate, registrationDeadline, maxTeams, rooms, ...rest } = d
+  const data: Prisma.TournamentUpdateInput = { ...rest }
+
+  // dates: a finished tournament is history and stays as it was
+  if (startDate || endDate || registrationDeadline !== undefined) {
+    if (cur.status === 'finished') throw forbidden('tournament_finished')
+    const start = startDate ?? toDay(cur.startDate), end = endDate ?? toDay(cur.endDate)
+    const deadline = registrationDeadline === undefined ? (cur.registrationDeadline && toDay(cur.registrationDeadline)) : registrationDeadline
+    if (end < start) throw badRequest('end_before_start')
+    if (deadline && deadline > start) throw badRequest('deadline_after_start')
+    Object.assign(data, { startDate: fromDay(start), endDate: fromDay(end), registrationDeadline: deadline ? fromDay(deadline) : null })
+  }
+  // team limit: never below the teams already in; crossing 12 switches the plan (Pro is confirmed by an admin)
+  if (maxTeams !== undefined && maxTeams !== cur.maxTeams) {
+    if (maxTeams < cur._count.teams) throw badRequest('below_team_count')
+    const pro = maxTeams > FREE_TEAM_LIMIT
+    if (pro && cur.plan === 'free') Object.assign(data, { plan: 'pro', paid: false })
+    if (!pro && cur.plan === 'pro') Object.assign(data, { plan: 'free', paid: true })
+    data.maxTeams = maxTeams
+  }
+  if (rooms) data.rooms = [...new Set(rooms)]
+
+  const t = await prisma.$transaction(async tx => {
+    // unreleased rounds follow the new dates (first half on day one, the rest on the last day)
+    if (data.startDate || data.endDate) {
+      const start = (data.startDate as Date | undefined) ?? cur.startDate, end = (data.endDate as Date | undefined) ?? cur.endDate
+      const half = Math.ceil(cur.preliminaryRounds / 2)
+      for (const r of cur.rounds.filter(x => x.status === 'draft')) {
+        await tx.round.update({ where: { id: r.id }, data: { date: r.number <= half ? start : end } })
+      }
+    }
+    return tx.tournament.update({ where: { id: cur.id }, data, include: summaryInclude })
+  })
   res.json(toSummary(t))
 })
 
@@ -253,6 +293,7 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
     room: z.string().trim().min(1).max(60).optional(),
     swapSides: z.boolean().optional(),
     chairJudgeId: z.string().optional(),
+    wingJudgeIds: z.array(z.string()).max(4).optional(), // the non-chair panel, replaced as a whole
   }))
   await prisma.$transaction(async tx => {
     if (d.room) await tx.debate.update({ where: { id: debate.id }, data: { room: d.room } })
@@ -271,6 +312,18 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
       const oldChair = debate.judges.find(j => j.isChair)
       if (oldChair && oldChair.judgeId !== judge.id) await tx.debateJudge.delete({ where: { debateId_judgeId: { debateId: debate.id, judgeId: oldChair.judgeId } } })
       await tx.debateJudge.create({ data: { debateId: debate.id, judgeId: judge.id, isChair: true } })
+    }
+    if (d.wingJudgeIds) {
+      if (await tx.ballot.count({ where: { debateId: debate.id } })) throw forbidden('ballots_already_submitted')
+      const wings = [...new Set(d.wingJudgeIds)]
+      const chair = await tx.debateJudge.findFirst({ where: { debateId: debate.id, isChair: true } })
+      if (chair && wings.includes(chair.judgeId)) throw badRequest('invalid_judge')
+      const valid = await tx.judge.count({ where: { id: { in: wings }, tournamentId: debate.round.tournamentId } })
+      if (valid !== wings.length) throw badRequest('invalid_judge')
+      const busy = await tx.debateJudge.findFirst({ where: { judgeId: { in: wings }, debate: { roundId: debate.roundId, id: { not: debate.id } } } })
+      if (busy) throw conflict('judge_busy_in_round')
+      await tx.debateJudge.deleteMany({ where: { debateId: debate.id, isChair: false } })
+      if (wings.length) await tx.debateJudge.createMany({ data: wings.map(judgeId => ({ debateId: debate.id, judgeId, isChair: false })) })
     }
   })
   const x = await prisma.debate.findUniqueOrThrow({ where: { id: debate.id }, include: { judges: { orderBy: { isChair: 'desc' } } } })

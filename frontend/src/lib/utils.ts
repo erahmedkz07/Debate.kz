@@ -12,6 +12,11 @@ export function formatDate(iso: string, opts: Intl.DateTimeFormatOptions = { day
   return new Intl.DateTimeFormat(locale(), opts).format(new Date(iso + 'T00:00:00'))
 }
 
+// full ISO timestamps (with time), e.g. the admin audit log
+export function formatDateTime(iso: string) {
+  return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
+}
+
 export function formatDateRange(start: string, end: string) {
   if (start === end) return formatDate(start, { day: 'numeric', month: 'long', year: 'numeric' })
   const s = new Date(start), e = new Date(end)

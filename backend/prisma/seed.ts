@@ -106,7 +106,7 @@ If you really want to reset to demo data: npm run db:seed:force`)
     prisma.round.deleteMany(), prisma.speaker.deleteMany(), prisma.team.deleteMany(), prisma.judge.deleteMany(),
     prisma.teamRegistration.deleteMany(), prisma.scheduleItem.deleteMany(), prisma.scoringConfig.deleteMany(),
     prisma.tournamentOrganizer.deleteMany(), prisma.tournament.deleteMany(), prisma.institution.deleteMany(),
-    prisma.user.deleteMany(), prisma.testimonial.deleteMany(),
+    prisma.adminAction.deleteMany(), prisma.user.deleteMany(), prisma.testimonial.deleteMany(),
   ])
 
   // ---------- users (demo password: demo1234) ----------

@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Building2, CalendarDays, ChevronRight, DoorOpen, Mail, MapPin, Phone, Swords, Trophy, Users } from 'lucide-react'
-import { getMyDebates, getMyRegistrations, updateProfile } from '@/api'
+import { Building2, CalendarDays, ChevronRight, DoorOpen, KeyRound, Mail, MapPin, Phone, Swords, Trash2, Trophy, Users } from 'lucide-react'
+import { changePassword, deleteAccount, getMyDebates, getMyRegistrations, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -13,12 +13,103 @@ import { AvatarEditor } from '@/components/auth/AvatarEditor'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Input, Label } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
+
+function PasswordCard() {
+  const { t } = useTranslation()
+  const { signIn } = useAuth()
+  const empty = { current: '', next: '', repeat: '' }
+  const [f, setF] = useState(empty)
+  const [busy, setBusy] = useState(false)
+  const mismatch = !!f.repeat && f.next !== f.repeat
+  const valid = !!f.current && f.next.length >= 8 && f.next === f.repeat
+  return (
+    <Card className="p-6">
+      <h3 className="flex items-center gap-2 font-bold"><KeyRound className="size-4 text-primary" />{t('profile.password.title')}</h3>
+      <p className="mt-1 text-sm text-muted-foreground">{t('profile.password.text')}</p>
+      <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={async e => {
+        e.preventDefault()
+        if (!valid) return
+        setBusy(true)
+        try {
+          signIn(await changePassword(f.current, f.next))
+          setF(empty)
+          toast.success(t('profile.password.changed'))
+        } catch (err) {
+          toast.error(errorMessage(err, t))
+        } finally {
+          setBusy(false)
+        }
+      }}>
+        <div className="sm:col-span-2">
+          <Label htmlFor="pw-cur">{t('profile.password.current')}</Label>
+          <Input id="pw-cur" type="password" autoComplete="current-password" value={f.current} onChange={e => setF({ ...f, current: e.target.value })} />
+        </div>
+        <div>
+          <Label htmlFor="pw-new">{t('profile.password.new')}</Label>
+          <Input id="pw-new" type="password" autoComplete="new-password" value={f.next} onChange={e => setF({ ...f, next: e.target.value })} />
+        </div>
+        <div>
+          <Label htmlFor="pw-rep">{t('profile.password.repeat')}</Label>
+          <Input id="pw-rep" type="password" autoComplete="new-password" aria-invalid={mismatch} value={f.repeat} onChange={e => setF({ ...f, repeat: e.target.value })} />
+          {mismatch && <p className="mt-1 text-xs text-danger">{t('profile.password.mismatch')}</p>}
+        </div>
+        <p className="text-xs text-muted-foreground sm:col-span-2">{t('profile.password.hint')}</p>
+        <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!valid || busy}>{t('profile.password.submit')}</Button></div>
+      </form>
+    </Card>
+  )
+}
+
+// personal data law: a user can delete their account; confirmed with the password
+function DeleteAccountCard() {
+  const { t } = useTranslation()
+  const { signOut } = useAuth()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  return (
+    <Card className="border-danger/40 p-6">
+      <h3 className="font-bold text-danger">{t('profile.deleteAccount.title')}</h3>
+      <p className="mt-1 text-sm text-muted-foreground">{t('profile.deleteAccount.text')}</p>
+      <Button variant="danger" className="mt-4" onClick={() => { setPassword(''); setOpen(true) }}><Trash2 className="size-4" />{t('profile.deleteAccount.button')}</Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent heading={t('profile.deleteAccount.confirmTitle')} description={t('profile.deleteAccount.confirmText')}>
+          <form className="space-y-4" onSubmit={async e => {
+            e.preventDefault()
+            if (!password) return
+            setBusy(true)
+            try {
+              await deleteAccount(password)
+              await signOut()
+              toast(t('profile.deleteAccount.deleted'))
+              navigate('/', { replace: true })
+            } catch (err) {
+              toast.error(errorMessage(err, t))
+              setBusy(false)
+            }
+          }}>
+            <div>
+              <Label htmlFor="del-pw">{t('profile.deleteAccount.password')}</Label>
+              <Input id="del-pw" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+              <Button type="submit" variant="danger" disabled={!password || busy}><Trash2 className="size-4" />{t('profile.deleteAccount.button')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  )
+}
 
 export default function Profile() {
   const { t } = useTranslation()
@@ -141,8 +232,8 @@ export default function Profile() {
           )}
         </TabsContent>
 
-        <TabsContent value="settings">
-          <Card className="max-w-2xl p-6">
+        <TabsContent value="settings" className="max-w-2xl space-y-5">
+          <Card className="p-6">
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={async e => {
               e.preventDefault()
               try {
@@ -159,6 +250,9 @@ export default function Profile() {
               <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!form.name.trim()}>{t('common.save')}</Button></div>
             </form>
           </Card>
+          <PasswordCard />
+          {/* admins are demoted by another admin before they can leave */}
+          {!isAdmin && <DeleteAccountCard />}
         </TabsContent>
       </Tabs>
     </div>

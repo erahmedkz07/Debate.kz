@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Loader2, Megaphone, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, Users, X,
+  DoorOpen, Loader2, Megaphone, Pencil, Play, Plus, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCities, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -25,6 +25,7 @@ import { ResultsTab } from '@/pages/TournamentPage'
 import NotFound from '@/pages/NotFound'
 import { InviteButton } from '@/components/tournament/InviteDialog'
 import { ModerationBanner } from '@/components/tournament/ModerationBadge'
+import { DatePicker } from '@/components/ui/date-picker'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -38,6 +39,9 @@ const sections = [
   { key: 'settings', icon: Settings },
 ] as const
 type Section = (typeof sections)[number]['key']
+
+// used when the organizer has not listed their own rooms
+const DEFAULT_ROOMS = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
 
 interface SectionProps {
   data: TournamentDetails
@@ -393,6 +397,7 @@ function Rounds({ data, reload }: SectionProps) {
 function Draw({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
+  const [wingsFor, setWingsFor] = useState<Debate | null>(null)
   const defaultRound = data.rounds.find(r => r.status === 'released') ?? data.rounds.find(r => r.status === 'draft') ?? data.rounds[0]
   const [roundId, setRoundId] = useState(defaultRound?.id)
   const round = data.rounds.find(r => r.id === roundId)
@@ -402,7 +407,7 @@ function Draw({ data, reload }: SectionProps) {
   const team = (id: string) => data.teams.find(x => x.id === id)
   const judge = (id: string) => data.judges.find(j => j.id === id)
   const editable = round.status !== 'completed'
-  const rooms = [...new Set(['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502', ...current.map(d => d.room)])]
+  const rooms = [...new Set([...(data.rooms?.length ? data.rooms : DEFAULT_ROOMS), ...current.map(d => d.room)])]
 
   const generate = async () => { if (await run('generate', () => generateDraw(round.id), t('dashboard.draw.generated'))) reload() }
   const publish = async () => { if (await run('publish', () => updateRound(round.id, { status: 'released' }), t('dashboard.draw.published'))) reload() }
@@ -465,7 +470,14 @@ function Draw({ data, reload }: SectionProps) {
                       <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
                         onValueChange={v => patch(d, { chairJudgeId: v })}
                         options={data.judges.map(j => ({ value: j.id, label: j.name, hint: `${j.rating}/10` }))} />
-                      {d.judgeIds.length > 1 && <p className="mt-1 text-xs text-muted-foreground">+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</p>}
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                        {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
+                        {editable && d.ballotStatus === 'pending' && (
+                          <button type="button" onClick={() => setWingsFor(d)} className="inline-flex cursor-pointer items-center gap-1 font-semibold text-primary hover:underline">
+                            <UserPlus className="size-3.5" />{t('dashboard.draw.wings')}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -474,7 +486,57 @@ function Draw({ data, reload }: SectionProps) {
           </Card>
         </>
       )}
+      <WingsDialog debate={wingsFor} data={data} saving={!!wingsFor && busy === wingsFor.id} onClose={() => setWingsFor(null)}
+        onSave={async ids => { if (await run(wingsFor!.id, () => updateDebate(wingsFor!.id, { wingJudgeIds: ids }), t('dashboard.draw.wingsSaved'))) { setWingsFor(null); reload() } }} />
     </>
+  )
+}
+
+// wing judges of one debate; judges already sitting in another room of this round are unavailable
+function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate | null; data: TournamentDetails; saving: boolean; onClose: () => void; onSave: (ids: string[]) => void }) {
+  const { t } = useTranslation()
+  const [sel, setSel] = useState<string[]>([])
+  useEffect(() => { if (debate) setSel(debate.judgeIds.slice(1)) }, [debate])
+  if (!debate) return null
+  const chair = debate.judgeIds[0]
+  const elsewhere = new Set(data.debates.filter(x => x.roundId === debate.roundId && x.id !== debate.id).flatMap(x => x.judgeIds))
+  const toggle = (id: string) => setSel(s => (s.includes(id) ? s.filter(x => x !== id) : s.length < 4 ? [...s, id] : s))
+  const team = (id: string) => data.teams.find(x => x.id === id)?.name
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent heading={t('dashboard.draw.wingsTitle')} description={`${debate.room} · ${team(debate.propositionTeamId)} vs ${team(debate.oppositionTeamId)}`}>
+        <p className="text-sm text-muted-foreground">{t('dashboard.draw.wingsText')}</p>
+        <ul className="mt-4 max-h-80 space-y-1.5 overflow-y-auto">
+          {data.judges.filter(j => j.id !== chair).map(j => {
+            const busyThere = elsewhere.has(j.id)
+            const on = sel.includes(j.id)
+            return (
+              <li key={j.id}>
+                <button type="button" disabled={busyThere} onClick={() => toggle(j.id)} aria-pressed={on}
+                  className={cn('flex w-full cursor-pointer items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                    on ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
+                  <span className={cn('grid size-5 shrink-0 place-items-center rounded-md border-2', on ? 'border-primary bg-primary text-primary-foreground' : 'border-border')}>
+                    {on && <Check className="size-3.5" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{j.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{busyThere ? t('dashboard.draw.busyElsewhere') : j.institution || '—'}</span>
+                  </span>
+                  <span className="text-xs font-bold text-primary">{j.rating}/10</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="mt-5 flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">{t('dashboard.draw.wingsCount', { count: sel.length })}</span>
+          <div className="flex gap-2">
+            <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button disabled={saving} onClick={() => onSave(sel)}>{saving && <Loader2 className="size-4 animate-spin" />}{t('common.save')}</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -514,6 +576,114 @@ function Ballots({ data }: SectionProps) {
 }
 
 /* ---------- Settings ---------- */
+// city, dates and team limit can change until the tournament is finished
+function DetailsCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const { data: cities = [] } = useAsync(getCities)
+  const initial = { city: data.city, startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
+  const [f, setF] = useState(initial)
+  useEffect(() => setF(initial), [data]) // eslint-disable-line react-hooks/exhaustive-deps
+  const dirty = JSON.stringify(f) !== JSON.stringify(initial)
+  const minTeams = Math.max(4, data.teams.length)
+  const limitBad = !Number.isInteger(f.maxTeams) || f.maxTeams < minTeams || f.maxTeams > 128
+  const today = new Date().toISOString().slice(0, 10)
+  const save = async () => {
+    if (await run('details', () => updateTournament(data.id, { ...f, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
+  }
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="font-bold">{t('dashboard.details.title')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.details.text')}</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="d-city">{t('wizard.city')}</Label>
+          <Select id="d-city" value={f.city} onValueChange={c => setF({ ...f, city: c })} options={[...new Set([f.city, ...cities])].map(c => ({ value: c, label: c }))} />
+        </div>
+        <div>
+          <Label htmlFor="d-max">{t('wizard.maxTeams')}</Label>
+          <Input id="d-max" type="number" min={minTeams} max={128} value={f.maxTeams} aria-invalid={limitBad} onChange={e => setF({ ...f, maxTeams: Number(e.target.value) })} />
+          {limitBad
+            ? <p className="mt-1 text-xs text-danger">{t('dashboard.details.limitHint', { min: minTeams })}</p>
+            : f.maxTeams > 12 && data.plan !== 'pro' && <p className="mt-1 text-xs font-semibold text-accent-foreground dark:text-accent">{t('dashboard.details.becomesPro')}</p>}
+        </div>
+        <div>
+          <Label htmlFor="d-start">{t('wizard.startDate')}</Label>
+          <DatePicker id="d-start" value={f.startDate} min={data.status === 'registration' ? today : undefined}
+            onChange={v => v && setF({ ...f, startDate: v, endDate: f.endDate < v ? v : f.endDate })} />
+        </div>
+        <div>
+          <Label htmlFor="d-end">{t('wizard.endDate')}</Label>
+          <DatePicker id="d-end" value={f.endDate} min={f.startDate} onChange={v => v && setF({ ...f, endDate: v })} />
+        </div>
+        {data.status === 'registration' && (
+          <div className="sm:col-span-2">
+            <Label htmlFor="d-deadline">{t('wizard.regDeadline')}</Label>
+            <DatePicker id="d-deadline" value={f.registrationDeadline} max={f.startDate} onChange={v => setF({ ...f, registrationDeadline: v })} />
+          </div>
+        )}
+      </div>
+      <div className="flex justify-end gap-2">
+        {dirty && <Button variant="ghost" onClick={() => setF(initial)}>{t('common.cancel')}</Button>}
+        <Button disabled={!dirty || limitBad || busy === 'details'} onClick={save}>{busy === 'details' && <Loader2 className="size-4 animate-spin" />}{t('common.save')}</Button>
+      </div>
+    </Card>
+  )
+}
+
+// the organizer's own rooms, used by the draw in this order
+function RoomsCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const saved = data.rooms ?? []
+  const [rooms, setRooms] = useState(saved)
+  const [draft, setDraft] = useState('')
+  useEffect(() => setRooms(data.rooms ?? []), [data.rooms])
+  const dirty = JSON.stringify(rooms) !== JSON.stringify(saved)
+  const needed = Math.ceil(data.maxTeams / 2)
+  const add = () => {
+    const v = draft.trim()
+    if (v && !rooms.includes(v) && rooms.length < 64) setRooms([...rooms, v])
+    setDraft('')
+  }
+  const save = async () => { if (await run('rooms', () => updateTournament(data.id, { rooms }), t('dashboard.rooms.saved'))) reload() }
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="flex items-center gap-2 font-bold"><DoorOpen className="size-4 text-primary" />{t('dashboard.rooms.title')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.rooms.text')}</p>
+      </div>
+      {rooms.length === 0
+        ? <p className="rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">{t('dashboard.rooms.empty')}</p>
+        : (
+          <ul className="flex flex-wrap gap-2">
+            {rooms.map((r, i) => (
+              <li key={r} className="flex items-center gap-1.5 rounded-full border border-border bg-muted/50 py-1 pl-3 pr-1 text-sm font-medium">
+                <span className="text-xs text-muted-foreground">{i + 1}.</span>{r}
+                <button type="button" aria-label={t('common.delete')} onClick={() => setRooms(rooms.filter(x => x !== r))}
+                  className="grid size-6 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger">
+                  <X className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      <div className="flex gap-2">
+        <Input value={draft} maxLength={60} placeholder={t('dashboard.rooms.placeholder')} aria-label={t('dashboard.rooms.placeholder')}
+          onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }} />
+        <Button variant="outline" disabled={!draft.trim()} onClick={add}><Plus className="size-4" />{t('dashboard.rooms.add')}</Button>
+      </div>
+      {rooms.length > 0 && rooms.length < needed && <p className="text-xs text-muted-foreground">{t('dashboard.rooms.need', { count: needed })}</p>}
+      <div className="flex justify-end gap-2">
+        {dirty && <Button variant="ghost" onClick={() => setRooms(saved)}>{t('common.cancel')}</Button>}
+        <Button disabled={!dirty || busy === 'rooms'} onClick={save}>{t('common.save')}</Button>
+      </div>
+    </Card>
+  )
+}
+
 function SettingsSection({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -569,6 +739,7 @@ function SettingsSection({ data, reload }: SectionProps) {
             )}
           </div>
         </Card>
+        {data.status !== 'finished' && <DetailsCard data={data} reload={reload} />}
         <Card className="space-y-4 p-6">
           <h3 className="font-bold">{t('dashboard.settings.general')}</h3>
           <div><Label htmlFor="s-name">{t('wizard.name')}</Label><Input id="s-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
@@ -576,6 +747,7 @@ function SettingsSection({ data, reload }: SectionProps) {
           <Switch label={t('dashboard.settings.visibility')} checked={form.visible} onChange={v => setForm({ ...form, visible: v })} />
           <div className="flex justify-end"><Button disabled={busy === 'save' || form.name.trim().length < 3} onClick={save}>{t('common.save')}</Button></div>
         </Card>
+        {data.status !== 'finished' && <RoomsCard data={data} reload={reload} />}
         <Card className="flex items-center justify-between gap-4 p-6">
           <div>
             <h3 className="font-bold">{t('dashboard.settings.plan')}</h3>
@@ -653,6 +825,11 @@ export default function ManageTournament() {
                 className={cn('flex shrink-0 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-colors',
                   current === key ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
                 <Icon className="size-4" />{t(`dashboard.nav.${key}`)}
+                {key === 'registrations' && !!data.pendingRegistrations && (
+                  <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy" aria-label={t('dashboard.pendingCount', { count: data.pendingRegistrations })}>
+                    {data.pendingRegistrations}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>

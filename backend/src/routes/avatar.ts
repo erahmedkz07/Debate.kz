@@ -18,7 +18,7 @@ const upload = multer({
   fileFilter: (_req, file, cb) => cb(null, ALLOWED.includes(file.mimetype)),
 })
 
-async function removeOld(url: string | null) {
+export async function removeOld(url: string | null) {
   if (!url?.startsWith('/uploads/avatars/')) return
   // basename() blocks path traversal even if the DB value were tampered with
   await unlink(path.join(AVATARS_DIR, path.basename(url))).catch(() => undefined)

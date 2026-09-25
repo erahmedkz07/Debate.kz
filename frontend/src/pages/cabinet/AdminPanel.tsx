@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Gavel, LayoutGrid, Search, Trophy, Unlock, Users, X } from 'lucide-react'
-import { getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
+import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Gavel, History, LayoutGrid, Search, ShieldCheck, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
+import { getAdminActions, getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { AdminTournament, Role, User } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
-import { cn, formatDate, formatDateRange } from '@/lib/utils'
+import { cn, formatDate, formatDateRange, formatDateTime } from '@/lib/utils'
 import { Avatar } from '@/components/auth/UserMenu'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -80,6 +80,14 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
   const [confirm, setConfirm] = useState<AdminTournament | null>(null)
   const [rejecting, setRejecting] = useState<AdminTournament | null>(null)
   const [reason, setReason] = useState('')
+  const [q, setQ] = useState('')
+  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'unpaid'>('all')
+  const query = q.trim().toLowerCase()
+  const shown = [...list]
+    .filter(x => filter === 'all' || (filter === 'unpaid' ? x.plan === 'pro' && !x.paid : x.moderation === filter))
+    .filter(x => !query || [x.name, x.city, x.owner?.name, x.owner?.email].some(v => v?.toLowerCase().includes(query)))
+    // pending moderation first: that is what the admin has to act on
+    .sort((a, b) => Number(b.moderation === 'pending') - Number(a.moderation === 'pending'))
   // server first, then local list; returns false on error
   const patch = async (id: string, p: { paid?: boolean; visible?: boolean; moderation?: 'approved' | 'rejected'; moderationNote?: string }) => {
     try {
@@ -93,6 +101,21 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
   }
   return (
     <>
+      <div className="mb-4 flex flex-wrap gap-3">
+        <div className="relative min-w-60 flex-1">
+          <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={e => setQ(e.target.value)} placeholder={t('admin.searchTournaments')} className="pl-10" aria-label={t('common.search')} />
+        </div>
+        <Select className="w-52" value={filter} onValueChange={v => setFilter(v as typeof filter)} aria-label={t('admin.moderationCol')}
+          options={[
+            { value: 'all', label: t('admin.allTournaments') },
+            { value: 'pending', label: t('moderation.pending') },
+            { value: 'approved', label: t('moderation.approved') },
+            { value: 'rejected', label: t('moderation.rejected') },
+            { value: 'unpaid', label: t('admin.awaitingPayment') },
+          ]} />
+      </div>
+      {shown.length === 0 ? <EmptyState icon={<Trophy className="size-7" />} title={t('tournaments.emptyTitle')} /> : (
       <Card className="overflow-x-auto">
         <table className="w-full min-w-[860px] text-sm">
           <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -106,7 +129,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {[...list].sort((a, b) => Number(b.moderation === 'pending') - Number(a.moderation === 'pending')).map(x => (
+            {shown.map(x => (
               <tr key={x.id} className={cn('hover:bg-muted/40', !x.visible && 'opacity-50', x.moderation === 'pending' && 'bg-accent-soft/40')}>
                 <td className="px-5 py-3.5">
                   <p className="font-bold">{x.name}</p>
@@ -153,6 +176,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
           </tbody>
         </table>
       </Card>
+      )}
       <Dialog open={!!rejecting} onOpenChange={o => !o && setRejecting(null)}>
         <DialogContent heading={t('admin.rejectTitle')} description={rejecting?.name}>
           <form className="space-y-4" onSubmit={async e => {
@@ -270,6 +294,45 @@ function UsersTab() {
   )
 }
 
+// audit log: who approved, rejected, marked paid, hid, blocked or changed a role
+const actionIcon: Record<string, typeof Check> = {
+  'tournament.approve': CheckCircle2, 'tournament.reject': X, 'tournament.paid': CircleDollarSign, 'tournament.unpaid': CircleDollarSign,
+  'tournament.show': Eye, 'tournament.hide': EyeOff, 'user.role': UserCog, 'user.block': Ban, 'user.unblock': Unlock,
+}
+const actionColor = (a: string) => (a.endsWith('reject') || a.endsWith('block') || a.endsWith('hide') ? 'bg-danger-soft text-danger'
+  : a.endsWith('approve') || a.endsWith('paid') || a.endsWith('unblock') || a.endsWith('show') ? 'bg-success-soft text-success' : 'bg-primary-soft text-primary')
+
+function LogTab() {
+  const { t } = useTranslation()
+  const { data, loading, error, reload } = useAsync(getAdminActions)
+  if (error) return <ErrorState onRetry={reload} />
+  if (loading || !data) return <Skeleton className="h-96" />
+  if (data.length === 0) return <EmptyState icon={<History className="size-7" />} title={t('admin.log.empty')} text={t('admin.log.emptyText')} />
+  return (
+    <Card className="divide-y divide-border">
+      {data.map(a => {
+        const Icon = actionIcon[a.action] ?? ShieldCheck
+        return (
+          <div key={a.id} className="flex items-start gap-4 px-5 py-4">
+            <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', actionColor(a.action))}><Icon className="size-4" /></span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm">
+                <b>{a.adminName}</b> {t(`admin.log.actions.${a.action}`, { defaultValue: a.action })}{' '}
+                {a.targetType === 'tournament'
+                  ? <Link to={`/tournaments/${a.targetId}`} className="font-semibold text-primary hover:underline">«{a.targetLabel}»</Link>
+                  : <span className="font-semibold">{a.targetLabel}</span>}
+                {a.action === 'user.role' && a.note && <> → {t(`roles.${a.note}`)}</>}
+              </p>
+              {a.action === 'tournament.reject' && a.note && <p className="mt-1 text-xs text-muted-foreground">{t('admin.log.reason')}: {a.note}</p>}
+            </div>
+            <time className="shrink-0 text-xs text-muted-foreground" dateTime={a.createdAt}>{formatDateTime(a.createdAt)}</time>
+          </div>
+        )
+      })}
+    </Card>
+  )
+}
+
 export default function AdminPanel() {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(getAdminTournaments)
@@ -285,12 +348,14 @@ export default function AdminPanel() {
           <TabsTrigger value="overview">{t('dashboard.nav.overview')}</TabsTrigger>
           <TabsTrigger value="tournaments">{t('nav.tournaments')}</TabsTrigger>
           <TabsTrigger value="users">{t('admin.users')}</TabsTrigger>
+          <TabsTrigger value="log">{t('admin.log.tab')}</TabsTrigger>
         </TabsList>
         {error ? <div className="mt-6"><ErrorState onRetry={reload} /></div> : loading || !data ? <Skeleton className="mt-6 h-96" /> : (
           <>
             <TabsContent value="overview"><Overview tournaments={list} setTab={setTab} /></TabsContent>
             <TabsContent value="tournaments"><TournamentsTab list={list} setList={setList} /></TabsContent>
             <TabsContent value="users"><UsersTab /></TabsContent>
+            <TabsContent value="log"><LogTab /></TabsContent>
           </>
         )}
       </Tabs>
