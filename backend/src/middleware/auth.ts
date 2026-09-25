@@ -19,7 +19,8 @@ declare global {
 
 // Session token lives in an httpOnly cookie: JS on the page cannot read it (XSS-safe)
 export function setSession(res: Response, userId: string) {
-  const token = jwt.sign({ sub: userId }, env.JWT_SECRET, { expiresIn: '7d', algorithm: 'HS256' })
+  // iatMs: issue time in milliseconds, so a password change revokes sessions from the same second too
+  const token = jwt.sign({ sub: userId, iatMs: Date.now() }, env.JWT_SECRET, { expiresIn: '7d', algorithm: 'HS256' })
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: isProd, maxAge: MAX_AGE_MS, path: '/' })
 }
 
@@ -32,11 +33,13 @@ export async function loadUser(req: Request, _res: Response, next: NextFunction)
   const token = req.cookies?.[COOKIE]
   if (!token) return next()
   try {
-    const { sub, iat } = jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'] }) as { sub: string; iat: number }
+    const { sub, iat, iatMs } = jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'] }) as { sub: string; iat: number; iatMs?: number }
     // re-read from DB so role changes and blocks apply immediately
     const user = await prisma.user.findUnique({ where: { id: sub } })
-    // sessions created before the last password change are no longer valid (iat is in whole seconds)
-    const revoked = !!user?.passwordChangedAt && iat < Math.floor(user.passwordChangedAt.getTime() / 1000)
+    // sessions created before the last password change are no longer valid
+    // (older tokens only have iat in whole seconds)
+    const issued = iatMs ?? iat * 1000
+    const revoked = !!user?.passwordChangedAt && issued < (iatMs ? user.passwordChangedAt.getTime() : Math.floor(user.passwordChangedAt.getTime() / 1000) * 1000)
     if (user && !user.blocked && !revoked) req.user = user
   } catch {
     // expired or tampered token -> treat as guest
