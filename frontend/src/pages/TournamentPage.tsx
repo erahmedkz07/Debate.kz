@@ -439,7 +439,12 @@ export default function TournamentPage() {
             <span className="flex items-center gap-2"><MapPin className="size-4 text-accent" />{data.city}</span>
             <span className="flex items-center gap-2"><Building2 className="size-4 text-accent" />{t('tournament.organizer')}: {data.organizer}</span>
           </div>
-          <div className="mt-8"><RegisterTeamDialog tournament={data} /></div>
+          <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <RegisterTeamDialog tournament={data} />
+            {data.status === 'registration' && (
+              <Link to={`/teammates?city=${encodeURIComponent(data.city)}&level=${data.level}`} className="text-sm font-semibold text-white/85 underline-offset-4 hover:text-accent hover:underline">{t('teammates.noTeam')}</Link>
+            )}
+          </div>
         </div>
       </section>
 

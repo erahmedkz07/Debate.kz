@@ -28,6 +28,7 @@ export function Footer() {
             <li><Link className="hover:text-accent" to="/rating">{t('nav.rating')}</Link></li>
             <li><Link className="hover:text-accent" to="/motions">{t('nav.motions')}</Link></li>
             <li><Link className="hover:text-accent" to="/timer">{t('timer.title')}</Link></li>
+            <li><Link className="hover:text-accent" to="/teammates">{t('teammates.title')}</Link></li>
             <li><Link className="hover:text-accent" to="/pricing">{t('nav.pricing')}</Link></li>
             <li><Link className="hover:text-accent" to="/dashboard/tournaments/new">{t('nav.createTournament')}</Link></li>
           </ul>
@@ -39,6 +40,7 @@ export function Footer() {
             <li><Link className="hover:text-accent" to="/about">{t('nav.about')}</Link></li>
             <li><a className="hover:text-accent" href="https://www.wsdcdebating.org/" target="_blank" rel="noreferrer">{t('footer.rules')}</a></li>
             <li><Link className="hover:text-accent" to="/pricing#faq">{t('footer.help')}</Link></li>
+            <li><Link className="hover:text-accent" to="/safety">{t('safety.title')}</Link></li>
           </ul>
         </div>
 

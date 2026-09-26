@@ -173,6 +173,7 @@ export interface User {
   telegramNotify?: boolean
   organizes?: boolean // owns or co-organizes at least one tournament
   judges?: boolean // judges in at least one tournament
+  safeguardingOfficer?: boolean // handles behaviour reports
 }
 
 export interface TeamRegistration {
@@ -273,4 +274,34 @@ export interface InvitePreview {
   invitedBy: string
   expiresAt: string
   tournament: { id: string; name: string; city: string; startDate: string; endDate: string; cover: string }
+}
+
+// ---------- find a teammate ----------
+export type TeammateKind = 'team_needed' | 'speaker_needed'
+export interface TeammatePost {
+  id: string
+  kind: TeammateKind
+  city: string
+  level: 'school' | 'university'
+  languages: ('ru' | 'kz' | 'en')[]
+  text: string
+  createdAt: string
+  expiresAt: string
+  author: { name: string; institution?: string }
+  replies: number
+  own: boolean
+  replied: boolean
+}
+
+// ---------- safeguarding ----------
+export type SafetyCategory = 'bullying' | 'harassment' | 'inappropriate' | 'threat' | 'other'
+export type SafetyStatus = 'open' | 'in_progress' | 'resolved'
+export interface MySafetyReport { id: string; category: SafetyCategory; status: SafetyStatus; createdAt: string; resolutionNote?: string }
+export interface SafetyReport extends MySafetyReport {
+  about?: string
+  place?: string
+  description: string
+  anonymous: boolean
+  reporter?: { name: string; email: string }
+  handledBy?: string
 }

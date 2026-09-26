@@ -573,4 +573,52 @@ ok(!(await client()('GET', `/tournaments/${t1.id}/standings`)).data.teams.some(x
 r = await org('POST', `/tournaments/${t1.id}/checkin/reset`)
 ok(r.data.present === 0, 'check-in can be reset for the next day')
 
+// ---------- 23. find a teammate ----------
+ok((await client()('GET', '/teammates')).status === 200, 'anyone can browse the teammate board')
+const post = { kind: 'team_needed', city: 'Астана', level: 'school', languages: ['ru', 'kz'], text: 'Ищу команду на школьные турниры, опыт 1 год' }
+ok((await client()('POST', '/teammates', post)).status === 401, 'guests cannot post')
+ok((await student('POST', '/teammates', { ...post, text: 'коротко' })).status === 400, 'too short posts are rejected')
+r = await student('POST', '/teammates', post)
+const postId = r.data.id
+ok(r.status === 201, 'a participant posts "looking for a team"')
+await student('POST', '/teammates', { ...post, kind: 'speaker_needed', text: 'Ищем третьего спикера в команду Вектор' })
+await student('POST', '/teammates', { ...post, text: 'Ещё одно объявление о поиске команды' })
+ok((await student('POST', '/teammates', { ...post, text: 'Четвёртое объявление подряд — лишнее' })).data.error === 'too_many_posts', 'at most 3 active posts per person')
+const board = (await client()('GET', '/teammates?kind=team_needed&city=Астана')).data
+const mineOnBoard = board.find(p => p.id === postId)
+ok(mineOnBoard && mineOnBoard.author.name && !JSON.stringify(mineOnBoard).match(/@|\+7|phone|email/i), 'posts never expose contacts')
+r = await timur('POST', `/teammates/${postId}/reply`, { message: 'Привет! Я из Астаны, давай в команду. Мой Telegram @timur' })
+ok(r.status === 201, 'someone replies to a post')
+ok((await timur('POST', `/teammates/${postId}/reply`, { message: 'Ещё раз привет' })).status === 409, 'one reply per person and post')
+ok((await student('POST', `/teammates/${postId}/reply`, { message: 'Ответ самому себе' })).data.error === 'own_post', 'you cannot reply to your own post')
+await new Promise(res => setTimeout(res, 300))
+const stNotes = (await student('GET', '/me/notifications')).data.items
+ok(stNotes.some(n => n.type === 'participant.teammateReply' && n.data.message.includes('@timur')), 'the reply reaches the author as a notification')
+ok((await timur('DELETE', `/teammates/${postId}`)).status === 403, "you cannot close someone else's post")
+r = await student('DELETE', `/teammates/${postId}`)
+ok(r.status === 204 && !(await client()('GET', '/teammates')).data.some(p => p.id === postId), 'the author closes the post')
+
+// ---------- 24. report behaviour (safeguarding) ----------
+const report = { category: 'bullying', about: 'Участник команды X', place: 'Кубок Астаны, раунд 2', description: 'Во время раунда оскорблял спикеров соперника, это видели судьи', anonymous: true }
+ok((await client()('POST', '/safety-reports', report)).status === 401, 'reporting needs sign-in')
+ok((await student('POST', '/safety-reports', { ...report, description: 'коротко' })).status === 400, 'a report needs a description')
+r = await student('POST', '/safety-reports', report)
+const safetyId = r.data.id
+ok(r.status === 201, 'a participant reports bullying')
+ok((await student('GET', '/safety-reports')).status === 403 && (await timur('GET', '/safety-reports')).status === 403, 'ordinary users cannot read reports')
+let queueS = (await admin('GET', '/safety-reports')).data
+ok(queueS.some(x => x.id === safetyId && x.anonymous && !x.reporter), 'admins see the report; an anonymous reporter stays hidden')
+await new Promise(res => setTimeout(res, 300))
+ok((await admin('GET', '/me/notifications')).data.items.some(n => n.type === 'admin.safetyReport'), 'admins are notified')
+const sabinaUser = (await admin('GET', '/admin/users')).data.find(u => u.email === 'sabina@mail.kz')
+r = await admin('PATCH', `/admin/users/${sabinaUser.id}`, { safeguardingOfficer: true })
+ok(r.status === 200 && (await sabina('GET', '/safety-reports')).status === 200, 'an admin appoints a safeguarding officer who can read reports')
+r = await sabina('PATCH', `/safety-reports/${safetyId}`, { status: 'resolved', resolutionNote: 'Поговорили с тренером команды' })
+ok(r.status === 200 && (await student('GET', '/me/safety-reports')).data.find(x => x.id === safetyId).status === 'resolved', 'the officer resolves it and the reporter sees the status')
+await new Promise(res => setTimeout(res, 300))
+ok((await student('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.safetyUpdate' && n.data.status === 'resolved'), 'the reporter is notified')
+ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'user.safeguardingOn' && a.targetId === sabinaUser.id), 'appointing an officer is logged')
+await admin('PATCH', `/admin/users/${sabinaUser.id}`, { safeguardingOfficer: false })
+ok((await sabina('GET', '/safety-reports')).status === 403, 'removing the role removes access')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

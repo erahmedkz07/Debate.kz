@@ -122,7 +122,11 @@ adminRouter.get('/admin/users', async (_req, res) => {
 })
 
 adminRouter.patch('/admin/users/:id', async (req, res) => {
-  const d = body(req, z.object({ role: z.enum(['user', 'admin']).optional(), blocked: z.boolean().optional() }))
+  const d = body(req, z.object({
+    role: z.enum(['user', 'admin']).optional(),
+    blocked: z.boolean().optional(),
+    safeguardingOfficer: z.boolean().optional(), // receives and handles behaviour reports
+  }))
   // an admin cannot lock themselves out
   if (param(req, 'id') === req.user!.id) throw badRequest('cannot_change_self')
   const u = await prisma.user.findUnique({ where: { id: param(req, 'id') } })
@@ -131,5 +135,6 @@ adminRouter.patch('/admin/users/:id', async (req, res) => {
   const target = { type: 'user' as const, id: u.id, label: `${u.name} (${u.email})` }
   if (d.role && d.role !== u.role) await logAction(req.user!, 'user.role', target, d.role)
   if (d.blocked !== undefined && d.blocked !== u.blocked) await logAction(req.user!, d.blocked ? 'user.block' : 'user.unblock', target)
+  if (d.safeguardingOfficer !== undefined && d.safeguardingOfficer !== u.safeguardingOfficer) await logAction(req.user!, d.safeguardingOfficer ? 'user.safeguardingOn' : 'user.safeguardingOff', target)
   res.json(publicUser(updated))
 })

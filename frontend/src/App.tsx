@@ -34,6 +34,9 @@ const Projector = lazy(() => import('@/pages/Projector'))
 const CertificatePrint = lazy(() => import('@/pages/CertificatePrint'))
 const VerifyCertificate = lazy(() => import('@/pages/VerifyCertificate'))
 const CheckIn = lazy(() => import('@/pages/CheckIn'))
+const Teammates = lazy(() => import('@/pages/Teammates'))
+const Safety = lazy(() => import('@/pages/Safety'))
+const SafetyReports = lazy(() => import('@/pages/cabinet/SafetyReports'))
 
 function PageLoader() {
   return (
@@ -58,6 +61,8 @@ export default function App() {
                 <Route path="rating" element={<Rating />} />
                 <Route path="motions" element={<Motions />} />
                 <Route path="timer" element={<Timer />} />
+                <Route path="teammates" element={<Teammates />} />
+                <Route path="safety" element={<Safety />} />
                 <Route path="verify/:code" element={<VerifyCertificate />} />
                 <Route path="checkin/:tournamentId" element={<RequireAuth><CheckIn /></RequireAuth>} />
                 <Route path="about" element={<About />} />
@@ -81,6 +86,8 @@ export default function App() {
                 <Route path="me" element={<Profile />} />
                 <Route path="judge" element={<JudgeDashboard />} />
                 <Route path="notifications" element={<Notifications />} />
+                {/* admins and safeguarding officers; the page and the API both check it */}
+                <Route path="safety/reports" element={<SafetyReports />} />
                 <Route path="admin" element={<RequireAuth roles={['admin']}><AdminPanel /></RequireAuth>} />
                 <Route path="dashboard">
                   <Route index element={<MyTournaments />} />

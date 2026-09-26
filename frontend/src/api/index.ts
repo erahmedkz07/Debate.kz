@@ -2,6 +2,7 @@
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
   Certificate, MotionItem, MotionTopic, SpeakerProgress,
+  MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
@@ -212,6 +213,20 @@ export const getProgress = () => http<SpeakerProgress>('GET', '/me/progress')
 export const getMotions = (f: { search?: string; level?: 'school' | 'university'; lang?: 'ru' | 'kz'; topic?: MotionTopic; page?: number }) =>
   http<{ items: MotionItem[]; total: number; page: number; pages: number; topicCounts: Record<MotionTopic, number> }>('GET', `/motions${qs(f)}`)
 
+// ---------- find a teammate ----------
+export const getTeammatePosts = (f: { kind?: string; city?: string; level?: string }) => http<TeammatePost[]>('GET', `/teammates${qs(f)}`)
+export const createTeammatePost = (d: { kind: TeammateKind | string; city: string; level: string; languages: string[]; text: string }) =>
+  http<{ id: string }>('POST', '/teammates', d)
+export const closeTeammatePost = (id: string) => http<void>('DELETE', `/teammates/${id}`)
+export const replyToTeammatePost = (id: string, message: string) => http<{ ok: true }>('POST', `/teammates/${id}/reply`, { message })
+
+// ---------- safeguarding ----------
+export const createSafetyReport = (d: { category: SafetyCategory; about?: string; place?: string; description: string; anonymous: boolean }) =>
+  http<{ id: string }>('POST', '/safety-reports', d)
+export const getMySafetyReports = () => http<MySafetyReport[]>('GET', '/me/safety-reports')
+export const getSafetyReports = () => http<SafetyReport[]>('GET', '/safety-reports')
+export const updateSafetyReport = (id: string, d: { status: SafetyStatus; resolutionNote?: string }) => http<{ ok: true }>('PATCH', `/safety-reports/${id}`, d)
+
 // ---------- notifications ----------
 export const getNotifications = (before?: string) =>
   http<{ items: AppNotification[]; unread: number; hasMore: boolean }>('GET', `/me/notifications${qs({ before })}`)
@@ -221,4 +236,4 @@ export const getPlatformNotifications = (before?: string) =>
   http<{ items: AppNotification[]; hasMore: boolean; unread?: number }>('GET', `/admin/notifications${qs({ before })}`)
 
 export const getAdminActions = () => http<AdminAction[]>('GET', '/admin/actions')
-export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)
+export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean; safeguardingOfficer: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)

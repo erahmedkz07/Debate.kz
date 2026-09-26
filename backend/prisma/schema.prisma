@@ -85,26 +85,27 @@ enum Plan {
 // ---------- people ----------
 
 model User {
-  id                String    @id @default(cuid())
-  email             String    @unique
-  passwordHash      String    @map("password_hash")
-  name              String
-  phone             String?
-  role              Role      @default(user)
-  institution       String?
-  city              String?
-  avatarUrl         String?   @map("avatar_url") // /uploads/avatars/<file>.webp
-  blocked           Boolean   @default(false)
-  emailVerifiedAt   DateTime? @map("email_verified_at")
-  consentAt         DateTime? @map("consent_at") // consent to personal data processing
-  passwordChangedAt DateTime? @map("password_changed_at") // sessions issued before this are rejected
-  telegramChatId    String?   @unique @map("telegram_chat_id") // private chat with the bot (= Telegram user id)
-  telegramUsername  String?   @map("telegram_username")
-  telegramNotify    Boolean   @default(true) @map("telegram_notify")
-  verifiedPhone     String?   @unique @map("verified_phone") // shared via the bot's "share contact": one phone, one account
-  phoneVerifiedAt   DateTime? @map("phone_verified_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  passwordHash        String    @map("password_hash")
+  name                String
+  phone               String?
+  role                Role      @default(user)
+  institution         String?
+  city                String?
+  avatarUrl           String?   @map("avatar_url") // /uploads/avatars/<file>.webp
+  blocked             Boolean   @default(false)
+  emailVerifiedAt     DateTime? @map("email_verified_at")
+  consentAt           DateTime? @map("consent_at") // consent to personal data processing
+  passwordChangedAt   DateTime? @map("password_changed_at") // sessions issued before this are rejected
+  telegramChatId      String?   @unique @map("telegram_chat_id") // private chat with the bot (= Telegram user id)
+  telegramUsername    String?   @map("telegram_username")
+  telegramNotify      Boolean   @default(true) @map("telegram_notify")
+  verifiedPhone       String?   @unique @map("verified_phone") // shared via the bot's "share contact": one phone, one account
+  phoneVerifiedAt     DateTime? @map("phone_verified_at")
+  safeguardingOfficer Boolean   @default(false) @map("safeguarding_officer") // receives and handles behaviour reports (set by an admin)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   organizedTournaments TournamentOrganizer[]
   judgeProfiles        Judge[]
@@ -115,6 +116,10 @@ model User {
   usedInvites          TournamentInvite[]    @relation("InviteUsedBy")
   adminActions         AdminAction[]
   notifications        Notification[]
+  teammatePosts        TeammatePost[]
+  teammateReplies      TeammateReply[]
+  safetyReports        SafetyReport[]        @relation("SafetyReporter")
+  handledSafetyReports SafetyReport[]        @relation("SafetyHandler")
 
   @@map("users")
 }
@@ -449,6 +454,60 @@ model Certificate {
   @@unique([tournamentId, judgeId])
   @@index([userId])
   @@map("certificates")
+}
+
+// "looking for a team" / "looking for a speaker" board; the author's contacts are never public
+model TeammatePost {
+  id        String          @id @default(cuid())
+  userId    String          @map("user_id")
+  kind      String // team_needed | speaker_needed
+  city      String
+  level     TournamentLevel
+  languages String[]
+  text      String
+  closed    Boolean         @default(false)
+  expiresAt DateTime        @map("expires_at")
+  createdAt DateTime        @default(now()) @map("created_at")
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies   TeammateReply[]
+
+  @@index([closed, expiresAt])
+  @@map("teammate_posts")
+}
+
+// a reply goes to the author as a notification (one per person and post)
+model TeammateReply {
+  id        String       @id @default(cuid())
+  postId    String       @map("post_id")
+  userId    String       @map("user_id")
+  message   String
+  createdAt DateTime     @default(now()) @map("created_at")
+  post      TeammatePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@map("teammate_replies")
+}
+
+// behaviour report (bullying, harassment...) for admins and safeguarding officers
+model SafetyReport {
+  id             String   @id @default(cuid())
+  reporterId     String?  @map("reporter_id")
+  anonymous      Boolean  @default(false) // hide the reporter's name from the handlers
+  category       String // bullying | harassment | inappropriate | threat | other
+  about          String? // who or what it is about (free text)
+  place          String? // tournament, page or context
+  description    String
+  status         String   @default("open") // open | in_progress | resolved
+  resolutionNote String?  @map("resolution_note")
+  handledById    String?  @map("handled_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  reporter       User?    @relation("SafetyReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  handledBy      User?    @relation("SafetyHandler", fields: [handledById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("safety_reports")
 }
 
 model Testimonial {

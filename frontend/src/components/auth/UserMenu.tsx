@@ -2,7 +2,7 @@ import * as M from '@radix-ui/react-dropdown-menu'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ChevronDown, Gavel, LayoutGrid, LogOut, ShieldCheck, UserRound } from 'lucide-react'
+import { ChevronDown, Gavel, LayoutGrid, LifeBuoy, LogOut, ShieldCheck, UserRound } from 'lucide-react'
 import type { Role, User } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { cn, initials } from '@/lib/utils'
@@ -21,6 +21,7 @@ export function cabinetLinks(user: User) {
     { to: '/dashboard', key: 'organizer', icon: LayoutGrid },
   ]
   if (user.judges || user.role === 'admin') links.push({ to: '/judge', key: 'judge', icon: Gavel })
+  if (user.role === 'admin' || user.safeguardingOfficer) links.push({ to: '/safety/reports', key: 'safety', icon: LifeBuoy })
   if (user.role === 'admin') links.unshift({ to: '/admin', key: 'admin', icon: ShieldCheck })
   return links
 }
