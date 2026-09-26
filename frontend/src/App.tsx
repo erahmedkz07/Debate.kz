@@ -7,6 +7,7 @@ import Home from '@/pages/Home'
 import NotFound from '@/pages/NotFound'
 import { AuthProvider } from '@/lib/auth'
 import { RequireAuth } from '@/components/auth/guards'
+import { OfflineSync } from '@/components/offline/OfflineSync'
 
 const Tournaments = lazy(() => import('@/pages/Tournaments'))
 const TournamentPage = lazy(() => import('@/pages/TournamentPage'))
@@ -98,6 +99,7 @@ export default function App() {
             </Routes>
           </Suspense>
           <Toaster position="top-center" richColors closeButton />
+          <OfflineSync />
         </BrowserRouter>
       </MotionConfig>
     </AuthProvider>

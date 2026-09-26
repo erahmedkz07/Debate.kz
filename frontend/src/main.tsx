@@ -4,6 +4,11 @@ import './lib/i18n'
 import './index.css'
 import App from './App'
 
+// offline app shell for judges at venues with bad Wi-Fi; production builds only (dev relies on HMR)
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => undefined) })
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

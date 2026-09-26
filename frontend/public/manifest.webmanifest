@@ -1,0 +1,15 @@
+{
+  "name": "Debate.kz — дебатные турниры",
+  "short_name": "Debate.kz",
+  "description": "Платформа для организации дебатных турниров в Казахстане",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7fbfd",
+  "theme_color": "#009BC9",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/brand/debate-logo-square.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
