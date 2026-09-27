@@ -839,4 +839,68 @@ r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'timu
 const tInv = r.data.id
 ok((await payer('DELETE', `/tournaments/${small.id}/invites/${tInv}`)).status === 204 && (await payer('GET', `/tournaments/${small.id}/invites`)).data.find(i => i.id === tInv).state === 'expired', 'the organizer can withdraw an unanswered invite')
 
+
+// ---------- 28. clubs and teams (all members equal) ----------
+const stSession = (await student('GET', '/auth/me')).data.user
+ok(!!stSession.club?.name && !!stSession.clubTeam?.name, 'the demo participant has a club and a team in the profile')
+r = await client()('GET', '/clubs')
+ok(r.status === 200 && r.data.length > 0 && r.data.every(c => c.name && c.city && typeof c.members === 'number'), 'the public club list works')
+const clubA = client(), clubB = client(), outsider = client()
+for (const [c, n] of [[clubA, 'a'], [clubB, 'b'], [outsider, 'o']]) {
+  r = await c('POST', '/auth/register', { name: `Клубный Член${n}`, email: `club${n}.${uniq}@mail.kz`, phone: '+7 707 555 66 77', password: 'secret123', consent: true })
+  await c('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+}
+r = await clubA('POST', '/clubs', { name: `Клуб ${uniq}`, city: 'Астана', institution: 'ЕНУ' })
+const clubId = r.data.id
+ok(r.status === 201, 'a verified user creates a club and becomes its member')
+ok((await clubA('POST', '/clubs', { name: `Второй ${uniq}`, city: 'Астана' })).data?.error === 'already_in_club', 'one person is in one club only')
+ok((await clubB('POST', '/clubs', { name: `Клуб ${uniq}`, city: 'Астана' })).data?.error === 'club_exists', 'club names are unique within a city')
+let club = (await clubA('GET', `/clubs/${clubId}`)).data
+ok(club.isMember && /^[A-Z2-9]{8}$/.test(club.joinCode) && club.log.some(l => l.action === 'created'), 'members see the join code and the club log')
+ok((await client()('GET', `/clubs/${clubId}`)).data.joinCode === undefined, 'outsiders do not see the join code')
+r = await clubA('POST', `/clubs/${clubId}/teams`, { name: 'Альфа', join: true })
+const alpha = r.data.id
+ok(r.status === 201 && (await clubA('GET', '/me/club')).data.team?.name === 'Альфа', 'a member creates a team and joins it')
+ok((await clubA('POST', `/clubs/${clubId}/teams`, { name: 'Альфа' })).data?.error === 'team_exists', 'team names are unique in a club')
+ok((await outsider('POST', `/clubs/${clubId}/teams`, { name: 'Чужая' })).data?.error === 'not_club_member', 'a non-member cannot change the club')
+ok((await client()('GET', `/clubs/code/${club.joinCode}`)).data.id === clubId, 'the join link shows which club it is')
+r = await clubB('POST', '/clubs/join', { code: club.joinCode.toLowerCase() })
+ok(r.status === 200 && r.data.id === clubId, 'a person joins with the link (the code is case-insensitive)')
+await new Promise(res => setTimeout(res, 300))
+ok((await clubA('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubJoined'), 'members are told who joined')
+// all members are equal: the newcomer creates a team, renames, moves members, edits the club
+r = await clubB('POST', `/clubs/${clubId}/teams`, { name: 'Бета' })
+const beta = r.data.id
+const aId = (await clubA('GET', '/auth/me')).data.user.id, bId = (await clubB('GET', '/auth/me')).data.user.id
+ok((await clubB('PUT', `/clubs/${clubId}/members/${aId}/team`, { teamId: beta })).status === 200 && (await clubA('GET', '/me/club')).data.team?.name === 'Бета', 'any member can put another member into a team')
+ok((await clubB('PATCH', `/club-teams/${alpha}`, { name: 'Альфа-2' })).status === 200, 'any member can rename a team')
+ok((await clubB('PATCH', `/clubs/${clubId}`, { description: 'Мы спорим по средам' })).status === 200 && (await client()('GET', `/clubs/${clubId}`)).data.description === 'Мы спорим по средам', 'any member edits the club page')
+club = (await clubA('GET', `/clubs/${clubId}`)).data
+ok(club.log.some(l => l.action === 'team.assigned' && l.userName.includes('Членb')) && club.log.some(l => l.action === 'team.renamed'), 'the log shows who changed what')
+ok(club.teams.find(t => t.id === beta).members.some(m => m.id === aId), 'the club page lists team members')
+const otherClub = (await client()('GET', '/clubs')).data.find(c => c.id !== clubId)
+ok((await clubB('PUT', `/clubs/${clubId}/members/${bId}/team`, { teamId: (await client()('GET', `/clubs/${otherClub.id}`)).data.teams[0]?.id ?? 'x' })).data?.error === 'team_not_in_club', 'a member cannot be put into a team of another club')
+const oldCode = club.joinCode
+r = await clubB('POST', `/clubs/${clubId}/code`)
+ok(r.data.joinCode !== oldCode && (await outsider('POST', '/clubs/join', { code: oldCode })).status === 404, 'resetting the link stops the old one')
+// registration for a tournament needs a club and a team
+r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `Без клуба ${uniq}`, institution: 'Школа', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+ok(r.data?.error === 'club_required', 'without a club and a team in the profile you cannot apply to a tournament')
+await outsider('POST', '/clubs/join', { code: r.data ? (await clubA('GET', `/clubs/${clubId}`)).data.joinCode : '' })
+await outsider('PUT', `/clubs/${clubId}/members/${(await outsider('GET', '/auth/me')).data.user.id}/team`, { teamId: beta })
+r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `С клубом ${uniq}`, institution: 'ЕНУ', speakers: ['Клубный Членo', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+ok(r.status === 201, 'with a club and a team the application goes through')
+const smallRegs = (await payer('GET', `/tournaments/${small.id}/registrations`)).data
+await payer('PATCH', `/registrations/${smallRegs.find(x => x.teamName === `С клубом ${uniq}`).id}`, { status: 'confirmed' })
+const smallTeams = (await payer('GET', `/tournaments/${small.id}`)).data.teams
+ok(smallTeams.find(tm => tm.name === `С клубом ${uniq}`)?.club?.id === clubId, 'the confirmed tournament team remembers its club')
+// leaving and removing
+const oId = (await outsider('GET', '/auth/me')).data.user.id
+ok((await clubB('DELETE', `/clubs/${clubId}/members/${bId}`)).data?.error === 'use_leave', 'you leave a club yourself, not remove yourself')
+r = await clubA('DELETE', `/clubs/${clubId}/members/${oId}`)
+ok(r.status === 204 && !(await outsider('GET', '/auth/me')).data.user.club, 'any member can remove another member')
+await new Promise(res => setTimeout(res, 300))
+ok((await outsider('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubRemoved'), 'the removed person is told')
+ok((await clubB('POST', `/clubs/${clubId}/leave`)).status === 204 && (await clubB('GET', '/me/club')).data.club === undefined, 'a member leaves the club')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

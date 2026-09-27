@@ -39,6 +39,8 @@ export interface Team {
   speakers: Speaker[]
   checkedIn?: boolean // present at the venue (QR check-in)
   swing?: boolean // stand-in team for an odd draw, never ranked
+  club?: Ref // the club and club team it comes from
+  clubTeam?: Ref
 }
 
 export interface Judge {
@@ -176,6 +178,8 @@ export interface User {
   telegramNotify?: boolean
   organizes?: boolean // owns or co-organizes at least one tournament
   judges?: boolean // judges in at least one tournament
+  club?: Ref // required in the profile before applying to tournaments
+  clubTeam?: Ref
   safeguardingOfficer?: boolean // handles behaviour reports
 }
 
@@ -346,4 +350,22 @@ export interface EmailInvite {
   state: 'pending' | 'accepted' | 'declined' | 'expired'
   acceptedBy?: string
   createdAt: string
+}
+
+// ---------- clubs ----------
+export interface Ref { id: string; name: string }
+export interface ClubSummary { id: string; name: string; city: string; institution?: string; members: number; teams: number }
+export interface ClubMemberInfo { id: string; name: string; avatarUrl?: string; teamId?: string }
+export interface ClubDetails {
+  id: string
+  name: string
+  city: string
+  institution?: string
+  description: string
+  createdAt: string
+  teams: { id: string; name: string; members: ClubMemberInfo[] }[]
+  members: ClubMemberInfo[]
+  isMember: boolean
+  joinCode?: string // members only
+  log?: { id: string; userName: string; action: string; detail: string; createdAt: string }[]
 }

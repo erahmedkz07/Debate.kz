@@ -2,6 +2,7 @@
 // Run: npm run db:seed on an empty DB. It WIPES all data first, so a DB that already has users
 // is only reseeded with an explicit: npm run db:seed:force   (never against production)
 import 'dotenv/config'
+import { randomInt } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { PrismaClient, type ModerationStatus, type Role, type Side, type TournamentLevel, type TournamentStatus } from '../src/generated/prisma/client.js'
@@ -106,7 +107,7 @@ If you really want to reset to demo data: npm run db:seed:force`)
     prisma.round.deleteMany(), prisma.speaker.deleteMany(), prisma.team.deleteMany(), prisma.judge.deleteMany(),
     prisma.teamRegistration.deleteMany(), prisma.scheduleItem.deleteMany(), prisma.scoringConfig.deleteMany(),
     prisma.tournamentOrganizer.deleteMany(), prisma.tournament.deleteMany(), prisma.institution.deleteMany(),
-    prisma.adminAction.deleteMany(), prisma.user.deleteMany(), prisma.testimonial.deleteMany(),
+    prisma.adminAction.deleteMany(), prisma.club.deleteMany(), prisma.user.deleteMany(), prisma.testimonial.deleteMany(),
   ])
 
   // ---------- users (demo password: demo1234) ----------
@@ -258,12 +259,37 @@ If you really want to reset to demo data: npm run db:seed:force`)
     if (t.key === 't4') studentSpeakerId = teams[0].speakers[0].id
   }
 
+  // ---------- clubs: one per institution that sent teams, a club team per team name ----------
+  const clubAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const joinCode = () => Array.from({ length: 8 }, () => clubAlphabet[randomInt(clubAlphabet.length)]).join('')
+  const tTeams = await prisma.team.findMany({ where: { swing: false, institutionId: { not: null } }, include: { institution: true, tournament: { select: { city: true } } }, orderBy: { createdAt: 'asc' } })
+  const clubs = new Map<string, { id: string; teams: Map<string, string> }>()
+  for (const tm of tTeams) {
+    const inst = tm.institution!
+    let c = clubs.get(inst.id)
+    if (!c) {
+      const club = await prisma.club.create({ data: { name: inst.name, city: tm.city ?? tm.tournament.city, institution: inst.name, description: `Дебатный клуб: ${inst.name}.`, joinCode: joinCode() } })
+      c = { id: club.id, teams: new Map() }
+      clubs.set(inst.id, c)
+    }
+    let teamId = c.teams.get(tm.name)
+    if (!teamId) {
+      teamId = (await prisma.clubTeam.create({ data: { clubId: c.id, name: tm.name } })).id
+      c.teams.set(tm.name, teamId)
+    }
+    await prisma.team.update({ where: { id: tm.id }, data: { clubId: c.id, clubTeamId: teamId } })
+  }
+  console.log(`Clubs: ${clubs.size}`)
+
   // ---------- participant account linked to a real speaker ----------
   const speaker = await prisma.speaker.findUniqueOrThrow({ where: { id: studentSpeakerId! }, include: { team: { include: { institution: true, speakers: { orderBy: { position: 'asc' } } } } } })
   const student = await mkUser('student@debate.kz', speaker.name, 'user', {
     phone: '+7 705 333 44 55', institution: speaker.team.institution?.name, city: 'Караганда', createdAt: day('2026-04-02'),
   })
   await prisma.speaker.update({ where: { id: speaker.id }, data: { userId: student.id } })
+  // the demo participant belongs to the club and team of that speaker
+  const stTeam = await prisma.team.findUniqueOrThrow({ where: { id: speaker.teamId } })
+  if (stTeam.clubId) await prisma.clubMember.create({ data: { userId: student.id, clubId: stTeam.clubId, teamId: stTeam.clubTeamId } })
   const t1 = await prisma.tournament.findFirstOrThrow({ where: { name: tournaments[0].name } })
   await prisma.teamRegistration.createMany({
     data: [

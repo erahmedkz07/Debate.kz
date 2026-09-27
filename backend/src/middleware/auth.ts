@@ -74,9 +74,10 @@ export const publicUser = (u: User) => ({
 
 // Current user + what they do on the platform, so the UI can show only relevant cabinet sections
 export async function sessionUser(u: User) {
-  const [organizes, judges] = await Promise.all([
+  const [organizes, judges, club] = await Promise.all([
     prisma.tournamentOrganizer.count({ where: { userId: u.id } }),
     prisma.judge.count({ where: { userId: u.id } }),
+    prisma.clubMember.findUnique({ where: { userId: u.id }, include: { club: { select: { id: true, name: true } }, team: { select: { id: true, name: true } } } }),
   ])
-  return { ...publicUser(u), organizes: organizes > 0, judges: judges > 0 }
+  return { ...publicUser(u), organizes: organizes > 0, judges: judges > 0, club: club?.club, clubTeam: club?.team ?? undefined }
 }

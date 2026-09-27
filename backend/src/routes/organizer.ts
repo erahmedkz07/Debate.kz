@@ -5,7 +5,7 @@ import { fromDay, toDay } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { assertCanManage, assertOwner, participationIn, summaryInclude, toSummary, toTeam } from '../services/tournaments.js'
+import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -187,7 +187,7 @@ organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
       tournamentId: t.id, name: d.name, city: d.city, institutionId: await institutionId(d.institution, t.level),
       speakers: { create: d.speakers.map((name, i) => ({ name, position: i + 1 })) },
     },
-    include: { institution: true, speakers: { orderBy: { position: 'asc' } } },
+    include: teamInclude,
   })
   res.status(201).json(toTeam(team))
 })
@@ -202,7 +202,7 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
     return tx.team.update({
       where: { id: existing.id },
       data: { name: d.name, city: d.city, institutionId: await institutionId(d.institution, existing.tournament.level) },
-      include: { institution: true, speakers: { orderBy: { position: 'asc' } } },
+      include: teamInclude,
     })
   })
   res.json(toTeam(team))
@@ -369,10 +369,13 @@ organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
     assertRoomForTeam(reg.tournament, reg.tournament._count.teams)
     if (await prisma.team.findUnique({ where: { tournamentId_name: { tournamentId: reg.tournamentId, name: reg.teamName } } })) throw conflict('team_name_taken')
     const instId = await institutionId(reg.institution, reg.tournament.level)
+    // the club and club team the applicant stated, if they still exist
+    const clubTeam = reg.clubTeamId ? await prisma.clubTeam.findUnique({ where: { id: reg.clubTeamId } }) : null
     await prisma.$transaction([
       prisma.team.create({
         data: {
           tournamentId: reg.tournamentId, name: reg.teamName, institutionId: instId, city: reg.user.city,
+          clubId: clubTeam?.clubId ?? null, clubTeamId: clubTeam?.id ?? null,
           speakers: { create: reg.speakers.map((name, i) => ({ name, position: i + 1, userId: name === reg.user.name ? reg.userId : undefined })) },
         },
       }),

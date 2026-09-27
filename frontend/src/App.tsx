@@ -36,6 +36,9 @@ const CertificatePrint = lazy(() => import('@/pages/CertificatePrint'))
 const VerifyCertificate = lazy(() => import('@/pages/VerifyCertificate'))
 const CheckIn = lazy(() => import('@/pages/CheckIn'))
 const Teammates = lazy(() => import('@/pages/Teammates'))
+const Clubs = lazy(() => import('@/pages/Clubs'))
+const ClubJoin = lazy(() => import('@/pages/Clubs').then(m => ({ default: m.ClubJoin })))
+const ClubPage = lazy(() => import('@/pages/ClubPage'))
 const Safety = lazy(() => import('@/pages/Safety'))
 const SafetyReports = lazy(() => import('@/pages/cabinet/SafetyReports'))
 
@@ -63,6 +66,9 @@ export default function App() {
                 <Route path="motions" element={<Motions />} />
                 <Route path="timer" element={<Timer />} />
                 <Route path="teammates" element={<Teammates />} />
+                <Route path="clubs" element={<Clubs />} />
+                <Route path="clubs/join/:code" element={<ClubJoin />} />
+                <Route path="clubs/:id" element={<ClubPage />} />
                 <Route path="safety" element={<Safety />} />
                 <Route path="verify/:code" element={<VerifyCertificate />} />
                 <Route path="checkin/:tournamentId" element={<RequireAuth><CheckIn /></RequireAuth>} />

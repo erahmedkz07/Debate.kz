@@ -2,7 +2,7 @@
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
   Certificate, MotionItem, MotionTopic, SpeakerProgress,
-  AdminPayment, PlatformSettings, TournamentPayment, EmailInvite,
+  AdminPayment, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref,
   MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
@@ -272,3 +272,19 @@ export function uploadKaspiQr(file: File) {
   form.append('qr', file)
   return upload<PlatformSettings>('/admin/settings/kaspi-qr', form)
 }
+
+// ---------- clubs ----------
+export const getClubs = (f: { search?: string; city?: string } = {}) => http<ClubSummary[]>('GET', `/clubs${qs(f)}`)
+export const getClub = (id: string) => or404(http<ClubDetails>('GET', `/clubs/${id}`))
+export const getClubByCode = (code: string) => or404(http<ClubSummary>('GET', `/clubs/code/${encodeURIComponent(code)}`))
+export const getMyClub = () => http<{ club?: Ref & { city: string }; team?: Ref }>('GET', '/me/club')
+export const createClub = (d: { name: string; city: string; institution?: string; description?: string }) => http<{ id: string }>('POST', '/clubs', d)
+export const updateClub = (id: string, d: { name?: string; city?: string; institution?: string; description?: string }) => http<{ ok: true }>('PATCH', `/clubs/${id}`, d)
+export const resetClubCode = (id: string) => http<{ joinCode: string }>('POST', `/clubs/${id}/code`)
+export const joinClub = (code: string) => http<{ id: string }>('POST', '/clubs/join', { code })
+export const leaveClub = (id: string) => http<void>('POST', `/clubs/${id}/leave`)
+export const removeClubMember = (id: string, userId: string) => http<void>('DELETE', `/clubs/${id}/members/${userId}`)
+export const createClubTeam = (id: string, name: string, join = false) => http<Ref>('POST', `/clubs/${id}/teams`, { name, join })
+export const renameClubTeam = (teamId: string, name: string) => http<{ ok: true }>('PATCH', `/club-teams/${teamId}`, { name })
+export const deleteClubTeam = (teamId: string) => http<void>('DELETE', `/club-teams/${teamId}`)
+export const setMemberTeam = (clubId: string, userId: string, teamId: string | null) => http<{ ok: true }>('PUT', `/clubs/${clubId}/members/${userId}/team`, { teamId })

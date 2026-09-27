@@ -127,6 +127,8 @@ model User {
   usedInvites          TournamentInvite[]    @relation("InviteUsedBy")
   adminActions         AdminAction[]
   payments             Payment[]             @relation("PaymentPayer")
+  clubMembership       ClubMember?
+  clubLogs             ClubLog[]
   handledPayments      Payment[]             @relation("PaymentHandler")
   notifications        Notification[]
   teammatePosts        TeammatePost[]
@@ -276,9 +278,13 @@ model Team {
   city          String?
   checkedInAt   DateTime?    @map("checked_in_at") // present at the venue (QR check-in or marked by the organizer)
   swing         Boolean      @default(false) // stand-in team that evens out the draw; never ranked
+  clubId        String?      @map("club_id") // the club the team came from (ratings, same-club draw rule)
+  clubTeamId    String?      @map("club_team_id")
   createdAt     DateTime     @default(now()) @map("created_at")
   tournament    Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   institution   Institution? @relation(fields: [institutionId], references: [id])
+  club          Club?        @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  clubTeam      ClubTeam?    @relation(fields: [clubTeamId], references: [id], onDelete: SetNull)
   speakers      Speaker[]
   propositionIn Debate[]     @relation("PropositionTeam")
   oppositionIn  Debate[]     @relation("OppositionTeam")
@@ -404,6 +410,8 @@ model TeamRegistration {
   institution  String
   speakers     String[]
   contactPhone String             @map("contact_phone")
+  clubId       String?            @map("club_id")
+  clubTeamId   String?            @map("club_team_id")
   status       RegistrationStatus @default(pending)
   createdAt    DateTime           @default(now()) @map("created_at")
   tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
@@ -571,4 +579,67 @@ model PlatformSetting {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("platform_settings")
+}
+
+// ---------- clubs ----------
+// A club (a university or school debate society) has teams; a person belongs to one club and one of its teams.
+// All members are equal: any member edits the club, creates teams, invites by the join link and removes members;
+// every change is written to the club log so members see who did what.
+
+model Club {
+  id              String       @id @default(cuid())
+  name            String
+  city            String
+  institution     String? // university / school the club belongs to
+  description     String       @default("")
+  joinCode        String       @unique @map("join_code") // /clubs/join/<code>
+  createdAt       DateTime     @default(now()) @map("created_at")
+  teams           ClubTeam[]
+  members         ClubMember[]
+  logs            ClubLog[]
+  tournamentTeams Team[]
+
+  @@unique([name, city])
+  @@map("clubs")
+}
+
+model ClubTeam {
+  id              String       @id @default(cuid())
+  clubId          String       @map("club_id")
+  name            String
+  createdAt       DateTime     @default(now()) @map("created_at")
+  club            Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  members         ClubMember[]
+  tournamentTeams Team[]
+
+  @@unique([clubId, name])
+  @@map("club_teams")
+}
+
+model ClubMember {
+  userId   String    @id @map("user_id") // one club per person
+  clubId   String    @map("club_id")
+  teamId   String?   @map("team_id") // a team of the same club
+  joinedAt DateTime  @default(now()) @map("joined_at")
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club     Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  team     ClubTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@index([clubId])
+  @@map("club_members")
+}
+
+model ClubLog {
+  id        String   @id @default(cuid())
+  clubId    String   @map("club_id")
+  userId    String?  @map("user_id")
+  userName  String   @map("user_name") // kept after the account is gone
+  action    String // created, edited, joined, left, removed, team.created, team.renamed, team.deleted, team.assigned, code.reset
+  detail    String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([clubId, createdAt])
+  @@map("club_logs")
 }
