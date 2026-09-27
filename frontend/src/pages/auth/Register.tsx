@@ -5,14 +5,16 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
-import { AuthError, register as registerUser } from '@/api'
+import { AlertCircle, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
+import { AuthError, getGoogleConfig, register as registerUser } from '@/api'
+import { useAsync } from '@/lib/hooks'
 import { roleHome, useAuth } from '@/lib/auth'
 import { safeNext } from './Login'
 import { images } from '@/mocks/images'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
+import { GoogleButton, OrDivider } from '@/components/auth/GoogleButton'
 
 // No role picker: everyone registers as a plain user. Organizing comes from creating a tournament,
 // judging from an organizer's invite, admin rights are granted only by another admin.
@@ -22,14 +24,16 @@ export default function Register() {
   const [params] = useSearchParams()
   const { user, signIn } = useAuth()
   const [formError, setFormError] = useState<string | null>(null)
+  const [show, setShow] = useState(false)
   const next = safeNext(params.get('next'))
   const schema = z.object({
     name: z.string().trim().min(3, t('auth.errors.name')).refine(v => v.includes(' '), t('auth.errors.name')),
     email: z.string().trim().min(1, t('auth.errors.required')).email(t('auth.errors.email')),
     phone: z.string().trim().regex(/^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/, t('auth.errors.phone')),
     password: z.string().min(8, t('auth.errors.password')),
+    confirm: z.string().min(1, t('auth.errors.required')),
     consent: z.literal(true, { error: t('auth.errors.consent') }),
-  })
+  }).refine(v => v.password === v.confirm, { path: ['confirm'], message: t('reset.mismatch') })
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
 
@@ -38,7 +42,8 @@ export default function Register() {
   const onSubmit = async (v: Form) => {
     setFormError(null)
     try {
-      const u = await registerUser(v)
+      const { confirm: _confirm, ...data } = v
+      const u = await registerUser(data)
       signIn(u)
       toast.success(t('auth.registerSuccess'), { description: t('verify.checkInbox', { email: u.email }) })
       navigate(next ?? roleHome[u.role], { replace: true })
@@ -49,6 +54,9 @@ export default function Register() {
 
   return (
     <AuthLayout title={t('auth.registerTitle')} subtitle={t('auth.registerSubtitle')} image={images.studentsLaugh}>
+      <GoogleButton next={next} label={t('google.signUp')} />
+      <GoogleConsentNote />
+      <OrDivider />
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         {formError && (
           <p role="alert" className="flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm font-medium text-danger">
@@ -72,10 +80,22 @@ export default function Register() {
             <FieldError message={errors.phone?.message} />
           </div>
         </div>
-        <div>
-          <Label htmlFor="password">{t('auth.password')}</Label>
-          <Input id="password" type="password" autoComplete="new-password" aria-invalid={!!errors.password} {...register('password')} />
-          <FieldError message={errors.password?.message} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="password">{t('auth.password')}</Label>
+            <div className="relative">
+              <Input id="password" type={show ? 'text' : 'password'} autoComplete="new-password" aria-invalid={!!errors.password} className="pr-11" {...register('password')} />
+              <button type="button" onClick={() => setShow(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-foreground" aria-label={t('google.showPassword')}>
+                {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+            <FieldError message={errors.password?.message} />
+          </div>
+          <div>
+            <Label htmlFor="confirm">{t('reset.confirmPassword')}</Label>
+            <Input id="confirm" type={show ? 'text' : 'password'} autoComplete="new-password" aria-invalid={!!errors.confirm} {...register('confirm')} />
+            <FieldError message={errors.confirm?.message} />
+          </div>
         </div>
 
         <div>
@@ -98,4 +118,12 @@ export default function Register() {
       </p>
     </AuthLayout>
   )
+}
+
+// signing up with Google skips the consent checkbox, so the same consent is stated next to the button
+function GoogleConsentNote() {
+  const { t } = useTranslation()
+  const { data } = useAsync(getGoogleConfig)
+  if (!data?.enabled) return null
+  return <p className="mt-2 text-center text-xs text-muted-foreground">{t('google.consent')}</p>
 }

@@ -87,7 +87,9 @@ enum Plan {
 model User {
   id                  String    @id @default(cuid())
   email               String    @unique
-  passwordHash        String    @map("password_hash")
+  passwordHash        String?   @map("password_hash") // null: the account signs in only with Google
+  googleId            String?   @unique @map("google_id") // Google account "sub"
+  googleEmail         String?   @map("google_email") // the linked Google address (may differ from email)
   name                String
   phone               String?
   role                Role      @default(user)

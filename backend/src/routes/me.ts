@@ -3,7 +3,11 @@ import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
+import rateLimit from 'express-rate-limit'
+import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/errors.js'
+import { env } from '../lib/env.js'
+import { newToken } from '../lib/tokens.js'
+import { passwordChangedLetter, resetPasswordLetter } from '../services/letters.js'
 import { body, param } from '../middleware/validate.js'
 import { clearSession, requireAuth, requireVerified, sessionUser, setSession } from '../middleware/auth.js'
 import { removeOld } from './avatar.js'
@@ -11,6 +15,7 @@ import { background, notifyNewRegistration } from '../services/notify.js'
 import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 
 export const meRouter = Router()
+const mailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
 
 const phone = z.string().trim().regex(/^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/, 'phone')
 
@@ -37,22 +42,38 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
 // password change from the profile; every other session is signed out
 meRouter.post('/me/password', requireAuth(), async (req, res) => {
   const d = body(req, z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(8).max(128) }))
+  // a Google-only account sets its first password through a link sent to its email (POST /me/password/setup)
+  if (!req.user!.passwordHash) throw badRequest('no_password')
   if (!(await bcrypt.compare(d.currentPassword, req.user!.passwordHash))) throw badRequest('wrong_password')
   if (d.currentPassword === d.newPassword) throw badRequest('same_password')
   const user = await prisma.user.update({
     where: { id: req.user!.id },
     data: { passwordHash: await bcrypt.hash(d.newPassword, 12), passwordChangedAt: new Date() },
   })
+  await passwordChangedLetter(user, false)
   setSession(res, user.id) // this device stays signed in
   res.json({ user: await sessionUser(user) })
 })
 
-// account deletion (personal data law): confirmed by password.
+// "Set a password" for accounts created with Google: a one-hour link goes to the account email,
+// so a stolen session alone cannot add a password to someone else's account
+meRouter.post('/me/password/setup', mailLimiter, requireAuth(), async (req, res) => {
+  const me = req.user!
+  if (me.passwordHash) throw badRequest('has_password')
+  const { token, hash } = newToken()
+  await prisma.emailToken.create({ data: { userId: me.id, purpose: 'reset_password', tokenHash: hash, expiresAt: new Date(Date.now() + 60 * 60 * 1000) } })
+  const sent = await resetPasswordLetter(me, token)
+  if (!sent) throw new HttpError(502, 'mail_failed')
+  res.json({ ok: true, ...((env.NODE_ENV === 'development' || env.NODE_ENV === 'test') && { devResetToken: token }) })
+})
+
+// account deletion (personal data law): confirmed by password, or by typing the email for Google-only accounts.
 // Owners of unfinished tournaments must finish or delete them first; admins are demoted by another admin first.
 meRouter.delete('/me', requireAuth(), async (req, res) => {
-  const { password } = body(req, z.object({ password: z.string().min(1).max(128) }))
+  const { password, email } = body(req, z.object({ password: z.string().max(128).optional(), email: z.string().trim().toLowerCase().max(200).optional() }))
   const me = req.user!
-  if (!(await bcrypt.compare(password, me.passwordHash))) throw badRequest('wrong_password')
+  const confirmed = me.passwordHash ? !!password && (await bcrypt.compare(password, me.passwordHash)) : email === me.email
+  if (!confirmed) throw badRequest(me.passwordHash ? 'wrong_password' : 'wrong_email')
   if (me.role === 'admin') throw forbidden('admin_cannot_delete_self')
   const active = await prisma.tournament.count({ where: { status: { not: 'finished' }, organizers: { some: { userId: me.id, role: 'owner' } } } })
   if (active) throw badRequest('owns_active_tournaments')

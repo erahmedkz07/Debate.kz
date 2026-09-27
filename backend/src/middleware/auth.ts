@@ -68,6 +68,7 @@ export const publicUser = (u: User) => ({
   institution: u.institution ?? undefined, city: u.city ?? undefined, avatarUrl: u.avatarUrl ?? undefined,
   createdAt: u.createdAt.toISOString().slice(0, 10), blocked: u.blocked, emailVerified: !!u.emailVerifiedAt,
   phoneVerified: !!u.phoneVerifiedAt, safeguardingOfficer: u.safeguardingOfficer,
+  googleLinked: !!u.googleId, googleEmail: u.googleEmail ?? undefined, hasPassword: !!u.passwordHash,
   telegramLinked: !!u.telegramChatId, telegramUsername: u.telegramUsername ?? undefined, telegramNotify: u.telegramNotify,
 })
 

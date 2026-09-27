@@ -23,6 +23,8 @@ import { certificatesRouter } from './routes/certificates.js'
 import { checkinRouter } from './routes/checkin.js'
 import { teammatesRouter } from './routes/teammates.js'
 import { safetyRouter } from './routes/safety.js'
+import { googleRouter } from './routes/google.js'
+import { mailOutbox } from './lib/mail.js'
 import { UPLOADS_DIR } from './lib/uploads.js'
 
 export function createApp() {
@@ -47,7 +49,11 @@ export function createApp() {
   // user uploads (already re-encoded by sharp); long cache, files are immutable by name
   app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny' }))
 
-  app.use('/api/auth', authRouter)
+  app.use('/api/auth', authRouter, googleRouter)
+  // test mode only: e2e reads the letters the API "sent"
+  if (env.NODE_ENV === 'test') {
+    app.get('/api/test/mail', (req, res) => { res.json(mailOutbox.filter(m => !req.query.to || m.to === req.query.to)) })
+  }
   app.use('/api', publicRouter, meRouter, avatarRouter, invitesRouter, judgeRouter, telegramRouter, notificationsRouter, motionsRouter, progressRouter, certificatesRouter, checkinRouter, teammatesRouter, safetyRouter, organizerRouter, adminRouter)
 
   app.use('/api', notFoundHandler)
