@@ -64,8 +64,12 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
     teams: c.teams.map(t => ({ id: t.id, name: t.name, members: c.members.filter(m => m.teamId === t.id).map(member) })),
     members: c.members.map(member),
     isMember,
+    myRequest: req.user && !isMember
+      ? (await prisma.clubJoinRequest.findFirst({ where: { clubId: c.id, userId: req.user.id, status: 'pending' }, select: { id: true } }))?.id
+      : undefined,
     ...(isMember && {
       joinCode: c.joinCode,
+      pendingRequests: await prisma.clubJoinRequest.count({ where: { clubId: c.id, status: 'pending' } }),
       log: (await prisma.clubLog.findMany({ where: { clubId: c.id }, orderBy: { createdAt: 'desc' }, take: 50 }))
         .map(l => ({ id: l.id, userName: l.userName, action: l.action, detail: l.detail, createdAt: l.createdAt.toISOString() })),
     }),
@@ -133,9 +137,10 @@ clubsRouter.post('/clubs/join', requireAuth(), requireVerified, async (req, res)
   const others = (await prisma.clubMember.findMany({ where: { clubId: c.id }, select: { userId: true } })).map(m => m.userId)
   await prisma.$transaction(async tx => {
     await tx.clubMember.create({ data: { userId: me.id, clubId: c.id } })
+    await tx.clubJoinRequest.updateMany({ where: { userId: me.id, status: 'pending' }, data: { status: 'cancelled' } })
     await log(tx, c.id, me, 'joined')
   })
-  background(inbox(others, 'participant.clubJoined', { name: me.name, club: c.name }, `/clubs/${c.id}`))
+  background(inbox(others, 'participant.clubJoined', { name: me.name, club: c.name }, '/me?tab=club'))
   res.json({ id: c.id })
 })
 
@@ -222,4 +227,76 @@ clubsRouter.put('/clubs/:id/members/:userId/team', requireAuth(), async (req, re
     await log(tx, id, req.user!, 'team.assigned', `${target.user.name} → ${team?.name ?? '—'}`)
   })
   res.json({ ok: true })
+})
+
+// ---------- requests to join (from the public club page) ----------
+
+const MAX_OPEN_REQUESTS = 3
+
+clubsRouter.post('/clubs/:id/requests', requireAuth(), requireVerified, async (req, res) => {
+  const { message } = body(req, z.object({ message: z.string().trim().max(300).default('') }))
+  const me = req.user!
+  const c = await prisma.club.findUnique({ where: { id: param(req, 'id') } })
+  if (!c) throw notFound('club_not_found')
+  const current = await prisma.clubMember.findUnique({ where: { userId: me.id } })
+  if (current?.clubId === c.id) throw conflict('already_member')
+  if (current) throw conflict('already_in_club')
+  if (await prisma.clubJoinRequest.findFirst({ where: { clubId: c.id, userId: me.id, status: 'pending' } })) throw conflict('already_requested')
+  if ((await prisma.clubJoinRequest.count({ where: { userId: me.id, status: 'pending' } })) >= MAX_OPEN_REQUESTS) throw badRequest('too_many_club_requests')
+  const r = await prisma.clubJoinRequest.create({ data: { clubId: c.id, userId: me.id, message } })
+  const members = (await prisma.clubMember.findMany({ where: { clubId: c.id }, select: { userId: true } })).map(m => m.userId)
+  background(inbox(members, 'participant.clubRequest', { name: me.name, club: c.name }, '/me?tab=club'))
+  res.status(201).json({ id: r.id })
+})
+
+// members see who wants to join
+clubsRouter.get('/clubs/:id/requests', requireAuth(), async (req, res) => {
+  const id = param(req, 'id')
+  await memberOf(req, id)
+  const rows = await prisma.clubJoinRequest.findMany({
+    where: { clubId: id, status: 'pending' },
+    include: { user: { select: { id: true, name: true, avatarUrl: true, institution: true, city: true } } },
+    orderBy: { createdAt: 'asc' },
+  })
+  res.json(rows.map(r => ({
+    id: r.id, message: r.message, createdAt: r.createdAt.toISOString(),
+    user: { id: r.user.id, name: r.user.name, avatarUrl: r.user.avatarUrl ?? undefined, institution: r.user.institution ?? undefined, city: r.user.city ?? undefined },
+  })))
+})
+
+// any member accepts (and may put the person straight into a team) or declines
+clubsRouter.patch('/club-requests/:requestId', requireAuth(), async (req, res) => {
+  const d = body(req, z.object({ status: z.enum(['accepted', 'declined']), teamId: z.string().nullable().optional() }))
+  const r = await prisma.clubJoinRequest.findUnique({ where: { id: param(req, 'requestId') }, include: { user: true, club: true } })
+  if (!r) throw notFound('request_not_found')
+  await memberOf(req, r.clubId)
+  if (r.status !== 'pending') throw badRequest('request_not_pending')
+  const team = d.teamId ? await prisma.clubTeam.findUnique({ where: { id: d.teamId } }) : null
+  if (d.teamId && (!team || team.clubId !== r.clubId)) throw badRequest('team_not_in_club')
+  if (d.status === 'accepted' && (await prisma.clubMember.findUnique({ where: { userId: r.userId } }))) throw conflict('already_in_club')
+  await prisma.$transaction(async tx => {
+    await tx.clubJoinRequest.update({ where: { id: r.id }, data: { status: d.status, handledById: req.user!.id, handledAt: new Date() } })
+    if (d.status === 'accepted') {
+      await tx.clubMember.create({ data: { userId: r.userId, clubId: r.clubId, teamId: team?.id ?? null } })
+      // the person is in a club now: other open requests are closed
+      await tx.clubJoinRequest.updateMany({ where: { userId: r.userId, status: 'pending' }, data: { status: 'cancelled' } })
+    }
+    await log(tx, r.clubId, req.user!, d.status === 'accepted' ? 'request.accepted' : 'request.declined', team ? `${r.user.name} → ${team.name}` : r.user.name)
+  })
+  background(inbox([r.userId], d.status === 'accepted' ? 'participant.clubRequestAccepted' : 'participant.clubRequestDeclined',
+    { club: r.club.name, team: team?.name ?? '' }, d.status === 'accepted' ? '/me?tab=club' : `/clubs/${r.clubId}`))
+  res.json({ ok: true })
+})
+
+// the person withdraws their own request
+clubsRouter.delete('/club-requests/:requestId', requireAuth(), async (req, res) => {
+  const r = await prisma.clubJoinRequest.findUnique({ where: { id: param(req, 'requestId') } })
+  if (!r || r.userId !== req.user!.id) throw notFound('request_not_found')
+  if (r.status === 'pending') await prisma.clubJoinRequest.update({ where: { id: r.id }, data: { status: 'cancelled' } })
+  res.status(204).end()
+})
+
+clubsRouter.get('/me/club-requests', requireAuth(), async (req, res) => {
+  const rows = await prisma.clubJoinRequest.findMany({ where: { userId: req.user!.id, status: 'pending' }, include: { club: { select: { id: true, name: true, city: true } } }, orderBy: { createdAt: 'desc' } })
+  res.json(rows.map(r => ({ id: r.id, club: r.club, createdAt: r.createdAt.toISOString() })))
 })

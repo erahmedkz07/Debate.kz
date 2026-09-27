@@ -15,7 +15,13 @@ export const organizerRouter = Router()
 const org = requireAuth()
 
 export { FREE_TEAM_LIMIT } from '../services/plans.js'
-import { assertRoomForTeam, planFor } from '../services/plans.js'
+import { assertRoomForTeam, newReference, planFor, platformSettings } from '../services/plans.js'
+import multer from 'multer'
+import sharp from 'sharp'
+import { randomBytes } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -40,7 +46,7 @@ const createSchema = z.object({
   endDate: day,
   level: z.enum(['school', 'university']),
   description: z.string().trim().max(3000).default(''),
-  coverUrl: z.string().url().max(500).optional(),
+  coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
   preliminaryRounds: z.number().int().min(2).max(8),
   breakSize: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
   maxTeams: z.number().int().min(4).max(128),
@@ -48,6 +54,7 @@ const createSchema = z.object({
   requireApproval: z.boolean().default(true),
   registrationDeadline: day.optional(),
   languages: z.array(z.enum(['ru', 'kz'])).min(1),
+  paymentReference: z.string().regex(/^DKZ-[A-Z2-9]{6}$/).optional(), // from GET /plans/quote, for tournaments above the free limit
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
 
@@ -83,6 +90,12 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
     },
     include: summaryInclude,
   })
+  // a Pro tournament gets its payment at once, with the reference the organizer already saw (and maybe paid with)
+  if (pro) {
+    const taken = d.paymentReference && await prisma.payment.findUnique({ where: { reference: d.paymentReference } })
+    const settings = await platformSettings()
+    await prisma.payment.create({ data: { tournamentId: t.id, userId: req.user!.id, amount: settings.proPrice, reference: d.paymentReference && !taken ? d.paymentReference : newReference() } })
+  }
   // admins learn that a tournament waits for their review
   background(notifyAdminsNewTournament(t.id))
   res.status(201).json(toSummary(t))
@@ -102,10 +115,11 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationDeadline: day.nullable().optional(),
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
+    coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
   }))
   const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })
   if (d.status) await assertStageChange(cur.id, d.status)
-  const { startDate, endDate, registrationDeadline, maxTeams, rooms, ...rest } = d
+  const { startDate, endDate, registrationDeadline, maxTeams, rooms, coverUrl, ...rest } = d
   const data: Prisma.TournamentUpdateInput = { ...rest }
 
   // dates: a finished tournament is history and stays as it was
@@ -127,6 +141,10 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     data.maxTeams = maxTeams
   }
   if (rooms) data.rooms = [...new Set(rooms)]
+  if (coverUrl !== undefined && coverUrl !== cur.coverUrl) {
+    data.coverUrl = coverUrl
+    await removeUploadedCover(cur.coverUrl) // a replaced upload is not kept
+  }
 
   const t = await prisma.$transaction(async tx => {
     // unreleased rounds follow the new dates (first half on day one, the rest on the last day)
@@ -393,4 +411,53 @@ organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
   }
   background(notifyRegistration(reg.id))
   res.json({ id: reg.id, status })
+})
+
+// ---------- tournament cover ----------
+
+organizerRouter.get('/tournament-covers', (_req, res) => {
+  res.json(COVER_TEMPLATES)
+})
+
+// the organizer's own picture: decoded and re-encoded by sharp (no metadata), 1600×800 WebP
+const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 }, fileFilter: (_req, f, cb) => cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(f.mimetype)) })
+organizerRouter.post('/tournaments/:id/cover', org, coverUpload.single('cover'), async (req, res) => {
+  const id = param(req, 'id')
+  await assertCanManage(req.user, id)
+  if (!req.file) throw badRequest('invalid_image')
+  let webp: Buffer
+  try {
+    webp = await sharp(req.file.buffer, { limitInputPixels: 60_000_000 }).rotate().resize(1600, 800, { fit: 'cover', position: 'attention' }).webp({ quality: 80 }).toBuffer()
+  } catch {
+    throw badRequest('invalid_image')
+  }
+  const file = `${id}-${randomBytes(6).toString('hex')}.webp`
+  await writeFile(path.join(COVERS_DIR, file), webp)
+  const cur = await prisma.tournament.findUniqueOrThrow({ where: { id } })
+  await prisma.tournament.update({ where: { id }, data: { coverUrl: `/uploads/covers/${file}` } })
+  await removeUploadedCover(cur.coverUrl)
+  res.json({ cover: `/uploads/covers/${file}` })
+})
+
+// ---------- schedule ----------
+// The organizer writes the programme (day of the tournament, time, what happens); it is shown on the public page.
+organizerRouter.put('/tournaments/:id/schedule', org, async (req, res) => {
+  const id = param(req, 'id')
+  await assertCanManage(req.user, id)
+  const { items } = body(req, z.object({
+    items: z.array(z.object({
+      day: z.number().int().min(1).max(14),
+      time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      title: z.string().trim().min(2).max(120),
+    })).max(60),
+  }))
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id } })
+  const days = Math.round((t.endDate.getTime() - t.startDate.getTime()) / 86_400_000) + 1
+  if (items.some(i => i.day > days)) throw badRequest('schedule_day_outside')
+  await prisma.$transaction([
+    prisma.scheduleItem.deleteMany({ where: { tournamentId: id } }),
+    prisma.scheduleItem.createMany({ data: items.map(i => ({ ...i, tournamentId: id })) }),
+  ])
+  const saved = await prisma.scheduleItem.findMany({ where: { tournamentId: id }, orderBy: [{ day: 'asc' }, { time: 'asc' }] })
+  res.json(saved.map(s => ({ day: s.day, time: s.time, title: s.title })))
 })

@@ -665,7 +665,8 @@ ok(!!gme.avatarUrl?.startsWith('/uploads/avatars/') && (await fetch(`${A.replace
 ok((await mails(gme.email)).some(m => m.subject.includes('Добро пожаловать')), 'a welcome letter goes to the Google address')
 ok((await client()('POST', '/auth/login', { email: gme.email, password: 'anything123' })).status === 401, 'a Google-only account cannot sign in with a password')
 g = await google({ sub: `g-new-${uniq}`, email: `ali.${uniq}@gmail.com`, name: 'Другое Имя' })
-ok(g.loc.pathname === '/tournaments' && (await g.as('GET', '/auth/me')).data.user.id === gme.id, 'the next Google sign-in finds the same account and returns to "next"')
+// it comes back through /login?next=..., where the page follows "next" only if this account may open it
+ok(g.loc.pathname === '/login' && g.loc.searchParams.get('next') === '/tournaments' && (await g.as('GET', '/auth/me')).data.user.id === gme.id, 'the next Google sign-in finds the same account and returns to "next" through the login page')
 
 g = await google({ sub: `g-x-${uniq}`, email: `x.${uniq}@gmail.com` }, { tamper: 'state' })
 ok(g.loc.searchParams.get('google_error') === 'google_expired' && !g.session, 'a forged state is refused (CSRF)')
@@ -760,10 +761,23 @@ ok((await student('GET', `/tournaments/${big.id}/payment`)).status === 403, 'str
 for (let i = 1; i <= 20; i++) await payer('POST', `/tournaments/${big.id}/teams`, { name: `Команда ${i}`, institution: `Школа ${i}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
 r = await payer('POST', `/tournaments/${big.id}/teams`, { name: 'Команда 21', institution: 'Школа 21', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
 ok(r.status === 402 && r.data.error === 'payment_required', 'an unpaid Pro tournament stops at 20 teams')
-ok((await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: '' })).status === 400, '"I have paid" needs the payer name or time')
-r = await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'Плательщик Т., 14:05' })
+// "I have paid" sends the payer note and the Kaspi receipt (multipart)
+const payerSession = cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `payer.${uniq}@mail.kz`, password: 'secret123' }) }), 'dkz_token')
+const { default: sharpR } = await import('sharp')
+const receiptJpg = await sharpR({ create: { width: 400, height: 700, channels: 3, background: '#ffffff' } }).jpeg().toBuffer()
+const claim = async (id, payerNote, file = new Blob([receiptJpg], { type: 'image/jpeg' }), session = payerSession) => {
+  const form = new FormData()
+  form.append('payerNote', payerNote)
+  if (file) form.append('receipt', file, 'receipt.jpg')
+  const res = await fetch(`${A}/tournaments/${id}/payment/claim`, { method: 'POST', headers: { Cookie: session }, body: form })
+  return { status: res.status, data: await res.json().catch(() => null) }
+}
+ok((await claim(big.id, '')).status === 400, '"I have paid" needs the payer name or time')
+ok((await claim(big.id, 'Плательщик Т., 14:05', null)).data?.error === 'receipt_required', '"I have paid" needs the Kaspi receipt')
+ok((await claim(big.id, 'Плательщик Т., 14:05', new Blob([Buffer.from('not a picture')], { type: 'image/jpeg' }))).data?.error === 'invalid_receipt', 'a receipt that is not a real picture or PDF is refused')
+r = await claim(big.id, 'Плательщик Т., 14:05')
 ok(r.status === 200 && (await payer('GET', `/tournaments/${big.id}/payment`)).data.status === 'pending', '"I have paid" puts the payment in the admin queue')
-ok((await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'ещё раз' })).data?.error === 'payment_already_claimed', 'it cannot be claimed twice while waiting')
+ok((await claim(big.id, 'ещё раз')).data?.error === 'payment_already_claimed', 'it cannot be claimed twice while waiting')
 await new Promise(res => setTimeout(res, 300))
 ok((await admin('GET', '/me/notifications')).data.items.some(n => n.type === 'admin.paymentClaimed' && n.data.reference === pay.reference), 'admins are notified with the reference')
 let queue = (await admin('GET', '/admin/payments')).data
@@ -775,7 +789,7 @@ r = await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'rejected', a
 pay = (await payer('GET', `/tournaments/${big.id}/payment`)).data
 ok(r.status === 200 && pay.status === 'rejected' && pay.adminNote === 'Перевод не найден' && !pay.paid, 'the admin rejects; the organizer sees why')
 ok((await mails(`payer.${uniq}@mail.kz`)).some(m => m.subject.includes('не подтверждена')), 'the organizer gets a "not confirmed" letter')
-await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'Плательщик Т., перевод 15:20' })
+await claim(big.id, 'Плательщик Т., перевод 15:20')
 r = await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'confirmed' })
 pay = (await payer('GET', `/tournaments/${big.id}/payment`)).data
 ok(r.status === 200 && pay.paid && pay.status === 'confirmed', 'after the second claim the admin confirms; the tournament is paid')
@@ -940,11 +954,15 @@ ok(r.status === 201 && r.data.report.protectClubs === false, 'the club rule can 
 for (const tm of dd.teams.filter(x => ['Д5', 'Д6'].includes(x.name))) {
   await payer('PATCH', `/teams/${tm.id}`, { name: tm.name, institution: 'Школа А', speakers: tm.speakers.map(s => s.name) })
 }
-r = await payer('POST', `/rounds/${dRound.id}/draw`)
 dd = (await payer('GET', `/tournaments/${dt.id}`)).data
 const inst2 = new Map(dd.teams.map(tm => [tm.id, tm.institution]))
-const same = r.data.debates.filter(d => inst2.get(d.propositionTeamId) === inst2.get(d.oppositionTeamId)).length
-ok(r.status === 201 && same === 2 && r.data.report.sameClub === 2, 'when a clean draw is impossible, the fewest clubmate meetings are made and reported')
+let fewest = true
+for (let i = 0; i < 8; i++) { // random orders: the minimum (6 of 8 teams from one school -> 2 debates) must hold every time
+  r = await payer('POST', `/rounds/${dRound.id}/draw`)
+  const same = r.data.debates.filter(d => inst2.get(d.propositionTeamId) === inst2.get(d.oppositionTeamId)).length
+  if (r.status !== 201 || same !== 2 || r.data.report.sameClub !== 2) fewest = false
+}
+ok(fewest, 'when a clean draw is impossible, the fewest clubmate meetings are made and reported (8 random draws)')
 ok(new Set(r.data.debates.flatMap(d => [d.propositionTeamId, d.oppositionTeamId])).size === 8, 'every team still debates exactly once')
 
 
@@ -966,4 +984,122 @@ const pubNews = (await client()('GET', `/news/${newsId}`)).data
 ok(r.status === 200 && pubNews.published && pubNews.publishedAt && pubNews.body.includes('Второй абзац'), 'after publishing everyone can read it')
 ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'news.publish' && a.targetId === newsId), 'publishing is in the audit log')
 ok((await admin('DELETE', `/news/${newsId}`)).status === 204 && (await client()('GET', `/news/${newsId}`)).status === 404, 'an admin deletes a post')
+
+// ---------- 32. tournament covers ----------
+const templates = (await client()('GET', '/tournament-covers')).data
+ok(Array.isArray(templates) && templates.length >= 6, 'there are ready cover templates')
+const noCover = (await payer('GET', `/tournaments/${dt.id}`)).data
+ok(templates.includes(noCover.cover), 'a tournament without a cover shows a template, not an empty picture')
+ok((await payer('PATCH', `/tournaments/${dt.id}`, { coverUrl: 'https://evil.example/tracker.png' })).status === 400, 'a cover cannot be an arbitrary external link')
+r = await payer('PATCH', `/tournaments/${dt.id}`, { coverUrl: templates[3] })
+ok(r.status === 200 && (await payer('GET', `/tournaments/${dt.id}`)).data.cover === templates[3], 'the organizer picks a template')
+const { default: sharpLib } = await import('sharp')
+const png = await sharpLib({ create: { width: 900, height: 600, channels: 3, background: '#e8710a' } }).png().toBuffer()
+const coverSession = cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `payer.${uniq}@mail.kz`, password: 'secret123' }) }), 'dkz_token')
+const upload = async (id, body, session = coverSession) => {
+  const form = new FormData()
+  form.append('cover', body)
+  const res = await fetch(`${A}/tournaments/${id}/cover`, { method: 'POST', headers: { Cookie: session }, body: form })
+  return { status: res.status, data: await res.json().catch(() => null) }
+}
+r = await upload(dt.id, new Blob([png], { type: 'image/png' }), coverSession)
+const uploaded = r.data?.cover
+ok(r.status === 200 && /^\/uploads\/covers\/[\w-]+\.webp$/.test(uploaded) && (await fetch(`${A.replace(/\/api$/, '')}${uploaded}`)).ok, 'the organizer uploads their own cover (stored as WebP on the site)')
+ok((await payer('GET', `/tournaments/${dt.id}`)).data.cover === uploaded, 'the tournament shows the uploaded cover')
+ok((await upload(dt.id, new Blob([Buffer.from('not an image')], { type: 'image/png' }))).status === 400, 'a file that is not a real image is refused')
+ok((await upload(dt.id, new Blob([png], { type: 'image/png' }), await sessionOf('timur@mail.kz'))).status === 403, 'strangers cannot change the cover')
+await payer('PATCH', `/tournaments/${dt.id}`, { coverUrl: null })
+ok(templates.includes((await payer('GET', `/tournaments/${dt.id}`)).data.cover) && (await fetch(`${A.replace(/\/api$/, '')}${uploaded}`)).status === 404, 'removing the cover returns the template and deletes the old file')
+r = await admin('POST', '/tournaments', { ...tBody(40), name: `С обложкой ${uniq}`, coverUrl: templates[1] })
+ok(r.status === 201 && r.data.cover === templates[1], 'a template chosen in the wizard is saved with the new tournament')
+ok((await admin('POST', '/tournaments', { ...tBody(41), name: `Чужая обложка ${uniq}`, coverUrl: 'https://evil.example/x.jpg' })).status === 400, 'the wizard cannot save an external picture link')
+
+// ---------- 33. requests to join a club ----------
+const reqClubOwner = client(), applicant = client()
+for (const [c, n] of [[reqClubOwner, 'ro'], [applicant, 'ap']]) {
+  r = await c('POST', '/auth/register', { name: `Заявка Тестов${n}`, email: `req${n}.${uniq}@mail.kz`, phone: '+7 707 555 66 88', password: 'secret123', consent: true })
+  await c('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+}
+const rClub = (await reqClubOwner('POST', '/clubs', { name: `Заявочный ${uniq}`, city: 'Астана' })).data.id
+const rTeam = (await reqClubOwner('POST', `/clubs/${rClub}/teams`, { name: 'Основа', join: true })).data.id
+ok((await client()('POST', `/clubs/${rClub}/requests`, {})).status === 401, 'a guest cannot ask to join')
+r = await applicant('POST', `/clubs/${rClub}/requests`, { message: 'Хочу в клуб, говорю вторым спикером' })
+const reqId = r.data.id
+ok(r.status === 201 && (await applicant('GET', `/clubs/${rClub}`)).data.myRequest === reqId, 'a person asks to join from the public club page')
+ok((await applicant('POST', `/clubs/${rClub}/requests`, {})).data?.error === 'already_requested', 'one open request per club')
+ok((await reqClubOwner('POST', `/clubs/${rClub}/requests`, {})).data?.error === 'already_member', 'members do not request their own club')
+await new Promise(res => setTimeout(res, 300))
+ok((await reqClubOwner('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubRequest'), 'members are told about the request')
+let reqs = (await reqClubOwner('GET', `/clubs/${rClub}/requests`)).data
+ok(reqs.length === 1 && reqs[0].message.includes('вторым спикером') && reqs[0].user.name.includes('Тестовap'), 'members see the request with the message')
+ok((await applicant('GET', `/clubs/${rClub}/requests`)).status === 403, 'outsiders cannot see the requests')
+ok((await applicant('PATCH', `/club-requests/${reqId}`, { status: 'accepted' })).status === 403, 'the applicant cannot accept themself')
+ok((await reqClubOwner('GET', `/clubs/${rClub}`)).data.pendingRequests === 1, 'the club page tells members how many requests wait')
+r = await reqClubOwner('PATCH', `/club-requests/${reqId}`, { status: 'accepted', teamId: rTeam })
+const apMe = (await applicant('GET', '/auth/me')).data.user
+ok(r.status === 200 && apMe.club?.id === rClub && apMe.clubTeam?.id === rTeam, 'a member accepts and puts the person straight into a team')
+await new Promise(res => setTimeout(res, 300))
+ok((await applicant('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubRequestAccepted'), 'the person is told')
+ok((await reqClubOwner('PATCH', `/club-requests/${reqId}`, { status: 'declined' })).data?.error === 'request_not_pending', 'a handled request cannot be handled again')
+// decline and withdraw
+const other = client()
+r = await other('POST', '/auth/register', { name: 'Другой Заявитель', email: `reqot.${uniq}@mail.kz`, phone: '+7 707 555 66 99', password: 'secret123', consent: true })
+await other('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+const r2 = (await other('POST', `/clubs/${rClub}/requests`, {})).data.id
+r = await reqClubOwner('PATCH', `/club-requests/${r2}`, { status: 'declined' })
+ok(r.status === 200 && !(await other('GET', '/auth/me')).data.user.club && (await other('GET', '/me/club-requests')).data.length === 0, 'a declined person stays outside and the request is closed')
+const r3 = (await other('POST', `/clubs/${rClub}/requests`, {})).data.id
+ok((await other('DELETE', `/club-requests/${r3}`)).status === 204 && (await reqClubOwner('GET', `/clubs/${rClub}/requests`)).data.length === 0, 'the person can withdraw a request')
+ok((await reqClubOwner('GET', `/clubs/${rClub}`)).data.log.some(l => l.action === 'request.accepted'), 'accepting is in the club log')
+
+
+// ---------- 34. receipts, paying in the creation wizard, schedule, judges needed for the draw ----------
+const payView = (await payer('GET', `/tournaments/${big.id}/payment`)).data
+ok(payView.hasReceipt === true && !!payView.id, 'the organizer sees that the receipt was attached')
+const receiptUrl = `${A}/payments/${payView.id}/receipt`
+let rec = await fetch(receiptUrl, { headers: { Cookie: payerSession } })
+ok(rec.status === 200 && rec.headers.get('content-type')?.startsWith('image/jpeg') && rec.headers.get('cache-control')?.includes('no-store'), 'the organizer can open their receipt (not cached)')
+rec = await fetch(receiptUrl, { headers: { Cookie: await sessionOf('admin@debate.kz') } })
+ok(rec.status === 200, 'an admin can open the receipt')
+ok((await fetch(receiptUrl, { headers: { Cookie: await sessionOf('timur@mail.kz') } })).status === 403 && (await fetch(receiptUrl)).status === 401, 'nobody else can open a receipt')
+ok((await admin('GET', '/admin/payments')).data.find(x => x.id === payView.id)?.hasReceipt === true, 'the admin queue marks payments with a receipt')
+ok((await fetch(`${A.replace(/\/api$/, '')}/uploads/receipts/x.jpg`)).status === 404, 'receipts are not in the public uploads folder')
+
+// the wizard: the payment is shown before the tournament exists, the reference travels with the new tournament
+const qp = client()
+r = await qp('POST', '/auth/register', { name: 'Мастер Оплаты', email: `quote.${uniq}@mail.kz`, phone: '+7 707 444 55 66', password: 'secret123', consent: true })
+await qp('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+ok((await client()('GET', '/plans/quote')).status === 401, 'a guest gets no payment quote')
+const quote = (await qp('GET', '/plans/quote')).data
+ok(quote.amount > 0 && /^DKZ-[A-Z2-9]{6}$/.test(quote.reference) && quote.freeTeamLimit === 20, 'the wizard gets the amount and a fresh payment reference')
+const created = (await qp('POST', '/tournaments', { ...tBody(50), name: `Мастер Pro ${uniq}`, maxTeams: 32, paymentReference: quote.reference })).data
+const createdPay = (await qp('GET', `/tournaments/${created.id}/payment`)).data
+ok(createdPay.required && createdPay.reference === quote.reference && createdPay.status === 'awaiting', 'the new Pro tournament keeps the reference the organizer paid with')
+const quoteSession = cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `quote.${uniq}@mail.kz`, password: 'secret123' }) }), 'dkz_token')
+const pdf = new Blob([Buffer.from('%PDF-1.4\n% test receipt\n%%EOF')], { type: 'application/pdf' })
+r = await claim(created.id, 'Мастер О., 10:15', pdf, quoteSession)
+ok(r.status === 200 && (await qp('GET', `/tournaments/${created.id}/payment`)).data.status === 'pending', 'the receipt sent from the wizard puts the payment in the admin queue at once (PDF works too)')
+const small2 = (await qp('POST', '/tournaments', { ...tBody(51), name: `Мастер Free ${uniq}`, maxTeams: 12, paymentReference: 'DKZ-AAAAAA' })).data
+ok((await qp('GET', `/tournaments/${small2.id}/payment`)).data.required === false, 'a free tournament creates no payment even with a reference')
+
+// schedule
+const sched = [{ day: 1, time: '09:00', title: 'Регистрация команд' }, { day: 1, time: '10:00', title: 'Раунд 1' }, { day: 2, time: '16:00', title: 'Финал и награждение' }]
+r = await qp('PUT', `/tournaments/${created.id}/schedule`, { items: sched })
+ok(r.status === 200 && r.data.length === 3, 'the organizer saves the schedule')
+const savedSched = (await qp('GET', `/tournaments/${created.id}`)).data.schedule
+ok(savedSched.length === 3 && savedSched[2].day === 2 && savedSched[2].title === 'Финал и награждение', 'the schedule is part of the tournament, sorted by day and time')
+ok((await qp('PUT', `/tournaments/${created.id}/schedule`, { items: [{ day: 5, time: '10:00', title: 'Лишний день' }] })).data?.error === 'schedule_day_outside', 'a day outside the tournament dates is refused')
+ok((await qp('PUT', `/tournaments/${created.id}/schedule`, { items: [{ day: 1, time: '25:00', title: 'Неверное время' }] })).status === 400, 'a wrong time is refused')
+ok((await timur('PUT', `/tournaments/${created.id}/schedule`, { items: [] })).status === 403, 'strangers cannot change the schedule')
+
+// the draw explains how many judges are missing
+const jd = (await qp('POST', '/tournaments', { ...tBody(52), name: `Судьи ${uniq}`, maxTeams: 8 })).data
+for (let i = 1; i <= 4; i++) await qp('POST', `/tournaments/${jd.id}/teams`, { name: `С${i}`, institution: `Школа С${i}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+await qp('POST', `/tournaments/${jd.id}/judges`, { name: 'Единственный Судья', rating: 5 })
+const jr = (await qp('GET', `/tournaments/${jd.id}`)).data.rounds[0]
+r = await qp('POST', `/rounds/${jr.id}/draw`)
+ok(r.data?.error === 'not_enough_judges' && r.data.details?.need === 2 && r.data.details?.have === 1, 'the draw says: 4 teams need 2 judges, there is 1')
+await qp('POST', `/tournaments/${jd.id}/judges`, { name: 'Второй Судья', rating: 5 })
+ok((await qp('POST', `/rounds/${jr.id}/draw`)).status === 201, 'with a second judge the draw works')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

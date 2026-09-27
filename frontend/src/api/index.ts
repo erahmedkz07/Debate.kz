@@ -2,12 +2,11 @@
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
   Certificate, MotionItem, MotionTopic, SpeakerProgress,
-  AdminPayment, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem,
+  AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest,
   MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
-  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
-} from '@/types'
+  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem } from '@/types'
 import { ApiError, http, qs, upload } from './http'
 
 export { ApiError }
@@ -162,11 +161,15 @@ export interface CreateTournamentInput {
   name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university'; description: string
   preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
+  coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
+  paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
 }
 export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
+export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })
 export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
   city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
+  coverUrl: string | null
 }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)
 export const deleteTournament = (id: string) => http<void>('DELETE', `/tournaments/${id}`)
@@ -263,7 +266,17 @@ export const updateUser = (id: string, data: Partial<{ role: Role; blocked: bool
 // ---------- plans & Kaspi QR payments ----------
 export const getPlans = () => http<{ freeTeamLimit: number; proPrice: number }>('GET', '/plans')
 export const getTournamentPayment = (id: string) => http<TournamentPayment>('GET', `/tournaments/${id}/payment`)
-export const claimPayment = (id: string, payerNote: string) => http<{ ok: true }>('POST', `/tournaments/${id}/payment/claim`, { payerNote })
+// "I have paid": the payer note and the Kaspi receipt (a photo or a PDF)
+export function claimPayment(id: string, payerNote: string, receipt: File) {
+  const form = new FormData()
+  form.append('payerNote', payerNote)
+  form.append('receipt', receipt)
+  return upload<{ ok: true }>(`/tournaments/${id}/payment/claim`, form)
+}
+// the creation wizard: amount, Kaspi details and a fresh payment reference before the tournament exists
+export const getPlanQuote = () => http<{ amount: number; reference: string; freeTeamLimit: number; kaspi: KaspiInfo }>('GET', '/plans/quote')
+// the receipt opens in a new tab (admins and the tournament's organizers only)
+export const receiptUrl = (paymentId: string) => `${import.meta.env.VITE_API_URL ?? '/api'}/payments/${paymentId}/receipt`
 export const getAdminPayments = () => http<AdminPayment[]>('GET', '/admin/payments')
 export const handlePayment = (id: string, status: 'confirmed' | 'rejected', adminNote?: string) =>
   http<{ ok: true }>('PATCH', `/admin/payments/${id}`, { status, adminNote })
@@ -300,3 +313,18 @@ export type NewsInput = { title: string; summary: string; body: string; coverUrl
 export const createNews = (d: NewsInput) => http<{ id: string }>('POST', '/news', d)
 export const updateNews = (id: string, d: Partial<NewsInput>) => http<{ ok: true }>('PATCH', `/news/${id}`, d)
 export const deleteNews = (id: string) => http<void>('DELETE', `/news/${id}`)
+
+// requests to join a club
+export const requestToJoinClub = (clubId: string, message: string) => http<{ id: string }>('POST', `/clubs/${clubId}/requests`, { message })
+export const getClubRequests = (clubId: string) => http<ClubJoinRequest[]>('GET', `/clubs/${clubId}/requests`)
+export const answerClubRequest = (id: string, status: 'accepted' | 'declined', teamId?: string | null) => http<{ ok: true }>('PATCH', `/club-requests/${id}`, { status, teamId })
+export const cancelClubRequest = (id: string) => http<void>('DELETE', `/club-requests/${id}`)
+export const getMyClubRequests = () => http<{ id: string; club: Ref & { city: string }; createdAt: string }[]>('GET', '/me/club-requests')
+
+// ---------- tournament cover ----------
+export const getCoverTemplates = () => http<string[]>('GET', '/tournament-covers')
+export function uploadTournamentCover(id: string, file: File) {
+  const form = new FormData()
+  form.append('cover', file)
+  return upload<{ cover: string }>(`/tournaments/${id}/cover`, form)
+}

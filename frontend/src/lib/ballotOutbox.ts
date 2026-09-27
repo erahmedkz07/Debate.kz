@@ -14,9 +14,11 @@ export interface QueuedBallot {
   savedAt: string
 }
 
-const OUTBOX = 'ballot-outbox-v1'
-const draftKey = (debateId: string) => `ballot-draft:${debateId}`
-const sheetKey = (debateId: string) => `ballot-sheet:${debateId}`
+// everything is kept per judge: two judges of one debate on a shared tablet never see each other's scores
+const OUTBOX = 'ballot-outbox-v2'
+const itemKey = (debateId: string, userId: string) => `${userId}:${debateId}`
+const draftKey = (debateId: string, userId: string) => `ballot-draft:${userId}:${debateId}`
+const sheetKey = (debateId: string, userId: string) => `ballot-sheet:${userId}:${debateId}`
 export const OUTBOX_EVENT = 'ballot-outbox-changed'
 
 function read<T>(key: string): T | null {
@@ -41,23 +43,34 @@ export const isRetryable = (e: unknown) =>
   e instanceof ApiError && (e.status === 0 || e.status >= 502 || (e.status === 500 && e.code === 'unknown_error'))
 
 // ---------- queue ----------
-const all = () => read<Record<string, QueuedBallot>>(OUTBOX) ?? {}
+const all = () => {
+  // ballots queued before the per-judge keys: moved once, nothing waiting is lost
+  const old = read<Record<string, QueuedBallot>>('ballot-outbox-v1')
+  if (old) {
+    const items = read<Record<string, QueuedBallot>>(OUTBOX) ?? {}
+    for (const b of Object.values(old)) items[itemKey(b.debateId, b.userId)] ??= b
+    write(OUTBOX, items)
+    write('ballot-outbox-v1', null)
+  }
+  return read<Record<string, QueuedBallot>>(OUTBOX) ?? {}
+}
 const save = (items: Record<string, QueuedBallot>) => {
   write(OUTBOX, Object.keys(items).length ? items : null)
   window.dispatchEvent(new Event(OUTBOX_EVENT))
 }
 
-export const pendingBallots = (userId?: string) => Object.values(all()).filter(b => !userId || b.userId === userId)
-export const queuedBallot = (debateId: string, userId?: string) => pendingBallots(userId).find(b => b.debateId === debateId)
+export const pendingBallots = (userId: string) => Object.values(all()).filter(b => b.userId === userId)
+export const queuedBallot = (debateId: string, userId: string) => all()[itemKey(debateId, userId)]
 
 // one entry per debate: a newer ballot for the same debate replaces the older one
 export function queueBallot(item: Omit<QueuedBallot, 'savedAt'>) {
-  save({ ...all(), [item.debateId]: { ...item, savedAt: new Date().toISOString() } })
+  save({ ...all(), [itemKey(item.debateId, item.userId)]: { ...item, savedAt: new Date().toISOString() } })
 }
-export function dropBallot(debateId: string) {
+export function dropBallot(debateId: string, userId: string) {
   const items = all()
-  if (!items[debateId]) return
-  delete items[debateId]
+  const key = itemKey(debateId, userId)
+  if (!items[key]) return
+  delete items[key]
   save(items)
 }
 
@@ -72,8 +85,8 @@ export function flushBallots(userId: string): Promise<FlushResult> {
     for (const [i, b] of queue.entries()) {
       try {
         await submitBallot(b.debateId, b.payload)
-        dropBallot(b.debateId)
-        clearBallotDraft(b.debateId)
+        dropBallot(b.debateId, userId)
+        clearBallotDraft(b.debateId, userId)
         result.sent.push(b)
       } catch (e) {
         if (isRetryable(e) || (e instanceof ApiError && e.status === 401)) {
@@ -82,7 +95,7 @@ export function flushBallots(userId: string): Promise<FlushResult> {
           break
         }
         // the server refused it for good (round closed, panel changed…): the judge must look at it
-        dropBallot(b.debateId)
+        dropBallot(b.debateId, userId)
         result.rejected.push({ ballot: b, code: e instanceof ApiError ? e.code : 'unknown_error' })
       }
     }
@@ -99,13 +112,13 @@ export interface BallotDraft {
   replyBy: Partial<Record<'proposition' | 'opposition', string>>
   winner: 'proposition' | 'opposition' | null
 }
-export const loadBallotDraft = (debateId: string) => read<BallotDraft>(draftKey(debateId))
-export const saveBallotDraft = (debateId: string, draft: BallotDraft) => write(draftKey(debateId), draft)
-export function clearBallotDraft(debateId: string) {
-  write(draftKey(debateId), null)
-  write(sheetKey(debateId), null)
+export const loadBallotDraft = (debateId: string, userId: string) => read<BallotDraft>(draftKey(debateId, userId))
+export const saveBallotDraft = (debateId: string, userId: string, draft: BallotDraft) => write(draftKey(debateId, userId), draft)
+export function clearBallotDraft(debateId: string, userId: string) {
+  write(draftKey(debateId, userId), null)
+  write(sheetKey(debateId, userId), null)
 }
 
 // ---------- the ballot sheet itself, for reopening offline ----------
-export const loadBallotSheet = (debateId: string) => read<BallotData>(sheetKey(debateId))
-export const saveBallotSheet = (debateId: string, data: BallotData) => write(sheetKey(debateId), data)
+export const loadBallotSheet = (debateId: string, userId: string) => read<BallotData>(sheetKey(debateId, userId))
+export const saveBallotSheet = (debateId: string, userId: string, data: BallotData) => write(sheetKey(debateId, userId), data)

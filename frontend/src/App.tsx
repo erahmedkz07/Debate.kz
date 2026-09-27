@@ -8,6 +8,7 @@ import NotFound from '@/pages/NotFound'
 import { AuthProvider } from '@/lib/auth'
 import { RequireAuth } from '@/components/auth/guards'
 import { OfflineSync } from '@/components/offline/OfflineSync'
+import { ErrorBoundary } from '@/components/layout/ErrorBoundary'
 
 const Tournaments = lazy(() => import('@/pages/Tournaments'))
 const TournamentPage = lazy(() => import('@/pages/TournamentPage'))
@@ -62,6 +63,7 @@ export default function App() {
       <MotionConfig reducedMotion="user">
         <BrowserRouter>
           <ScrollToTop />
+          <ErrorBoundary>
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route element={<Layout />}>
@@ -116,6 +118,7 @@ export default function App() {
               </Route>
             </Routes>
           </Suspense>
+          </ErrorBoundary>
           <Toaster position="top-center" richColors closeButton />
           <OfflineSync />
         </BrowserRouter>

@@ -103,18 +103,18 @@ export default function JudgeDashboard() {
       )}
 
       {error ? <div className="mt-8"><ErrorState onRetry={reload} /></div> : loading || !data ? (
-        <div className="mt-8 grid gap-4 lg:grid-cols-2"><Skeleton className="h-64" /><Skeleton className="h-64" /></div>
+        <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2"><Skeleton className="h-64" /><Skeleton className="h-64" /></div>
       ) : (
         <>
           <h2 className="mt-10 flex items-center gap-2 text-xl font-bold"><ClipboardList className="size-5 text-primary" />{t('judge.active')}</h2>
           {active.length === 0
             ? <div className="mt-4"><EmptyState icon={<Gavel className="size-7" />} title={t('judge.noActive')} text={t('judge.howToBecome')} /></div>
-            : <div className="mt-4 grid gap-4 lg:grid-cols-2">{active.map(a => <AssignmentCard key={a.debate.id} a={a} />)}</div>}
+            : <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">{active.map(a => <AssignmentCard key={a.debate.id} a={a} />)}</div>}
 
           <h2 className="mt-12 flex items-center gap-2 text-xl font-bold"><History className="size-5 text-primary" />{t('judge.history')}</h2>
           {history.length === 0
             ? <div className="mt-4"><EmptyState icon={<History className="size-7" />} title={t('judge.noHistory')} /></div>
-            : <div className="mt-4 grid gap-4 lg:grid-cols-2">{history.map(a => <AssignmentCard key={a.debate.id} a={a} />)}</div>}
+            : <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">{history.map(a => <AssignmentCard key={a.debate.id} a={a} />)}</div>}
         </>
       )}
     </div>

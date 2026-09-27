@@ -11,7 +11,7 @@ export function Footer() {
     <footer className="relative overflow-hidden bg-navy text-white/80">
       <OrnamentPattern className="text-white/[0.03]" />
       <div className="h-1.5 bg-gradient-to-r from-primary via-accent to-primary" />
-      <div className="container-page relative grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="container-page relative grid grid-cols-1 gap-10 py-14 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-4">
           <Logo inverted />
           <p className="max-w-xs text-sm leading-relaxed text-white/65">{t('footer.about')}</p>

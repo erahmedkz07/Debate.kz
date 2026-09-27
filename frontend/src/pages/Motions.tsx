@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { BackButton } from '@/components/layout/BackButton'
 
 const TOPICS: MotionTopic[] = ['education', 'technology', 'economy', 'politics', 'international', 'environment', 'society', 'rights', 'media', 'health', 'culture', 'sport']
 
@@ -53,7 +54,7 @@ export default function Motions() {
 
   return (
     <>
-      <PageHeader title={t('motions.title')} subtitle={t('motions.subtitle')}>
+      <PageHeader title={t('motions.title')} subtitle={t('motions.subtitle')} back={<BackButton fallback="/tools" />}>
         <div className="mt-6 flex flex-wrap gap-3">
           <div className="relative min-w-60 flex-1">
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -83,13 +84,13 @@ export default function Motions() {
 
       <div className="container-page py-10">
         {error ? <ErrorState onRetry={reload} /> : loading && !data ? (
-          <div className="grid gap-4 md:grid-cols-2">{[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-40" />)}</div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-40" />)}</div>
         ) : !data || data.items.length === 0 ? (
           <EmptyState icon={<BookOpen className="size-7" />} title={t('motions.empty')} text={t('motions.emptyText')} />
         ) : (
           <>
             <p className="mb-4 text-sm text-muted-foreground">{t('motions.found', { count: data.total })}</p>
-            <div className={cn('grid gap-4 md:grid-cols-2', loading && 'opacity-60')}>
+            <div className={cn('grid grid-cols-1 gap-4 md:grid-cols-2', loading && 'opacity-60')}>
               {data.items.map(m => (
                 <Card key={m.id} className="flex flex-col p-5">
                   <div className="flex flex-wrap items-center gap-1.5">

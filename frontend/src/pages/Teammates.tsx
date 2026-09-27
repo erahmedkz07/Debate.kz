@@ -18,6 +18,7 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Label, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { BackButton } from '@/components/layout/BackButton'
 
 const LANGS = ['ru', 'kz', 'en'] as const
 
@@ -53,7 +54,7 @@ export default function Teammates() {
 
   return (
     <>
-      <PageHeader title={t('teammates.title')} subtitle={t('teammates.subtitle')}>
+      <PageHeader title={t('teammates.title')} subtitle={t('teammates.subtitle')} back={<BackButton fallback="/tools" />}>
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <Button onClick={need(() => setCreating(true))}><Plus className="size-4" />{t('teammates.create')}</Button>
           <div className="flex gap-1 rounded-2xl bg-muted p-1">
@@ -74,11 +75,11 @@ export default function Teammates() {
       <div className="container-page py-10">
         <p className="mb-5 flex items-start gap-2 rounded-2xl bg-primary-soft/60 p-4 text-sm"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />{t('teammates.safety')}</p>
         {error ? <ErrorState onRetry={reload} /> : loading && !data ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(i => <Skeleton key={i} className="h-48" />)}</div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(i => <Skeleton key={i} className="h-48" />)}</div>
         ) : !data?.length ? (
           <EmptyState icon={<Users className="size-7" />} title={t('teammates.empty')} text={t('teammates.emptyText')} />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {data.map(p => (
               <Card key={p.id} className="flex flex-col p-5">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -113,7 +114,7 @@ export default function Teammates() {
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent heading={t('teammates.create')} description={t('teammates.createText')}>
           <form className="space-y-4" onSubmit={e => { e.preventDefault(); void act(() => createTeammatePost(form), t('teammates.created'), () => { setCreating(false); setForm({ ...form, text: '' }) }) }}>
-            <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t('teammates.kindLabel')}>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t('teammates.kindLabel')}>
               {['team_needed', 'speaker_needed'].map(k => (
                 <button key={k} type="button" role="radio" aria-checked={form.kind === k} onClick={() => setForm({ ...form, kind: k })}
                   className={cn('cursor-pointer rounded-xl border-2 p-3 text-left text-sm font-semibold', form.kind === k ? 'border-primary bg-primary-soft' : 'border-border')}>
@@ -121,7 +122,7 @@ export default function Teammates() {
                 </button>
               ))}
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div><Label htmlFor="tm-city">{t('common.city')}</Label><Select id="tm-city" value={form.city} placeholder={t('wizard.cityPlaceholder')} onValueChange={v => setForm({ ...form, city: v })} options={cities.map(c => ({ value: c, label: c }))} /></div>
               <div><Label htmlFor="tm-level">{t('wizard.level')}</Label><Select id="tm-level" value={form.level} onValueChange={v => setForm({ ...form, level: v })} options={[{ value: 'school', label: t('level.school') }, { value: 'university', label: t('level.university') }]} /></div>
             </div>

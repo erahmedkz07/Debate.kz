@@ -175,11 +175,11 @@ export default function Tournaments() {
         <div className="mt-8">
           {error ? <ErrorState onRetry={reload} />
             : loading && !data ? (
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{Array.from({ length: 6 }, (_, i) => <TournamentCardSkeleton key={i} />)}</div>
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">{Array.from({ length: 6 }, (_, i) => <TournamentCardSkeleton key={i} />)}</div>
             ) : data && data.length === 0 ? (
               <EmptyState title={t('tournaments.emptyTitle')} text={t('tournaments.emptyText')} action={<Button variant="outline" onClick={reset}>{t('tournaments.reset')}</Button>} />
             ) : (
-              <div className={cn('grid gap-6 transition-opacity sm:grid-cols-2 lg:grid-cols-3', loading && 'opacity-50')}>
+              <div className={cn('grid grid-cols-1 gap-6 transition-opacity sm:grid-cols-2 lg:grid-cols-3', loading && 'opacity-50')}>
                 {pageItems.map(item => <TournamentCard key={item.id} t={item} />)}
               </div>
             )}

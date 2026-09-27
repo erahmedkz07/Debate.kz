@@ -22,7 +22,7 @@ export default function About() {
         </div>
       </section>
 
-      <section className="container-page grid items-center gap-12 py-20 lg:grid-cols-2">
+      <section className="container-page grid grid-cols-1 items-center gap-12 py-20 lg:grid-cols-2">
         <Reveal>
           <p className="text-sm font-bold uppercase tracking-wider text-primary">{t('about.missionTitle')}</p>
           <p className="mt-4 text-2xl font-bold leading-relaxed sm:text-3xl">{t('about.mission')}</p>
@@ -36,7 +36,7 @@ export default function About() {
       <section className="bg-muted/50 py-20">
         <div className="container-page">
           <h2 className="text-center text-3xl font-extrabold sm:text-4xl">{t('about.valuesTitle')}</h2>
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {values.map(({ k, icon: Icon }, i) => (
               <Reveal key={k} delay={i * 0.08} className="rounded-2xl border border-border bg-card p-6 text-center">
                 <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-primary-soft text-primary"><Icon className="size-7" /></span>
@@ -48,7 +48,7 @@ export default function About() {
         </div>
       </section>
 
-      <section className="container-page grid gap-12 py-20 lg:grid-cols-2">
+      <section className="container-page grid grid-cols-1 gap-12 py-20 lg:grid-cols-2">
         <Reveal>
           <h2 className="text-3xl font-extrabold">{t('about.storyTitle')}</h2>
           <p className="mt-4 text-lg leading-relaxed text-muted-foreground">{t('about.story')}</p>

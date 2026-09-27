@@ -77,7 +77,7 @@ function ReportCard({ report: r, onChanged }: { report: SafetyReport; onChanged:
         </div>
         <time className="text-xs text-muted-foreground" dateTime={r.createdAt}>{formatDateTime(r.createdAt)}</time>
       </div>
-      <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+      <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
         <div><dt className="text-xs text-muted-foreground">{t('safety.about')}</dt><dd>{r.about || '—'}</dd></div>
         <div><dt className="text-xs text-muted-foreground">{t('safety.place')}</dt><dd>{r.place || '—'}</dd></div>
         <div>
@@ -87,7 +87,7 @@ function ReportCard({ report: r, onChanged }: { report: SafetyReport; onChanged:
         </div>
       </dl>
       <p className="mt-3 whitespace-pre-line rounded-xl bg-muted/60 p-3 text-sm">{r.description}</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-[13rem_minmax(0,1fr)_auto] sm:items-start">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[13rem_minmax(0,1fr)_auto] sm:items-start">
         <Select value={status} onValueChange={v => setStatus(v as SafetyStatus)} aria-label={t('safety.statusLabel')}
           options={STATUSES.map(s => ({ value: s, label: t(`safety.status.${s}`) }))} />
         <Textarea rows={2} maxLength={1000} value={note} onChange={e => setNote(e.target.value)} placeholder={t('safety.notePlaceholder')} aria-label={t('safety.answer')} />

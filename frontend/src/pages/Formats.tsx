@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { BackButton } from '@/components/layout/BackButton'
 
 // who speaks: government-like sides use the primary colour, opposition-like — navy, cross-examination — amber
 const sideLook: Record<Speech['side'], string> = {
@@ -22,7 +23,7 @@ export default function Formats() {
 
   return (
     <>
-      <PageHeader title={t('formats.title')} subtitle={t('formats.subtitle')}>
+      <PageHeader title={t('formats.title')} subtitle={t('formats.subtitle')} back={<BackButton fallback="/tools" />}>
         <div className="mt-6 flex flex-wrap gap-2" role="tablist" aria-label={t('formats.title')}>
           {FORMATS.map(x => (
             <button key={x.id} type="button" role="tab" aria-selected={x.id === f.id} onClick={() => setParams({ f: x.id }, { replace: true })}
@@ -33,7 +34,7 @@ export default function Formats() {
         </div>
       </PageHeader>
 
-      <div className="container-page grid gap-6 py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      <div className="container-page grid grid-cols-1 gap-6 py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <div className="space-y-6">
           <div className={cn('rounded-3xl bg-gradient-to-br p-6 text-white sm:p-8', f.accent)}>
             <p className="text-xs font-bold uppercase tracking-wider text-white/70">{f.short}</p>

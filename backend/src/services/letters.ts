@@ -60,7 +60,7 @@ export const paymentConfirmedLetter = (u: User, tournament: string, reference: s
 export const paymentRejectedLetter = (u: User, tournament: string, reason: string, tournamentId: string) => sendMail({
   to: u.email,
   subject: 'Debate.kz — оплата Pro не подтверждена',
-  text: `Здравствуйте, ${u.name}!\n\nМы не нашли оплату тарифа Pro для турнира «${tournament}».\n\nПричина: ${reason}\n\nПроверьте перевод в Kaspi и нажмите «Я оплатил» ещё раз, указав имя плательщика и время перевода. Если что-то непонятно — напишите на hello@debate.kz.`,
+  text: `Здравствуйте, ${u.name}!\n\nМы не нашли оплату тарифа Pro для турнира «${tournament}».\n\nПричина: ${reason}\n\nПроверьте перевод в Kaspi, прикрепите верный чек в настройках турнира (раздел «Оплата») и отправьте оплату на проверку ещё раз. Если что-то непонятно — напишите на hello@debate.kz.`,
   action: { label: 'Открыть оплату турнира', url: site(`/dashboard/tournaments/${tournamentId}/settings`) },
 })
 

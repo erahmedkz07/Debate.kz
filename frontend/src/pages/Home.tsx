@@ -38,7 +38,7 @@ function Hero() {
       <div className="pointer-events-none absolute -right-20 bottom-0 size-80 animate-float-slow rounded-full bg-accent/30 blur-3xl [animation-delay:-3s]" />
       <Ornament className="pointer-events-none absolute -left-10 bottom-10 hidden w-40 rotate-12 text-primary/10 lg:block" />
 
-      <div className="container-page relative grid items-center gap-12 py-14 lg:grid-cols-[1.05fr_1fr] lg:py-24">
+      <div className="container-page relative grid grid-cols-1 items-center gap-12 py-14 lg:grid-cols-[1.05fr_1fr] lg:py-24">
         <div>
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
             className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-card/80 px-3.5 py-1.5 text-xs font-bold text-primary shadow-sm backdrop-blur sm:text-sm">
@@ -144,7 +144,7 @@ function HowItWorks() {
   return (
     <section className="container-page py-20 sm:py-28">
       <SectionTitle title={t('home.how.title')} subtitle={t('home.how.subtitle')} />
-      <div className="relative mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="relative mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <div className="absolute left-[12%] right-[12%] top-10 hidden h-0.5 border-t-2 border-dashed border-primary/30 lg:block" />
         {steps.map(({ icon: Icon, n }, i) => (
           <Reveal key={n} delay={i * 0.1} className="relative text-center">
@@ -171,7 +171,7 @@ function Upcoming() {
           <SectionTitle center={false} title={t('home.upcoming.title')} subtitle={t('home.upcoming.subtitle')} />
           <Button asChild variant="outline" className="shrink-0"><Link to="/tournaments">{t('common.viewAll')}<ArrowRight className="size-4" /></Link></Button>
         </div>
-        <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {error ? <div className="sm:col-span-2 lg:col-span-3"><ErrorState onRetry={reload} /></div>
             : loading || !data ? Array.from({ length: 3 }, (_, i) => <TournamentCardSkeleton key={i} />)
               : data.map((item, i) => <Reveal key={item.id} delay={i * 0.1}><TournamentCard t={item} /></Reveal>)}
@@ -194,7 +194,7 @@ function Features() {
   return (
     <section className="container-page py-20 sm:py-28">
       <SectionTitle title={t('home.features.title')} subtitle={t('home.features.subtitle')} />
-      <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-14 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {items.map(({ k, icon: Icon, color }, i) => (
           <Reveal key={k} delay={(i % 3) * 0.08}
             className="group rounded-2xl border border-border bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:border-primary/30 hover:shadow-xl hover:shadow-primary/5">
@@ -220,7 +220,7 @@ function Audience() {
     <section className="bg-muted/50 py-20 sm:py-28">
       <div className="container-page">
         <SectionTitle title={t('home.audience.title')} />
-        <div className="mt-14 grid gap-6 lg:grid-cols-2">
+        <div className="mt-14 grid grid-cols-1 gap-6 lg:grid-cols-2">
           {blocks.map(({ k, img, to, variant }, i) => (
             <Reveal key={k} delay={i * 0.1} className="group overflow-hidden rounded-3xl border border-border bg-card shadow-sm">
               <div className="relative h-56 overflow-hidden sm:h-64">
@@ -252,7 +252,7 @@ function PricingTeaser() {
   return (
     <section className="container-page py-20 sm:py-28">
       <SectionTitle title={t('home.pricing.title')} subtitle={t('home.pricing.subtitle')} />
-      <div className="mx-auto mt-12 grid max-w-4xl gap-5 sm:grid-cols-2">
+      <div className="mx-auto mt-12 grid grid-cols-1 max-w-4xl gap-5 sm:grid-cols-2">
         <Reveal className="rounded-3xl border-2 border-primary bg-card p-8 shadow-lg shadow-primary/10">
           <p className="text-sm font-bold uppercase tracking-wider text-primary">{t('home.pricing.freeTitle')}</p>
           <p className="mt-3 text-5xl font-extrabold">0 ₸</p>
@@ -282,7 +282,7 @@ function Testimonials() {
     <section className="bg-muted/50 py-20 sm:py-28">
       <div className="container-page">
         <SectionTitle title={t('home.testimonials.title')} />
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
+        <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
           {(data ?? Array.from({ length: 3 }, () => null)).map((item, i) => item ? (
             <Reveal key={item.name} delay={i * 0.1} className="relative flex flex-col rounded-2xl border border-border bg-card p-6 shadow-sm">
               <Quote className="size-8 text-accent" fill="currentColor" />

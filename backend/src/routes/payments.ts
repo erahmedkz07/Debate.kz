@@ -7,9 +7,9 @@ import path from 'node:path'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { badRequest, notFound } from '../lib/errors.js'
-import { UPLOADS_DIR } from '../lib/uploads.js'
+import { RECEIPTS_DIR, UPLOADS_DIR } from '../lib/uploads.js'
 import { body, param } from '../middleware/validate.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage } from '../services/tournaments.js'
 import { FREE_TEAM_LIMIT, newReference, platformSettings } from '../services/plans.js'
 import { admins, background, inbox, notifyUsers, organizersOf, withLink } from '../services/notify.js'
@@ -32,6 +32,15 @@ paymentsRouter.get('/plans', async (_req, res) => {
   res.json({ freeTeamLimit: FREE_TEAM_LIMIT, proPrice: s.proPrice })
 })
 
+// the creation wizard shows the payment before the tournament exists: the amount, the Kaspi details and a
+// fresh reference; the wizard sends the reference with the new tournament so the transfer matches it
+paymentsRouter.get('/plans/quote', requireAuth(), requireVerified, async (_req, res) => {
+  const s = await platformSettings()
+  let reference = newReference()
+  while (await prisma.payment.findUnique({ where: { reference } })) reference = newReference()
+  res.json({ amount: s.proPrice, reference, freeTeamLimit: FREE_TEAM_LIMIT, kaspi: kaspiInfo(s) })
+})
+
 // organizer: payment status of a tournament; a reference is issued on first look
 paymentsRouter.get('/tournaments/:id/payment', requireAuth(), async (req, res) => {
   const id = param(req, 'id')
@@ -45,22 +54,29 @@ paymentsRouter.get('/tournaments/:id/payment', requireAuth(), async (req, res) =
   if (!t.paid && p && p.status === 'awaiting' && p.amount !== s.proPrice) p = await prisma.payment.update({ where: { id: p.id }, data: { amount: s.proPrice } })
   res.json({
     required: true, paid: t.paid, freeTeamLimit: FREE_TEAM_LIMIT,
-    ...(p && { amount: p.amount, reference: p.reference, status: t.paid ? 'confirmed' : p.status, payerNote: p.payerNote ?? undefined, adminNote: p.adminNote ?? undefined }),
+    ...(p && { id: p.id, amount: p.amount, reference: p.reference, status: t.paid ? 'confirmed' : p.status, payerNote: p.payerNote ?? undefined, adminNote: p.adminNote ?? undefined, hasReceipt: !!p.receiptPath }),
     kaspi: kaspiInfo(s),
   })
 })
 
 // organizer: "I have paid" (again after a rejection too)
-paymentsRouter.post('/tournaments/:id/payment/claim', requireAuth(), async (req, res) => {
+const receiptUpload = multer({
+  storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, f, cb) => cb(null, ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(f.mimetype)),
+})
+paymentsRouter.post('/tournaments/:id/payment/claim', requireAuth(), receiptUpload.single('receipt'), async (req, res) => {
   const id = param(req, 'id')
   await assertCanManage(req.user, id)
   const { payerNote } = body(req, z.object({ payerNote: z.string().trim().min(2).max(300) }))
+  if (!req.file) throw badRequest('receipt_required')
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id } })
   if (t.plan !== 'pro' || t.paid) throw badRequest('payment_not_needed')
   const p = await prisma.payment.findFirst({ where: { tournamentId: id }, orderBy: { createdAt: 'desc' } })
   if (!p) throw badRequest('payment_not_started')
   if (p.status === 'pending') throw badRequest('payment_already_claimed')
-  await prisma.payment.update({ where: { id: p.id }, data: { status: 'pending', payerNote, paidAt: new Date(), userId: req.user!.id, adminNote: null } })
+  const receiptPath = await saveReceipt(p.id, req.file)
+  if (p.receiptPath) await unlink(path.join(RECEIPTS_DIR, path.basename(p.receiptPath))).catch(() => undefined)
+  await prisma.payment.update({ where: { id: p.id }, data: { status: 'pending', payerNote, paidAt: new Date(), userId: req.user!.id, adminNote: null, receiptPath } })
   const to = await admins()
   background(inbox(to, 'admin.paymentClaimed', { tournament: t.name, amount: p.amount, reference: p.reference }, '/admin?tab=payments'))
   background(notifyUsers(to, () => withLink(`💳 Оплата Pro: «${t.name}», ${p.amount.toLocaleString('ru-RU')} ₸, код ${p.reference}. Проверьте поступление в Kaspi.`, 'Открыть оплаты', '/admin?tab=payments')))
@@ -80,7 +96,7 @@ paymentsRouter.get('/admin/payments', requireAuth('admin'), async (_req, res) =>
   rows.sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending'))
   res.json(rows.map(p => ({
     id: p.id, amount: p.amount, reference: p.reference, status: p.status, payerNote: p.payerNote ?? undefined, adminNote: p.adminNote ?? undefined,
-    paidAt: p.paidAt?.toISOString(), handledAt: p.handledAt?.toISOString(), handledBy: p.handledBy?.name,
+    paidAt: p.paidAt?.toISOString(), handledAt: p.handledAt?.toISOString(), handledBy: p.handledBy?.name, hasReceipt: !!p.receiptPath,
     tournament: p.tournament, payer: p.user ?? undefined,
   })))
 })
@@ -152,4 +168,33 @@ paymentsRouter.post('/admin/settings/kaspi-qr', requireAuth('admin'), upload.sin
   const s = await prisma.platformSetting.update({ where: { id: 'main' }, data: { kaspiQrUrl: `/uploads/platform/${file}` } })
   if (old.kaspiQrUrl?.startsWith('/uploads/platform/')) await unlink(path.join(PLATFORM_DIR, path.basename(old.kaspiQrUrl))).catch(() => undefined)
   res.json({ proPrice: s.proPrice, freeTeamLimit: FREE_TEAM_LIMIT, ...kaspiInfo(s) })
+})
+
+// the receipt file: a photo is re-encoded (no metadata); a PDF is kept as is, but only if it really starts like a PDF
+async function saveReceipt(paymentId: string, file: Express.Multer.File) {
+  await mkdir(RECEIPTS_DIR, { recursive: true })
+  const name = `${paymentId}-${randomBytes(6).toString('hex')}`
+  if (file.mimetype === 'application/pdf') {
+    if (file.buffer.subarray(0, 5).toString() !== '%PDF-') throw badRequest('invalid_receipt')
+    await writeFile(path.join(RECEIPTS_DIR, `${name}.pdf`), file.buffer)
+    return `${name}.pdf`
+  }
+  let jpg: Buffer
+  try {
+    jpg = await sharp(file.buffer, { limitInputPixels: 60_000_000 }).rotate().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer()
+  } catch {
+    throw badRequest('invalid_receipt')
+  }
+  await writeFile(path.join(RECEIPTS_DIR, `${name}.jpg`), jpg)
+  return `${name}.jpg`
+}
+
+// only admins and the organizers of that tournament can open a receipt
+paymentsRouter.get('/payments/:id/receipt', requireAuth(), async (req, res) => {
+  const p = await prisma.payment.findUnique({ where: { id: param(req, 'id') } })
+  if (!p?.receiptPath) throw notFound('receipt_not_found')
+  if (req.user!.role !== 'admin') await assertCanManage(req.user, p.tournamentId)
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('Content-Disposition', `inline; filename="receipt-${p.reference}${path.extname(p.receiptPath)}"`)
+  res.sendFile(path.join(RECEIPTS_DIR, path.basename(p.receiptPath)))
 })

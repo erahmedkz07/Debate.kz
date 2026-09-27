@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { useAward } from '@/components/certificate/CertificateSheet'
+import { BackButton } from '@/components/layout/BackButton'
 
 // public page behind the QR on a certificate: confirms it was issued by Debate.kz
 export default function VerifyCertificate() {
@@ -17,7 +18,8 @@ export default function VerifyCertificate() {
   const { data, loading, error, reload } = useAsync(() => verifyCertificate(code), [code])
 
   return (
-    <div className="container-page flex justify-center py-12">
+    <div className="container-page flex flex-col items-center py-12">
+      <div className="w-full max-w-lg"><BackButton fallback="/" className="-ml-1 mb-2" /></div>
       <Card className="w-full max-w-lg p-8 text-center">
         {loading ? <Skeleton className="h-64" /> : error instanceof NotFoundError || (error && !data) ? (
           error instanceof NotFoundError ? (

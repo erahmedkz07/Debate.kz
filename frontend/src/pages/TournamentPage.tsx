@@ -64,7 +64,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     if (v && !user) return setGate(true)
     if (v && !user?.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
     // the club and team are stated in the profile before applying
-    if (v && !user?.clubTeam) return void toast.info(t('apiErrors.club_required'), { action: { label: t('club.toProfile'), onClick: () => navigate('/me?club=1') } })
+    if (v && !user?.clubTeam) return void toast.info(t('apiErrors.club_required'), { action: { label: t('club.toProfile'), onClick: () => navigate('/me?tab=club') } })
     setOpen(v)
   }
 
@@ -83,7 +83,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
         </DialogTrigger>
         <DialogContent heading={t('tournament.registerDialog.title')} description={`${tournament.name} · ${t('tournament.registerDialog.text')}`}>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="r-team">{t('tournament.registerDialog.teamName')}</Label>
                 <Input id="r-team" aria-invalid={!!errors.team} {...register('team')} />
@@ -124,11 +124,11 @@ function Overview({ data }: { data: TournamentDetails }) {
     { icon: Trophy, label: t('tournament.format'), value: 'World Schools (WSDC)' },
     { icon: Medal, label: t('tournament.prelims'), value: data.preliminaryRounds },
     { icon: Star, label: t('tournament.break.label'), value: data.breakSize },
-    { icon: Users, label: t('common.team'), value: `${data.teamsCount} / ${data.maxTeams}` },
+    { icon: Users, label: t('tournament.tabs.teams'), value: `${data.teamsCount} / ${data.maxTeams}` },
     { icon: Globe, label: t('tournament.languages'), value: data.languages.map(l => (l === 'kz' ? 'Қазақша' : 'Русский')).join(', ') },
   ]
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-6">
         <Card className="p-6">
           <h2 className="text-xl font-bold">{t('tournament.about')}</h2>
@@ -149,7 +149,7 @@ function Overview({ data }: { data: TournamentDetails }) {
         </Card>
         <Card className="p-6">
           <h2 className="flex items-center gap-2 text-xl font-bold"><Clock className="size-5 text-primary" />{t('tournament.schedule')}</h2>
-          <div className="mt-4 grid gap-6 sm:grid-cols-2">
+          <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2">
             {days.map(d => (
               <div key={d}>
                 <p className="mb-3 text-sm font-bold uppercase tracking-wider text-primary">{t('tournament.day', { n: d })}</p>
@@ -186,7 +186,7 @@ function Overview({ data }: { data: TournamentDetails }) {
 function TeamsTab({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {data.teams.map((team, i) => (
         <Card key={team.id} className="p-5 transition-shadow hover:shadow-md">
           <div className="flex items-start gap-3">
@@ -385,7 +385,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
 function JudgesTab({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {data.judges.map(j => (
         <Card key={j.id} className="flex items-center gap-3 p-4">
           <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>

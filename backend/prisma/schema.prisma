@@ -130,6 +130,8 @@ model User {
   clubMembership       ClubMember?
   clubLogs             ClubLog[]
   news                 News[]
+  clubRequests         ClubJoinRequest[]     @relation("ClubRequester")
+  handledClubRequests  ClubJoinRequest[]     @relation("ClubRequestHandler")
   handledPayments      Payment[]             @relation("PaymentHandler")
   notifications        Notification[]
   teammatePosts        TeammatePost[]
@@ -555,6 +557,7 @@ model Payment {
   reference    String        @unique // e.g. DKZ-7K2QF9: written in the Kaspi comment so the admin can match the transfer
   status       PaymentStatus @default(awaiting)
   payerNote    String?       @map("payer_note") // payer name / last digits / time, to find the transfer
+  receiptPath  String?       @map("receipt_path") // the payer\'s Kaspi receipt, stored privately (not under /uploads)
   adminNote    String?       @map("admin_note") // reason of a rejection
   paidAt       DateTime?     @map("paid_at") // when the organizer pressed "I have paid"
   handledById  String?       @map("handled_by_id")
@@ -588,16 +591,17 @@ model PlatformSetting {
 // every change is written to the club log so members see who did what.
 
 model Club {
-  id              String       @id @default(cuid())
+  id              String            @id @default(cuid())
   name            String
   city            String
   institution     String? // university / school the club belongs to
-  description     String       @default("")
-  joinCode        String       @unique @map("join_code") // /clubs/join/<code>
-  createdAt       DateTime     @default(now()) @map("created_at")
+  description     String            @default("")
+  joinCode        String            @unique @map("join_code") // /clubs/join/<code>
+  createdAt       DateTime          @default(now()) @map("created_at")
   teams           ClubTeam[]
   members         ClubMember[]
   logs            ClubLog[]
+  requests        ClubJoinRequest[]
   tournamentTeams Team[]
 
   @@unique([name, city])
@@ -662,4 +666,30 @@ model News {
 
   @@index([published, publishedAt])
   @@map("news")
+}
+
+// a request to join a club from its public page; any member accepts (choosing the team) or declines it
+enum ClubRequestStatus {
+  pending
+  accepted
+  declined
+  cancelled
+}
+
+model ClubJoinRequest {
+  id          String            @id @default(cuid())
+  clubId      String            @map("club_id")
+  userId      String            @map("user_id")
+  message     String            @default("")
+  status      ClubRequestStatus @default(pending)
+  handledById String?           @map("handled_by_id")
+  handledAt   DateTime?         @map("handled_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  club        Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user        User              @relation("ClubRequester", fields: [userId], references: [id], onDelete: Cascade)
+  handledBy   User?             @relation("ClubRequestHandler", fields: [handledById], references: [id], onDelete: SetNull)
+
+  @@index([clubId, status])
+  @@index([userId, status])
+  @@map("club_join_requests")
 }

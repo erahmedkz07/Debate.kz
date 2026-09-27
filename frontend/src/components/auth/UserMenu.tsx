@@ -41,9 +41,10 @@ export function UserMenu({ onDark }: { onDark?: boolean }) {
   if (!user) return null
 
   const logout = async () => {
+    // leave the page first: otherwise the guard would send the next account back here via /login?next=
+    navigate('/', { replace: true })
     await signOut()
     toast(t('authGate.loggedOut'))
-    navigate('/')
   }
 
   return (

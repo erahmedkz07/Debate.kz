@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input, Label, Switch, Textarea } from '@/components/ui/input'
+import { BackButton } from '@/components/layout/BackButton'
 
 export const SAFETY_CATEGORIES: SafetyCategory[] = ['bullying', 'harassment', 'inappropriate', 'threat', 'other']
 export const safetyStatusVariant = { open: 'danger', in_progress: 'accent', resolved: 'success' } as const
@@ -49,8 +50,8 @@ export default function Safety() {
 
   return (
     <>
-      <PageHeader title={t('safety.title')} subtitle={t('safety.subtitle')} />
-      <div className="container-page grid gap-8 py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      <PageHeader title={t('safety.title')} subtitle={t('safety.subtitle')} back={<BackButton fallback="/" />} />
+      <div className="container-page grid grid-cols-1 gap-8 py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <div className="space-y-6">
           {/* immediate danger is not a website matter */}
           <p className="flex items-start gap-3 rounded-2xl border border-danger/30 bg-danger-soft p-4 text-sm">
@@ -75,7 +76,7 @@ export default function Safety() {
               <form className="space-y-5" onSubmit={submit}>
                 <fieldset>
                   <legend className="mb-2 text-sm font-semibold">{t('safety.category')}</legend>
-                  <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t('safety.category')}>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t('safety.category')}>
                     {SAFETY_CATEGORIES.map(c => (
                       <button key={c} type="button" role="radio" aria-checked={form.category === c} onClick={() => setForm({ ...form, category: c })}
                         className={cn('cursor-pointer rounded-xl border-2 p-3 text-left', form.category === c ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
@@ -85,7 +86,7 @@ export default function Safety() {
                     ))}
                   </div>
                 </fieldset>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div><Label htmlFor="sf-about">{t('safety.about')}</Label><Input id="sf-about" maxLength={200} value={form.about} onChange={e => setForm({ ...form, about: e.target.value })} placeholder={t('safety.aboutPlaceholder')} /></div>
                   <div><Label htmlFor="sf-place">{t('safety.place')}</Label><Input id="sf-place" maxLength={200} value={form.place} onChange={e => setForm({ ...form, place: e.target.value })} placeholder={t('safety.placePlaceholder')} /></div>
                 </div>
