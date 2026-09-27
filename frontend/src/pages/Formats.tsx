@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { BackButton } from '@/components/layout/BackButton'
 
 // who speaks: government-like sides use the primary colour, opposition-like — navy, cross-examination — amber
 const sideLook: Record<Speech['side'], string> = {
@@ -22,7 +23,7 @@ export default function Formats() {
 
   return (
     <>
-      <PageHeader title={t('formats.title')} subtitle={t('formats.subtitle')}>
+      <PageHeader title={t('formats.title')} subtitle={t('formats.subtitle')} back={<BackButton fallback="/tools" />}>
         <div className="mt-6 flex flex-wrap gap-2" role="tablist" aria-label={t('formats.title')}>
           {FORMATS.map(x => (
             <button key={x.id} type="button" role="tab" aria-selected={x.id === f.id} onClick={() => setParams({ f: x.id }, { replace: true })}

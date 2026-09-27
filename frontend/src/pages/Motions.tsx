@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { BackButton } from '@/components/layout/BackButton'
 
 const TOPICS: MotionTopic[] = ['education', 'technology', 'economy', 'politics', 'international', 'environment', 'society', 'rights', 'media', 'health', 'culture', 'sport']
 
@@ -53,7 +54,7 @@ export default function Motions() {
 
   return (
     <>
-      <PageHeader title={t('motions.title')} subtitle={t('motions.subtitle')}>
+      <PageHeader title={t('motions.title')} subtitle={t('motions.subtitle')} back={<BackButton fallback="/tools" />}>
         <div className="mt-6 flex flex-wrap gap-3">
           <div className="relative min-w-60 flex-1">
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

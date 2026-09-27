@@ -1,18 +1,16 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, BookOpen, Calculator, Library, Newspaper, Scale, Timer, UserPlus, Users } from 'lucide-react'
+import { ArrowRight, BookOpen, Calculator, Library, Scale, Timer, UserPlus } from 'lucide-react'
 import { PageHeader } from '@/components/layout/Layout'
 import { Reveal } from '@/components/motion'
 
-// "Materials": one entry point for every tool and reference page
+// "Tools": everything a debater uses to train and to run a round — tools and reference pages in one place
 const tools = [
   { to: '/timer', key: 'timer', icon: Timer },
   { to: '/calculator', key: 'calculator', icon: Calculator },
   { to: '/formats', key: 'formats', icon: Scale },
   { to: '/reference', key: 'reference', icon: BookOpen },
   { to: '/motions', key: 'motions', icon: Library },
-  { to: '/news', key: 'news', icon: Newspaper },
-  { to: '/clubs', key: 'clubs', icon: Users },
   { to: '/teammates', key: 'teammates', icon: UserPlus },
 ] as const
 
@@ -22,7 +20,7 @@ export default function Tools() {
     <>
       <PageHeader title={t('tools.title')} subtitle={t('tools.subtitle')} />
       <div className="container-page py-12">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {tools.map(({ to, key, icon: Icon }, i) => (
             <Reveal key={to} delay={i * 0.04}>
               <Link to={to} className="group flex h-full flex-col rounded-2xl border border-border bg-card p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20">

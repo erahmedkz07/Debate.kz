@@ -940,11 +940,15 @@ ok(r.status === 201 && r.data.report.protectClubs === false, 'the club rule can 
 for (const tm of dd.teams.filter(x => ['Д5', 'Д6'].includes(x.name))) {
   await payer('PATCH', `/teams/${tm.id}`, { name: tm.name, institution: 'Школа А', speakers: tm.speakers.map(s => s.name) })
 }
-r = await payer('POST', `/rounds/${dRound.id}/draw`)
 dd = (await payer('GET', `/tournaments/${dt.id}`)).data
 const inst2 = new Map(dd.teams.map(tm => [tm.id, tm.institution]))
-const same = r.data.debates.filter(d => inst2.get(d.propositionTeamId) === inst2.get(d.oppositionTeamId)).length
-ok(r.status === 201 && same === 2 && r.data.report.sameClub === 2, 'when a clean draw is impossible, the fewest clubmate meetings are made and reported')
+let fewest = true
+for (let i = 0; i < 8; i++) { // random orders: the minimum (6 of 8 teams from one school -> 2 debates) must hold every time
+  r = await payer('POST', `/rounds/${dRound.id}/draw`)
+  const same = r.data.debates.filter(d => inst2.get(d.propositionTeamId) === inst2.get(d.oppositionTeamId)).length
+  if (r.status !== 201 || same !== 2 || r.data.report.sameClub !== 2) fewest = false
+}
+ok(fewest, 'when a clean draw is impossible, the fewest clubmate meetings are made and reported (8 random draws)')
 ok(new Set(r.data.debates.flatMap(d => [d.propositionTeamId, d.oppositionTeamId])).size === 8, 'every team still debates exactly once')
 
 
@@ -966,4 +970,72 @@ const pubNews = (await client()('GET', `/news/${newsId}`)).data
 ok(r.status === 200 && pubNews.published && pubNews.publishedAt && pubNews.body.includes('Второй абзац'), 'after publishing everyone can read it')
 ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'news.publish' && a.targetId === newsId), 'publishing is in the audit log')
 ok((await admin('DELETE', `/news/${newsId}`)).status === 204 && (await client()('GET', `/news/${newsId}`)).status === 404, 'an admin deletes a post')
+
+// ---------- 32. tournament covers ----------
+const templates = (await client()('GET', '/tournament-covers')).data
+ok(Array.isArray(templates) && templates.length >= 6, 'there are ready cover templates')
+const noCover = (await payer('GET', `/tournaments/${dt.id}`)).data
+ok(templates.includes(noCover.cover), 'a tournament without a cover shows a template, not an empty picture')
+ok((await payer('PATCH', `/tournaments/${dt.id}`, { coverUrl: 'https://evil.example/tracker.png' })).status === 400, 'a cover cannot be an arbitrary external link')
+r = await payer('PATCH', `/tournaments/${dt.id}`, { coverUrl: templates[3] })
+ok(r.status === 200 && (await payer('GET', `/tournaments/${dt.id}`)).data.cover === templates[3], 'the organizer picks a template')
+const { default: sharpLib } = await import('sharp')
+const png = await sharpLib({ create: { width: 900, height: 600, channels: 3, background: '#e8710a' } }).png().toBuffer()
+const coverSession = cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `payer.${uniq}@mail.kz`, password: 'secret123' }) }), 'dkz_token')
+const upload = async (id, body, session = coverSession) => {
+  const form = new FormData()
+  form.append('cover', body)
+  const res = await fetch(`${A}/tournaments/${id}/cover`, { method: 'POST', headers: { Cookie: session }, body: form })
+  return { status: res.status, data: await res.json().catch(() => null) }
+}
+r = await upload(dt.id, new Blob([png], { type: 'image/png' }), coverSession)
+const uploaded = r.data?.cover
+ok(r.status === 200 && /^\/uploads\/covers\/[\w-]+\.webp$/.test(uploaded) && (await fetch(`${A.replace(/\/api$/, '')}${uploaded}`)).ok, 'the organizer uploads their own cover (stored as WebP on the site)')
+ok((await payer('GET', `/tournaments/${dt.id}`)).data.cover === uploaded, 'the tournament shows the uploaded cover')
+ok((await upload(dt.id, new Blob([Buffer.from('not an image')], { type: 'image/png' }))).status === 400, 'a file that is not a real image is refused')
+ok((await upload(dt.id, new Blob([png], { type: 'image/png' }), await sessionOf('timur@mail.kz'))).status === 403, 'strangers cannot change the cover')
+await payer('PATCH', `/tournaments/${dt.id}`, { coverUrl: null })
+ok(templates.includes((await payer('GET', `/tournaments/${dt.id}`)).data.cover) && (await fetch(`${A.replace(/\/api$/, '')}${uploaded}`)).status === 404, 'removing the cover returns the template and deletes the old file')
+r = await admin('POST', '/tournaments', { ...tBody(40), name: `С обложкой ${uniq}`, coverUrl: templates[1] })
+ok(r.status === 201 && r.data.cover === templates[1], 'a template chosen in the wizard is saved with the new tournament')
+ok((await admin('POST', '/tournaments', { ...tBody(41), name: `Чужая обложка ${uniq}`, coverUrl: 'https://evil.example/x.jpg' })).status === 400, 'the wizard cannot save an external picture link')
+
+// ---------- 33. requests to join a club ----------
+const reqClubOwner = client(), applicant = client()
+for (const [c, n] of [[reqClubOwner, 'ro'], [applicant, 'ap']]) {
+  r = await c('POST', '/auth/register', { name: `Заявка Тестов${n}`, email: `req${n}.${uniq}@mail.kz`, phone: '+7 707 555 66 88', password: 'secret123', consent: true })
+  await c('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+}
+const rClub = (await reqClubOwner('POST', '/clubs', { name: `Заявочный ${uniq}`, city: 'Астана' })).data.id
+const rTeam = (await reqClubOwner('POST', `/clubs/${rClub}/teams`, { name: 'Основа', join: true })).data.id
+ok((await client()('POST', `/clubs/${rClub}/requests`, {})).status === 401, 'a guest cannot ask to join')
+r = await applicant('POST', `/clubs/${rClub}/requests`, { message: 'Хочу в клуб, говорю вторым спикером' })
+const reqId = r.data.id
+ok(r.status === 201 && (await applicant('GET', `/clubs/${rClub}`)).data.myRequest === reqId, 'a person asks to join from the public club page')
+ok((await applicant('POST', `/clubs/${rClub}/requests`, {})).data?.error === 'already_requested', 'one open request per club')
+ok((await reqClubOwner('POST', `/clubs/${rClub}/requests`, {})).data?.error === 'already_member', 'members do not request their own club')
+await new Promise(res => setTimeout(res, 300))
+ok((await reqClubOwner('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubRequest'), 'members are told about the request')
+let reqs = (await reqClubOwner('GET', `/clubs/${rClub}/requests`)).data
+ok(reqs.length === 1 && reqs[0].message.includes('вторым спикером') && reqs[0].user.name.includes('Тестовap'), 'members see the request with the message')
+ok((await applicant('GET', `/clubs/${rClub}/requests`)).status === 403, 'outsiders cannot see the requests')
+ok((await applicant('PATCH', `/club-requests/${reqId}`, { status: 'accepted' })).status === 403, 'the applicant cannot accept themself')
+ok((await reqClubOwner('GET', `/clubs/${rClub}`)).data.pendingRequests === 1, 'the club page tells members how many requests wait')
+r = await reqClubOwner('PATCH', `/club-requests/${reqId}`, { status: 'accepted', teamId: rTeam })
+const apMe = (await applicant('GET', '/auth/me')).data.user
+ok(r.status === 200 && apMe.club?.id === rClub && apMe.clubTeam?.id === rTeam, 'a member accepts and puts the person straight into a team')
+await new Promise(res => setTimeout(res, 300))
+ok((await applicant('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubRequestAccepted'), 'the person is told')
+ok((await reqClubOwner('PATCH', `/club-requests/${reqId}`, { status: 'declined' })).data?.error === 'request_not_pending', 'a handled request cannot be handled again')
+// decline and withdraw
+const other = client()
+r = await other('POST', '/auth/register', { name: 'Другой Заявитель', email: `reqot.${uniq}@mail.kz`, phone: '+7 707 555 66 99', password: 'secret123', consent: true })
+await other('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+const r2 = (await other('POST', `/clubs/${rClub}/requests`, {})).data.id
+r = await reqClubOwner('PATCH', `/club-requests/${r2}`, { status: 'declined' })
+ok(r.status === 200 && !(await other('GET', '/auth/me')).data.user.club && (await other('GET', '/me/club-requests')).data.length === 0, 'a declined person stays outside and the request is closed')
+const r3 = (await other('POST', `/clubs/${rClub}/requests`, {})).data.id
+ok((await other('DELETE', `/club-requests/${r3}`)).status === 204 && (await reqClubOwner('GET', `/clubs/${rClub}/requests`)).data.length === 0, 'the person can withdraw a request')
+ok((await reqClubOwner('GET', `/clubs/${rClub}`)).data.log.some(l => l.action === 'request.accepted'), 'accepting is in the club log')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

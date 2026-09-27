@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ArrowLeft, ChevronRight, EyeOff, Newspaper, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, EyeOff, Newspaper, Pencil, Plus, Trash2 } from 'lucide-react'
 import { createNews, deleteNews, getNews, getNewsItem, NotFoundError, updateNews, type NewsInput } from '@/api'
 import type { NewsItem } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -17,6 +17,7 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Input, Label, Switch, Textarea } from '@/components/ui/input'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import NotFound from './NotFound'
+import { BackButton } from '@/components/layout/BackButton'
 
 // the publication day (the time of day adds nothing for news)
 const dateOf = (n: NewsItem) => formatDate((n.publishedAt ?? n.updatedAt).slice(0, 10), { day: 'numeric', month: 'long', year: 'numeric' })
@@ -144,7 +145,7 @@ export function NewsArticle() {
   const isAdmin = user?.role === 'admin'
   return (
     <article className="container-page max-w-3xl py-10">
-      <Link to="/news" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{t('news.all')}</Link>
+      <BackButton fallback="/news" className="-ml-1" />
       {data.coverUrl && <img src={data.coverUrl} alt="" className="mt-6 aspect-[2/1] w-full rounded-3xl object-cover" />}
       <p className="mt-6 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         {dateOf(data)}{data.author && ` · ${data.author}`}{!data.published && <Badge variant="muted"><EyeOff className="size-3" />{t('news.draft')}</Badge>}

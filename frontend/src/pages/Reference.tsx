@@ -4,13 +4,14 @@ import { ArrowRight, BookOpen, Lightbulb, Scale } from 'lucide-react'
 import { GLOSSARY, JUDGING, TIPS } from '@/content/reference'
 import { PageHeader } from '@/components/layout/Layout'
 import { Card } from '@/components/ui/card'
+import { BackButton } from '@/components/layout/BackButton'
 
 export default function Reference() {
   const { t, i18n } = useTranslation()
   const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   return (
     <>
-      <PageHeader title={t('reference.title')} subtitle={t('reference.subtitle')} />
+      <PageHeader title={t('reference.title')} subtitle={t('reference.subtitle')} back={<BackButton fallback="/tools" />} />
       <div className="container-page space-y-12 py-10">
         <section>
           <h2 className="flex items-center gap-2 text-2xl font-extrabold"><BookOpen className="size-6 text-primary" />{t('reference.glossary')}</h2>

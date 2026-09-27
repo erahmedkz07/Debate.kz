@@ -25,6 +25,7 @@ import { ResultsTab } from '@/pages/TournamentPage'
 import NotFound from '@/pages/NotFound'
 import { InviteButton } from '@/components/tournament/InviteDialog'
 import { EmailInvites } from '@/components/tournament/EmailInvites'
+import { CoverCard } from '@/components/tournament/CoverCard'
 
 // mirrors backend services/draw.ts: the first two rounds keep clubmates apart by default
 const CLUB_PROTECTED_ROUNDS = 2
@@ -838,6 +839,7 @@ function SettingsSection({ data, reload }: SectionProps) {
           <Switch label={t('dashboard.settings.visibility')} checked={form.visible} onChange={v => setForm({ ...form, visible: v })} />
           <div className="flex justify-end"><Button disabled={busy === 'save' || form.name.trim().length < 3} onClick={save}>{t('common.save')}</Button></div>
         </Card>
+        <CoverCard tournamentId={data.id} cover={data.cover} onChanged={reload} />
         {data.status !== 'finished' && <RoomsCard data={data} reload={reload} />}
         {/* Pro (more than 20 teams): Kaspi QR payment; otherwise a short note about the free plan */}
         {data.plan === 'pro' ? <PaymentCard tournamentId={data.id} /> : (

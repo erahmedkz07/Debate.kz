@@ -10,6 +10,7 @@ import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn } from '../services/tournaments.js'
 import { background, inbox, notifyJoined, notifyUsers, organizersOf, withLink } from '../services/notify.js'
 import { inviteLetter } from '../services/letters.js'
+import { coverOf } from '../services/covers.js'
 
 export const invitesRouter = Router()
 
@@ -106,7 +107,7 @@ invitesRouter.get('/invites/:token', async (req, res) => {
   const t = invite.tournament
   res.json({
     kind: invite.kind, state, invitedBy: invite.createdBy.name, expiresAt: invite.expiresAt.toISOString(), forEmail: invite.email ? mask(invite.email) : undefined,
-    tournament: { id: t.id, name: t.name, city: t.city, startDate: toDay(t.startDate), endDate: toDay(t.endDate), cover: t.coverUrl ?? '' },
+    tournament: { id: t.id, name: t.name, city: t.city, startDate: toDay(t.startDate), endDate: toDay(t.endDate), cover: coverOf(t) },
   })
 })
 

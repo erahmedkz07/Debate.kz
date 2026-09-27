@@ -7,6 +7,7 @@ import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { BackButton } from '@/components/layout/BackButton'
 
 // Score calculator: enter speaker scores, get team totals, the winner (or the BP ranking with team points)
 // and a check of every score against the format's range and step. Nothing is sent anywhere.
@@ -49,6 +50,7 @@ export default function Calculator() {
   return (
     <div className="container-page py-8">
       <div className="mx-auto max-w-4xl">
+        <BackButton fallback="/tools" className="-ml-1 mb-2" />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-extrabold tracking-tight">{t('calculator.title')}</h1>
           <Button variant="ghost" size="sm" onClick={() => setScores({})}><RotateCcw className="size-4" />{t('calculator.clear')}</Button>

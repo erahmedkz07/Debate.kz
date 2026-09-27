@@ -384,6 +384,8 @@ export interface ClubDetails {
   members: ClubMemberInfo[]
   isMember: boolean
   joinCode?: string // members only
+  pendingRequests?: number // members only: requests waiting for an answer
+  myRequest?: string // the viewer's open request to join
   log?: { id: string; userName: string; action: string; detail: string; createdAt: string }[]
 }
 
@@ -398,4 +400,12 @@ export interface NewsItem {
   publishedAt?: string
   updatedAt: string
   author?: string
+}
+
+// a request to join a club (sent from the public club page)
+export interface ClubJoinRequest {
+  id: string
+  message: string
+  createdAt: string
+  user: { id: string; name: string; avatarUrl?: string; institution?: string; city?: string }
 }

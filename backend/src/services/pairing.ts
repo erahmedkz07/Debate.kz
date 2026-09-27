@@ -40,45 +40,66 @@ export function pairTeams(input: PairingInput): PairingResult {
   const { order, method, met, clubOf } = input
   const sameClub = (a: string, b: string) => !!clubOf.get(a) && clubOf.get(a) === clubOf.get(b)
 
-  // levels of strictness: 0 = no rematch + no same club, 1 = no rematch, 2 = anything
-  const allowed = (a: string, b: string, level: number) => {
-    if (level >= 2) return true
-    if (met.has(key(a, b))) return false
-    if (level === 0 && input.protectClubs && sameClub(a, b)) return false
-    return true
-  }
+  const isRematch = (a: string, b: string) => met.has(key(a, b))
+  // ideal opponents first: the next team (power/random) or the lowest-ranked one left (high_low)
+  const candidatesFor = (rest: string[]) => (method === 'high_low' ? [...rest].reverse() : rest)
+  const report = (pairs: [string, string][]): PairingResult => ({
+    pairs,
+    sameClub: input.protectClubs ? pairs.filter(([a, b]) => sameClub(a, b)).length : 0,
+    rematches: pairs.filter(([a, b]) => isRematch(a, b)).length,
+  })
 
-  for (let level = 0; level <= 2; level++) {
+  // 1) a clean draw: no rematch and (when protected) no clubmates
+  {
     let steps = 0
     const pairs: [string, string][] = []
     const used = new Set<string>()
+    const clean = (a: string, b: string) => !isRematch(a, b) && !(input.protectClubs && sameClub(a, b))
     const solve = (): boolean => {
       if (++steps > STEP_LIMIT) return false
       const a = order.find(x => !used.has(x))
       if (!a) return true
       used.add(a)
-      const rest = order.filter(x => !used.has(x))
-      // ideal opponents first: the next team (power/random) or the lowest-ranked one left (high_low)
-      const candidates = method === 'high_low' ? [...rest].reverse() : rest
-      for (const b of candidates) {
-        if (!allowed(a, b, level)) continue
-        used.add(b)
-        pairs.push([a, b])
+      for (const b of candidatesFor(order.filter(x => !used.has(x)))) {
+        if (!clean(a, b)) continue
+        used.add(b); pairs.push([a, b])
         if (solve()) return true
-        pairs.pop()
-        used.delete(b)
+        pairs.pop(); used.delete(b)
       }
       used.delete(a)
       return false
     }
-    if (solve()) {
-      return {
-        pairs,
-        sameClub: input.protectClubs ? pairs.filter(([a, b]) => sameClub(a, b)).length : 0,
-        rematches: pairs.filter(([a, b]) => met.has(key(a, b))).length,
-      }
-    }
+    if (solve()) return report(pairs)
   }
+
+  // 2) no clean draw exists: the fewest rematches, then the fewest clubmate meetings (branch and bound).
+  //    A rematch weighs more than any number of clubmate meetings.
+  const cost = (a: string, b: string) => (isRematch(a, b) ? 1000 : 0) + (input.protectClubs && sameClub(a, b) ? 1 : 0)
+  // lower bound for clubmates: a club with k of n teams has at least k - n/2 internal debates
+  const clubSizes = new Map<string, number>()
+  for (const x of order) { const c = clubOf.get(x); if (c) clubSizes.set(c, (clubSizes.get(c) ?? 0) + 1) }
+  const lowerBound = input.protectClubs ? Math.max(0, ...[...clubSizes.values()].map(k => k - order.length / 2)) : 0
+  let best: [string, string][] | null = null
+  let bestCost = Infinity
+  let steps = 0
+  const pairs: [string, string][] = []
+  const used = new Set<string>()
+  const search = (acc: number) => {
+    if (++steps > STEP_LIMIT || acc >= bestCost || bestCost <= lowerBound) return
+    const a = order.find(x => !used.has(x))
+    if (!a) { best = [...pairs]; bestCost = acc; return }
+    used.add(a)
+    // cheapest opponents first, the ideal order kept among equals
+    const options = candidatesFor(order.filter(x => !used.has(x))).map((b, i) => ({ b, c: cost(a, b), i })).sort((x, y) => x.c - y.c || x.i - y.i)
+    for (const { b, c } of options) {
+      used.add(b); pairs.push([a, b])
+      search(acc + c)
+      pairs.pop(); used.delete(b)
+    }
+    used.delete(a)
+  }
+  search(0)
+  if (best) return report(best)
   // unreachable: level 2 accepts any pairing
   throw new Error('pairing failed')
 }

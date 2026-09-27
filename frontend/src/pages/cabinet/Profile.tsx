@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertCircle, Award, BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
+import { AlertCircle, Award, Shield, BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
 import { changePassword, createTelegramLink, deleteAccount, getGoogleConfig, getMe, requestPasswordSetup, unlinkGoogle, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
@@ -21,6 +21,7 @@ import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
 import { ProgressPanel } from '@/components/profile/ProgressPanel'
 import { CertificatesPanel } from '@/components/profile/CertificatesPanel'
+import { MyClub } from '@/components/club/MyClub'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
 
@@ -245,34 +246,6 @@ function SecurityCard({ canDelete }: { canDelete: boolean }) {
   )
 }
 
-// club and team: required before applying to tournaments; managed on the club page
-function ClubCard() {
-  const { t } = useTranslation()
-  const { user } = useAuth()
-  if (!user || user.role === 'admin') return null
-  return (
-    <Card id="club-card" className={cn('scroll-mt-24 p-6', !user.clubTeam && 'ring-2 ring-accent')}>
-      <h3 className="flex items-center gap-2 font-bold"><Users className="size-4 text-primary" />{t('club.cardTitle')}</h3>
-      {user.club ? (
-        <div className="mt-3 space-y-2 text-sm">
-          <p className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{t('club.club')}</span><Link to={`/clubs/${user.club.id}`} className="font-semibold text-primary hover:underline">{user.club.name}</Link></p>
-          <p className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{t('club.team')}</span>
-            {user.clubTeam ? <b>{user.clubTeam.name}</b> : <Link to={`/clubs/${user.club.id}`} className="font-semibold text-danger hover:underline">{t('club.chooseTeam')}</Link>}
-          </p>
-          <Button asChild variant="outline" size="sm" className="mt-2"><Link to={`/clubs/${user.club.id}`}>{t('club.openClub')}</Link></Button>
-        </div>
-      ) : (
-        <>
-          <p className="mt-1 text-sm text-muted-foreground">{t('club.cardText')}</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button asChild size="sm"><Link to="/clubs">{t('club.findOrCreate')}</Link></Button>
-          </div>
-        </>
-      )}
-    </Card>
-  )
-}
-
 // small counter inside a section tab
 const Count = ({ n }: { n?: number }) => (n ? <span className="ml-auto pl-2 text-xs tabular-nums opacity-70">{n}</span> : null)
 
@@ -285,12 +258,14 @@ export default function Profile() {
   const debates = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyDebates()), [user?.id])
   const [form, setForm] = useState({ name: user!.name, phone: user!.phone ?? '', institution: user!.institution ?? '', city: user!.city ?? '' })
   const [params, setParams] = useSearchParams()
-  const [tab, setTab] = useState(isAdmin || params.has('welcome') || params.has('google') || params.has('google_error') || params.has('club') ? 'settings' : 'registrations')
+  // ?tab=club etc. opens a section; a participant without a club lands on "My club" (the club is required to apply)
+  const asked = params.get('tab') ?? (params.has('club') ? 'club' : null)
+  const [tab, setTab] = useState(isAdmin || params.has('welcome') || params.has('google') || params.has('google_error') ? 'settings'
+    : asked && ['club', 'registrations', 'debates', 'progress', 'certificates', 'settings'].includes(asked) ? asked : !user?.clubTeam ? 'club' : 'registrations')
   // the server sends people back here after Google: ?welcome=1 (new account), ?google=linked, ?google_error=…
   useEffect(() => {
     const welcome = params.get('welcome'), linked = params.get('google'), failed = params.get('google_error')
-    if (params.has('club')) setTimeout(() => document.getElementById('club-card')?.scrollIntoView({ behavior: 'smooth' }), 300)
-    if (!welcome && !linked && !failed) { if (params.has('club')) setParams({}, { replace: true }); return }
+    if (!welcome && !linked && !failed) { if (params.has('club') || params.has('tab')) setParams({}, { replace: true }); return }
     if (welcome) toast.success(t('google.welcome', { name: user?.name.split(' ')[0] }), { description: t('google.welcomeText'), duration: 8000 })
     if (linked) { toast.success(t('google.linked')); void getMe().then(me => me && signIn(me)) }
     if (failed) toast.error(t(`google.errors.${failed}`, { defaultValue: t('google.errors.google_failed') }))
@@ -359,7 +334,7 @@ export default function Profile() {
         <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-accent bg-accent-soft p-4 text-sm">
           <AlertCircle className="size-5 shrink-0 text-navy dark:text-accent" />
           <p className="min-w-0 flex-1"><b>{t('google.completeTitle')}</b> {t('google.completeText', { fields: missing.map(k => t(`google.fields.${k}`)).join(', ') })}</p>
-          <Button size="sm" onClick={() => { setTab('settings'); setTimeout(() => missing[0] === 'club' ? document.getElementById('club-card')?.scrollIntoView({ behavior: 'smooth' }) : document.getElementById(missing[0] === 'phone' ? 'p-phone' : missing[0] === 'city' ? 'p-city' : 'p-inst')?.focus(), 50) }}>{t('google.completeButton')}</Button>
+          <Button size="sm" onClick={() => { setTab('settings'); if (missing[0] === 'club') return setTab('club'); setTimeout(() => document.getElementById(missing[0] === 'phone' ? 'p-phone' : missing[0] === 'city' ? 'p-city' : 'p-inst')?.focus(), 50) }}>{t('google.completeButton')}</Button>
         </div>
       )}
 
@@ -368,6 +343,7 @@ export default function Profile() {
         <div className={cn('grid gap-6', !isAdmin && 'lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start')}>
         {!isAdmin && (
           <SideTabsList aria-label={t('profile.tabs.label')}>
+            <SideTabsTrigger value="club"><Shield className="size-4" />{t('profile.tabs.club')}{!user.clubTeam && <span className="ml-auto size-2 rounded-full bg-danger" aria-label={t('club.required')} />}</SideTabsTrigger>
             <SideTabsTrigger value="registrations"><Users className="size-4" />{t('profile.tabs.registrations')}<Count n={regs.data?.length} /></SideTabsTrigger>
             <SideTabsTrigger value="debates"><Swords className="size-4" />{t('profile.tabs.debates')}<Count n={debates.data?.length} /></SideTabsTrigger>
             <SideTabsTrigger value="progress"><TrendingUp className="size-4" />{t('profile.tabs.progress')}</SideTabsTrigger>
@@ -436,6 +412,7 @@ export default function Profile() {
 
         <TabsContent value="progress" className="mt-0"><ProgressPanel /></TabsContent>
         <TabsContent value="certificates" className="mt-0"><CertificatesPanel /></TabsContent>
+        <TabsContent value="club" className="mt-0"><MyClub /></TabsContent>
 
         <TabsContent value="settings" className="mt-0">
           {/* two columns on wide screens: personal data | Telegram + security */}
@@ -458,12 +435,11 @@ export default function Profile() {
                 {user.phoneVerified && <p className="mt-1 flex items-center gap-1 text-xs text-success"><BadgeCheck className="size-3.5" />{t('profile.phoneVerifiedHint')}</p>}
               </div>
               <div><Label htmlFor="p-city">{t('common.city')}</Label><Input id="p-city" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} /></div>
-              <div className="sm:col-span-2"><Label htmlFor="p-inst">{t('common.institution')}</Label><Input id="p-inst" value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} /></div>
+              {!isAdmin && <div className="sm:col-span-2"><Label htmlFor="p-inst">{t('common.institution')}</Label><Input id="p-inst" value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} /></div>}
               <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!form.name.trim()}>{t('common.save')}</Button></div>
             </form>
           </Card>
           <div className="space-y-5">
-            <ClubCard />
             <TelegramCard />
             {/* admins are demoted by another admin before they can leave */}
             <SecurityCard canDelete={!isAdmin} />

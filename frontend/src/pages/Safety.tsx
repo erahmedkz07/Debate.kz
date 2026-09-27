@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input, Label, Switch, Textarea } from '@/components/ui/input'
+import { BackButton } from '@/components/layout/BackButton'
 
 export const SAFETY_CATEGORIES: SafetyCategory[] = ['bullying', 'harassment', 'inappropriate', 'threat', 'other']
 export const safetyStatusVariant = { open: 'danger', in_progress: 'accent', resolved: 'success' } as const
@@ -49,7 +50,7 @@ export default function Safety() {
 
   return (
     <>
-      <PageHeader title={t('safety.title')} subtitle={t('safety.subtitle')} />
+      <PageHeader title={t('safety.title')} subtitle={t('safety.subtitle')} back={<BackButton fallback="/" />} />
       <div className="container-page grid gap-8 py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <div className="space-y-6">
           {/* immediate danger is not a website matter */}

@@ -18,6 +18,7 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Label, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { BackButton } from '@/components/layout/BackButton'
 
 const LANGS = ['ru', 'kz', 'en'] as const
 
@@ -53,7 +54,7 @@ export default function Teammates() {
 
   return (
     <>
-      <PageHeader title={t('teammates.title')} subtitle={t('teammates.subtitle')}>
+      <PageHeader title={t('teammates.title')} subtitle={t('teammates.subtitle')} back={<BackButton fallback="/tools" />}>
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <Button onClick={need(() => setCreating(true))}><Plus className="size-4" />{t('teammates.create')}</Button>
           <div className="flex gap-1 rounded-2xl bg-muted p-1">

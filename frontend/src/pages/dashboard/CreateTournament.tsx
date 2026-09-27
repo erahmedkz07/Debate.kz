@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Loader2, PartyPopper, Trophy } from 'lucide-react'
-import { createTournament, getCities } from '@/api'
+import { createTournament, getCities, getCoverTemplates, uploadTournamentCover } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { useAsync } from '@/lib/hooks'
@@ -27,7 +27,10 @@ export default function CreateTournament() {
   const { user } = useAuth()
   const { data: cities = [] } = useAsync(getCities)
   const [step, setStep] = useState(0)
+  // the cover: a ready template (saved with the tournament) or the organizer's own picture (uploaded right after)
   const [cover, setCover] = useState<string | null>(null)
+  const [coverFile, setCoverFile] = useState<File | null>(null)
+  const { data: templates = [] } = useAsync(getCoverTemplates)
   const [dragging, setDragging] = useState(false)
 
   const schema = z.object({
@@ -74,7 +77,10 @@ export default function CreateTournament() {
         maxTeams: Number(f.maxTeams), registrationOpen: f.regOpen, requireApproval: f.approval,
         registrationDeadline: f.regDeadline || undefined,
         languages: [...(f.langKz ? ['kz' as const] : []), ...(f.langRu ? ['ru' as const] : [])],
+        coverUrl: cover && !coverFile ? cover : undefined,
       })
+      // the own picture goes up after the tournament exists; if it fails, the tournament keeps a template
+      if (coverFile) await uploadTournamentCover(created.id, coverFile).catch(() => toast.warning(t('wizard.coverFailed')))
       toast.success(t('wizard.created'), { description: user?.role === 'admin' ? undefined : t('moderation.sentForReview') })
       navigate(`/dashboard/tournaments/${created.id}/teams`)
     } catch (e) {
@@ -83,8 +89,12 @@ export default function CreateTournament() {
   }
 
   const pickFile = (file?: File) => {
-    if (file && file.type.startsWith('image/')) setCover(URL.createObjectURL(file))
+    if (!file || !file.type.startsWith('image/')) return
+    if (file.size > 8 * 1024 * 1024) return void toast.error(t('wizard.coverTooBig'))
+    setCover(URL.createObjectURL(file))
+    setCoverFile(file)
   }
+  const pickTemplate = (url: string) => { setCover(url); setCoverFile(null) }
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -164,6 +174,20 @@ export default function CreateTournament() {
                       )}
                       <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={e => pickFile(e.target.files?.[0])} />
                     </label>
+                    {templates.length > 0 && (
+                      <>
+                        <p className="mb-2 mt-3 text-xs font-semibold text-muted-foreground">{t('wizard.coverTemplates')}</p>
+                        <div className="grid grid-cols-5 gap-2" role="radiogroup" aria-label={t('wizard.coverTemplates')}>
+                          {templates.map((url, i) => (
+                            <button key={url} type="button" role="radio" aria-checked={cover === url} aria-label={t('wizard.coverTemplate', { n: i + 1 })} onClick={() => pickTemplate(url)}
+                              className={cn('relative aspect-[3/2] cursor-pointer overflow-hidden rounded-lg ring-offset-2 ring-offset-background transition', cover === url ? 'ring-2 ring-primary' : 'opacity-80 hover:opacity-100')}>
+                              <img src={url.replace('w=1200', 'w=240')} alt="" loading="lazy" className="size-full object-cover" />
+                              {cover === url && <Check className="absolute right-1 top-1 size-4 rounded-full bg-primary p-0.5 text-primary-foreground" />}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="desc">{t('wizard.description')}</Label>

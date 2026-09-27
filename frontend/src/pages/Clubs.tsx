@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ArrowRight, Building2, KeyRound, Loader2, LogIn, MapPin, Plus, Search, Users } from 'lucide-react'
-import { createClub, getCities, getClubByCode, getClubs, getMe, joinClub, NotFoundError } from '@/api'
+import { ArrowRight, Building2, KeyRound, Loader2, LogIn, MapPin, Search, Users } from 'lucide-react'
+import { getCities, getClubByCode, getClubs, getMe, joinClub, NotFoundError } from '@/api'
 import type { ClubSummary } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
@@ -13,10 +13,11 @@ import { LoginRequiredDialog } from '@/components/auth/guards'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input, Label, Textarea } from '@/components/ui/input'
+import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import NotFound from './NotFound'
+import { BackButton } from '@/components/layout/BackButton'
 
 function ClubCard({ c }: { c: ClubSummary }) {
   const { t } = useTranslation()
@@ -45,9 +46,7 @@ export default function Clubs() {
   const { data, loading, error, reload } = useAsync(() => getClubs({ search: search || undefined, city: city || undefined }), [search, city])
   const { data: cities = [] } = useAsync(getCities)
   const [gate, setGate] = useState(false)
-  const [creating, setCreating] = useState(false)
   const [joining, setJoining] = useState(false)
-  const [f, setF] = useState({ name: '', city: user?.city ?? '', institution: user?.institution ?? '', description: '' })
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (k: string, v: string) => { const n = new URLSearchParams(params); if (v) n.set(k, v); else n.delete(k); setParams(n, { replace: true }) }
@@ -62,7 +61,8 @@ export default function Clubs() {
       const { id } = await fn()
       const me = await getMe()
       if (me) signIn(me)
-      navigate(`/clubs/${id}`)
+      // the club is managed in the profile
+      navigate(id ? '/me?tab=club' : '/clubs')
     } catch (e) {
       toast.error(errorMessage(e, t))
     } finally {
@@ -74,13 +74,11 @@ export default function Clubs() {
     <>
       <PageHeader title={t('club.title')} subtitle={t('club.subtitle')}>
         <div className="mt-6 flex flex-wrap items-center gap-3">
+          {/* creating and managing a club happens in the profile ("My club"); here only finding and joining */}
           {user?.club ? (
-            <Button asChild><Link to={`/clubs/${user.club.id}`}><Users className="size-4" />{t('club.myClub', { name: user.club.name })}</Link></Button>
+            <Button asChild variant="outline"><Link to="/me?tab=club"><Users className="size-4" />{t('club.myClub', { name: user.club.name })}</Link></Button>
           ) : (
-            <>
-              <Button onClick={need(() => setCreating(true))}><Plus className="size-4" />{t('club.createClub')}</Button>
-              <Button variant="outline" onClick={need(() => setJoining(true))}><KeyRound className="size-4" />{t('club.joinByCode')}</Button>
-            </>
+            <Button variant="outline" onClick={need(() => setJoining(true))}><KeyRound className="size-4" />{t('club.joinByCode')}</Button>
           )}
           <div className="relative min-w-56 flex-1 sm:max-w-xs">
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -101,20 +99,6 @@ export default function Clubs() {
       </div>
 
       <LoginRequiredDialog open={gate} onOpenChange={setGate} text={t('club.loginText')} />
-      <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent heading={t('club.createClub')} description={t('club.createText')}>
-          <form className="grid gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void go(() => createClub({ ...f, institution: f.institution || undefined })) }}>
-            <div className="sm:col-span-2"><Label htmlFor="nc-name">{t('club.name')}</Label><Input id="nc-name" maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={t('club.namePlaceholder')} /></div>
-            <div><Label htmlFor="nc-city">{t('common.city')}</Label><Input id="nc-city" maxLength={60} value={f.city} onChange={e => setF({ ...f, city: e.target.value })} /></div>
-            <div><Label htmlFor="nc-inst">{t('common.institution')}</Label><Input id="nc-inst" maxLength={150} value={f.institution} onChange={e => setF({ ...f, institution: e.target.value })} /></div>
-            <div className="sm:col-span-2"><Label htmlFor="nc-desc">{t('club.description')}</Label><Textarea id="nc-desc" rows={3} maxLength={2000} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
-            <div className="flex justify-end gap-2 sm:col-span-2">
-              <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
-              <Button type="submit" disabled={busy || f.name.trim().length < 2 || f.city.trim().length < 2}>{busy && <Loader2 className="size-4 animate-spin" />}{t('club.create')}</Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
       <Dialog open={joining} onOpenChange={setJoining}>
         <DialogContent heading={t('club.joinByCode')} description={t('club.joinCodeText')}>
           <form className="space-y-4" onSubmit={e => { e.preventDefault(); void go(() => joinClub(code.trim())) }}>
@@ -149,7 +133,7 @@ export function ClubJoin() {
       const me = await getMe()
       if (me) signIn(me)
       toast.success(t('club.joined', { name: data.name }))
-      navigate(`/clubs/${data.id}`)
+      navigate('/me?tab=club')
     } catch (e) {
       toast.error(errorMessage(e, t))
     } finally {
@@ -158,6 +142,7 @@ export function ClubJoin() {
   }
   return (
     <section className="container-page max-w-xl py-12 sm:py-16">
+      <BackButton fallback="/clubs" className="-ml-1 mb-2" />
       <Card className="p-6 sm:p-8">
         <span className="inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1 text-xs font-bold text-primary"><Users className="size-4" />{t('club.invitation')}</span>
         <h1 className="mt-4 text-2xl font-extrabold tracking-tight sm:text-3xl">{data.name}</h1>

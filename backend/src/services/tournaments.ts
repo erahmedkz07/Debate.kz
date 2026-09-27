@@ -2,6 +2,7 @@ import type { Prisma, User } from '../generated/prisma/client.js'
 import { toDay } from '../lib/dates.js'
 import { forbidden, notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
+import { coverOf } from './covers.js'
 
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
@@ -12,7 +13,7 @@ type SummaryRow = Prisma.TournamentGetPayload<{ include: typeof summaryInclude }
 export const toSummary = (t: SummaryRow) => ({
   id: t.id, name: t.name, city: t.city, startDate: toDay(t.startDate), endDate: toDay(t.endDate),
   format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams,
-  cover: t.coverUrl ?? '', organizer: t.organizerName, description: t.description,
+  cover: coverOf(t), organizer: t.organizerName, description: t.description,
   preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
 })
 

@@ -6,6 +6,7 @@ import { FORMATS, formatById, poiWindow, type Speech } from '@/content/formats'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { BackButton } from '@/components/layout/BackButton'
 
 // Speech timer for timekeepers, for WSDC, BP, APF and Karl Popper. Runs fully in the browser (works offline once open).
 // Speeches with points of information: bells when the POI window opens and closes (protected first and last minute).
@@ -124,6 +125,7 @@ export default function Timer() {
   return (
     <div className="container-page py-8">
       <div className="mx-auto max-w-3xl">
+        <BackButton fallback="/tools" className="-ml-1 mb-2" />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-extrabold tracking-tight">{t('timer.title')}</h1>
           <div className="flex gap-1 rounded-2xl bg-muted p-1">

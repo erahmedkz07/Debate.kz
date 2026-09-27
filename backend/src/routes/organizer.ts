@@ -16,6 +16,12 @@ const org = requireAuth()
 
 export { FREE_TEAM_LIMIT } from '../services/plans.js'
 import { assertRoomForTeam, planFor } from '../services/plans.js'
+import multer from 'multer'
+import sharp from 'sharp'
+import { randomBytes } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -40,7 +46,7 @@ const createSchema = z.object({
   endDate: day,
   level: z.enum(['school', 'university']),
   description: z.string().trim().max(3000).default(''),
-  coverUrl: z.string().url().max(500).optional(),
+  coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
   preliminaryRounds: z.number().int().min(2).max(8),
   breakSize: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
   maxTeams: z.number().int().min(4).max(128),
@@ -102,10 +108,11 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationDeadline: day.nullable().optional(),
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
+    coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
   }))
   const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })
   if (d.status) await assertStageChange(cur.id, d.status)
-  const { startDate, endDate, registrationDeadline, maxTeams, rooms, ...rest } = d
+  const { startDate, endDate, registrationDeadline, maxTeams, rooms, coverUrl, ...rest } = d
   const data: Prisma.TournamentUpdateInput = { ...rest }
 
   // dates: a finished tournament is history and stays as it was
@@ -127,6 +134,10 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     data.maxTeams = maxTeams
   }
   if (rooms) data.rooms = [...new Set(rooms)]
+  if (coverUrl !== undefined && coverUrl !== cur.coverUrl) {
+    data.coverUrl = coverUrl
+    await removeUploadedCover(cur.coverUrl) // a replaced upload is not kept
+  }
 
   const t = await prisma.$transaction(async tx => {
     // unreleased rounds follow the new dates (first half on day one, the rest on the last day)
@@ -393,4 +404,30 @@ organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
   }
   background(notifyRegistration(reg.id))
   res.json({ id: reg.id, status })
+})
+
+// ---------- tournament cover ----------
+
+organizerRouter.get('/tournament-covers', (_req, res) => {
+  res.json(COVER_TEMPLATES)
+})
+
+// the organizer's own picture: decoded and re-encoded by sharp (no metadata), 1600×800 WebP
+const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 }, fileFilter: (_req, f, cb) => cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(f.mimetype)) })
+organizerRouter.post('/tournaments/:id/cover', org, coverUpload.single('cover'), async (req, res) => {
+  const id = param(req, 'id')
+  await assertCanManage(req.user, id)
+  if (!req.file) throw badRequest('invalid_image')
+  let webp: Buffer
+  try {
+    webp = await sharp(req.file.buffer, { limitInputPixels: 60_000_000 }).rotate().resize(1600, 800, { fit: 'cover', position: 'attention' }).webp({ quality: 80 }).toBuffer()
+  } catch {
+    throw badRequest('invalid_image')
+  }
+  const file = `${id}-${randomBytes(6).toString('hex')}.webp`
+  await writeFile(path.join(COVERS_DIR, file), webp)
+  const cur = await prisma.tournament.findUniqueOrThrow({ where: { id } })
+  await prisma.tournament.update({ where: { id }, data: { coverUrl: `/uploads/covers/${file}` } })
+  await removeUploadedCover(cur.coverUrl)
+  res.json({ cover: `/uploads/covers/${file}` })
 })

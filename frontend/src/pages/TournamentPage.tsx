@@ -64,7 +64,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     if (v && !user) return setGate(true)
     if (v && !user?.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
     // the club and team are stated in the profile before applying
-    if (v && !user?.clubTeam) return void toast.info(t('apiErrors.club_required'), { action: { label: t('club.toProfile'), onClick: () => navigate('/me?club=1') } })
+    if (v && !user?.clubTeam) return void toast.info(t('apiErrors.club_required'), { action: { label: t('club.toProfile'), onClick: () => navigate('/me?tab=club') } })
     setOpen(v)
   }
 
