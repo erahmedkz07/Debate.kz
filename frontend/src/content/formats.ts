@@ -18,6 +18,8 @@ export interface Format {
   judging: Text
   prep: Text
   where: Text
+  sides: Text[] // team names in the order of Speech.side a, b, c, d
+  prepMinutes: number[] // preparation presets for the timer
   score: { speaker: [number, number]; reply?: [number, number]; step: number; teamsPerDebate: number; speakersPerTeam: number }
 }
 
@@ -48,6 +50,7 @@ export const FORMATS: Format[] = [
       'Мазмұн 40%, стиль 40%, стратегия 20%. Спикер: 60–80 ұпай, жауап сөзі: 30–40, қадам 0,5. Тең нәтиже жоқ.'),
     prep: t('Подготовленные темы известны заранее; импромптю-темы — 1 час подготовки без интернета.', 'Дайындалған тақырыптар алдын ала белгілі; импромптю-тақырыптар — интернетсіз 1 сағат дайындық.'),
     where: t('Школьные турниры Казахстана, национальные отборы, чемпионат мира WSDC.', 'Қазақстандағы мектеп турнирлері, ұлттық іріктеулер, WSDC әлем чемпионаты.'),
+    sides: [t('Правительство', 'Үкімет'), t('Оппозиция', 'Оппозиция')], prepMinutes: [30, 60],
     score: { speaker: [60, 80], reply: [30, 40], step: 0.5, teamsPerDebate: 2, speakersPerTeam: 3 },
   },
   {
@@ -73,6 +76,7 @@ export const FORMATS: Format[] = [
       'Төрешілер командаларды 1-ден 4-орынға дейін саралайды (3, 2, 1 және 0 командалық ұпай). Спикер ұпайлары әдетте 50–100, көбінесе 70–80.'),
     prep: t('15 минут подготовки после объявления темы.', 'Тақырып жарияланғаннан кейін 15 минут дайындық.'),
     where: t('Университетские турниры, лиги вузов, чемпионат мира WUDC.', 'Университет турнирлері, ЖОО лигалары, WUDC әлем чемпионаты.'),
+    sides: [t('Открывающее правительство', 'Ашушы үкімет'), t('Открывающая оппозиция', 'Ашушы оппозиция'), t('Закрывающее правительство', 'Жабушы үкімет'), t('Закрывающая оппозиция', 'Жабушы оппозиция')], prepMinutes: [15],
     score: { speaker: [50, 100], step: 1, teamsPerDebate: 4, speakersPerTeam: 2 },
   },
   {
@@ -96,6 +100,7 @@ export const FORMATS: Format[] = [
     judging: t('Побеждает команда, убедившая судей; спикерские баллы — по шкале турнира (часто 20–30).', 'Төрешілерді сендірген команда жеңеді; спикер ұпайлары — турнир шкаласы бойынша (көбінесе 20–30).'),
     prep: t('Обычно 15–20 минут подготовки.', 'Әдетте 15–20 минут дайындық.'),
     where: t('Школьные и студенческие лиги СНГ, клубные тренировки.', 'ТМД мектеп және студенттік лигалары, клуб жаттығулары.'),
+    sides: [t('Правительство', 'Үкімет'), t('Оппозиция', 'Оппозиция')], prepMinutes: [15, 20],
     score: { speaker: [20, 30], step: 0.5, teamsPerDebate: 2, speakersPerTeam: 2 },
   },
   {
@@ -123,8 +128,18 @@ export const FORMATS: Format[] = [
     judging: t('Оцениваются аргументация, опровержение, вопросы и ответы, подача. Спикерские баллы — по шкале турнира.', 'Дәлелдеу, теріске шығару, сұрақтар мен жауаптар, сөйлеу мәнері бағаланады. Спикер ұпайлары — турнир шкаласы бойынша.'),
     prep: t('Темы обычно известны заранее (подготовленные).', 'Тақырыптар әдетте алдын ала белгілі (дайындалған).'),
     where: t('Школьные программы дебатов, турниры для начинающих.', 'Мектептегі дебат бағдарламалары, жаңадан бастағандарға арналған турнирлер.'),
+    sides: [t('Утверждение', 'Бекіту'), t('Отрицание', 'Терістеу')], prepMinutes: [8],
     score: { speaker: [15, 30], step: 1, teamsPerDebate: 2, speakersPerTeam: 3 },
   },
 ]
 
 export const formatById = (id: string) => FORMATS.find(f => f.id === id)
+
+// the window when points of information are allowed, in seconds from the start of the speech (null = no POIs)
+export function poiWindow(f: Format, s: Speech): [number, number] | null {
+  const len = s.minutes * 60
+  if (f.id === 'popper' || s.side === 'q') return null
+  if (f.id === 'wsdc' && s.minutes < 8) return null // reply speeches
+  if (f.id === 'apf' && s.minutes < 7) return null // rebuttals
+  return [60, len - 60]
+}

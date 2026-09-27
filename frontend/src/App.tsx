@@ -31,6 +31,7 @@ const InvitePage = lazy(() => import('@/pages/InvitePage'))
 const Notifications = lazy(() => import('@/pages/cabinet/Notifications'))
 const Motions = lazy(() => import('@/pages/Motions'))
 const Timer = lazy(() => import('@/pages/Timer'))
+const Calculator = lazy(() => import('@/pages/Calculator'))
 const Projector = lazy(() => import('@/pages/Projector'))
 const CertificatePrint = lazy(() => import('@/pages/CertificatePrint'))
 const VerifyCertificate = lazy(() => import('@/pages/VerifyCertificate'))
@@ -70,6 +71,7 @@ export default function App() {
                 <Route path="rating" element={<Rating />} />
                 <Route path="motions" element={<Motions />} />
                 <Route path="timer" element={<Timer />} />
+                <Route path="calculator" element={<Calculator />} />
                 <Route path="teammates" element={<Teammates />} />
                 <Route path="clubs" element={<Clubs />} />
                 <Route path="clubs/join/:code" element={<ClubJoin />} />
