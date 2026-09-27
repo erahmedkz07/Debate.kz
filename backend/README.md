@@ -44,7 +44,7 @@ npm run dev                 # http://localhost:4000, перезапуск при
 | `npm run typecheck` | проверка типов |
 | `npm run db:migrate` | новая миграция после изменения `prisma/schema.prisma` |
 | `npm run db:seed` / `db:seed:force` / `db:reset` | демо-данные в пустую базу / принудительный сброс к демо / сброс схемы |
-| `npm run test:e2e` | сквозной сценарий API (255 проверок) на **отдельной базе `debatekz_test`** и своём сервере :4100 — dev-база не трогается |
+| `npm run test:e2e` | сквозной сценарий API (348 проверок) на **отдельной базе `debatekz_test`** и своём сервере :4100 — dev-база не трогается |
 | `npm run admin:grant -- <email>` | выдать роль админа существующему пользователю |
 
 ## Роли и права
@@ -184,6 +184,12 @@ Gmail отправляет до ~500 писем в сутки — для ста�
 | `POST /auth/forgot-password`, `/auth/reset-password` | все | восстановление пароля: одинаковый ответ для любого email, ссылка на 1 час, одноразовая; после смены пароля все старые сессии отзываются |
 | `GET /auth/google/config`, `GET /auth/google/start?mode=login|link&next=`, `GET /auth/google/callback`, `DELETE /auth/google` | все / вошедший | вход и регистрация через Google, привязка к профилю и отвязка (только при заданном пароле) |
 | `POST /me/password/setup` | вошедший без пароля | ссылка «задайте пароль» на почту аккаунта |
+| `GET /plans`, `GET /tournaments/:id/payment`, `POST /tournaments/:id/payment/claim` | все / организатор | тариф (бесплатно до 20 команд), оплата Pro по Kaspi QR: сумма, код платежа, «Я оплатил» |
+| `GET /admin/payments`, `PATCH /admin/payments/:id`, `GET/PATCH /admin/settings`, `POST /admin/settings/kaspi-qr` | админ | очередь оплат (подтвердить / отклонить с причиной), цена, получатель, телефон и картинка Kaspi QR |
+| `POST /tournaments/:id/invites/email`, `GET /tournaments/:id/invites`, `DELETE /tournaments/:id/invites/:inviteId`, `POST /invites/:token/decline` | организатор / приглашённый | приглашение судьи или соорганизатора по email, ответы, отзыв, отказ |
+| `GET /clubs`, `GET /clubs/:id`, `GET /clubs/code/:code`, `GET /me/club` | все / вошедший | клубы и их команды; код и журнал видят только члены |
+| `POST /clubs`, `PATCH /clubs/:id`, `POST /clubs/join`, `POST /clubs/:id/leave`, `POST /clubs/:id/code`, `DELETE /clubs/:id/members/:userId`, `POST /clubs/:id/teams`, `PATCH/DELETE /club-teams/:teamId`, `PUT /clubs/:id/members/:userId/team` | член клуба (все равны) | управление клубом, командами и составом; всё пишется в журнал клуба |
+| `GET /news`, `GET /news/:id`, `POST/PATCH/DELETE /news/:id` | все / админ | новости; черновики видят только админы |
 | `GET /live` | все | идущий раунд для главной: свой турнир пользователя или любой на платформе |
 | `GET /tournaments`, `/tournaments/:id`, `/tournaments/:id/standings` | все | список с фильтрами, детали (неопубликованные темы и жеребьёвки скрыты), таблица из бюллетеней |
 | `GET /cities`, `/stats`, `/testimonials`, `/rating` | все | справочники, статистика, рейтинг сезона |
@@ -227,5 +233,8 @@ Gmail отправляет до ~500 писем в сутки — для ста�
 - Этапы турнира: регистрация → идёт → завершён (назад в регистрацию — пока не опубликован раунд); нужен одобренный турнир и 2+ команды.
 - Лимит команд не ниже числа команд в турнире; больше 12 — тариф Pro (оплату подтверждает админ).
 - Swing-команда (добавляется при нечётном числе команд) не входит в таблицу, лимиты и счётчики команд.
+- Тариф: все функции бесплатны; турнир больше 20 команд — Pro. Пока Pro не оплачен, турнир принимает не больше 20 команд (402 `payment_required`).
+- Заявку на турнир можно подать только с клубом и командой в профиле (`club_required`); команда турнира запоминает клуб.
+- Жеребьёвка: методы power / high_low / random (`POST /rounds/:id/draw { method, protectClubs }`). В раундах 1–2 по умолчанию команды одного клуба (или одной школы) не встречаются; если чистый вариант невозможен, делается минимум таких встреч, а ответ `report` говорит сколько (`services/pairing.ts`).
 - Ответственного за безопасность назначает админ (`PATCH /admin/users/:id { safeguardingOfficer }`, пишется в журнал).
   В Telegram о новом обращении приходит только сигнал без подробностей.
