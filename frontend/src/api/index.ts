@@ -5,7 +5,7 @@ import type {
   AdminPayment, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref,
   MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
-  AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
+  AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
@@ -47,7 +47,7 @@ export interface LiveRound {
 }
 export const getLive = () => http<LiveRound | null>('GET', '/live')
 export const getTestimonials = () => http<Testimonial[]>('GET', '/testimonials')
-export const getRating = () => http<{ teams: RatingTeam[]; speakers: RatingSpeaker[] }>('GET', '/rating')
+export const getRating = () => http<{ teams: RatingTeam[]; speakers: RatingSpeaker[]; clubs: RatingClub[] }>('GET', '/rating')
 
 // ---------- auth ----------
 

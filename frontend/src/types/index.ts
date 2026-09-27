@@ -120,6 +120,7 @@ export interface RatingTeam {
   rank: number
   name: string
   institution: string
+  club?: Ref
   city: string
   level: TournamentLevel
   tournaments: number
@@ -131,10 +132,26 @@ export interface RatingSpeaker {
   rank: number
   name: string
   team: string
+  club?: Ref
   city: string
   level: TournamentLevel
   tournaments: number
   average: number
+}
+
+export interface RatingClub {
+  rank: number
+  id: string
+  name: string
+  city: string
+  level: TournamentLevel | 'mixed' // plays both school and university events
+  tournaments: number
+  teams: number
+  wins: number
+  debates: number
+  winRate: number // %
+  points: number
+  speakerAverage: number
 }
 
 export interface Testimonial {

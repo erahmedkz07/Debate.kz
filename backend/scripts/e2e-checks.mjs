@@ -903,4 +903,14 @@ await new Promise(res => setTimeout(res, 300))
 ok((await outsider('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubRemoved'), 'the removed person is told')
 ok((await clubB('POST', `/clubs/${clubId}/leave`)).status === 204 && (await clubB('GET', '/me/club')).data.club === undefined, 'a member leaves the club')
 
+
+// ---------- 29. rating: clubs, and where speakers and teams come from ----------
+const rating = (await client()('GET', '/rating')).data
+ok(Array.isArray(rating.clubs) && rating.clubs.length > 0, 'the rating has a club table')
+ok(rating.clubs.every((c, i) => c.rank === i + 1 && c.id && c.name && c.wins <= c.debates && c.winRate >= 0 && c.winRate <= 100), 'club rows have a rank, wins not above debates and a win rate in %')
+ok(rating.clubs.every((c, i, a) => i === 0 || a[i - 1].wins > c.wins || (a[i - 1].wins === c.wins && a[i - 1].points >= c.points)), 'clubs are ordered by wins, then speaker points')
+ok(rating.speakers.some(s => s.club?.id && s.team), 'speakers show their club and team')
+ok(rating.teams.some(tm => tm.club?.id), 'teams show their club')
+const topClub = rating.clubs[0]
+ok((await client()('GET', `/clubs/${topClub.id}`)).status === 200, 'a club in the rating links to its page')
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
