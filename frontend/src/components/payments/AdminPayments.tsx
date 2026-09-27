@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Check, CreditCard, ImageUp, X } from 'lucide-react'
-import { getAdminPayments, getPlatformSettings, handlePayment, updatePlatformSettings, uploadKaspiQr } from '@/api'
+import { Check, CreditCard, FileText, ImageUp, X } from 'lucide-react'
+import { getAdminPayments, getPlatformSettings, handlePayment, receiptUrl, updatePlatformSettings, uploadKaspiQr } from '@/api'
 import type { AdminPayment, PaymentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
@@ -34,7 +34,7 @@ function KaspiSettings() {
     <Card className="p-6">
       <h3 className="flex items-center gap-2 font-bold"><CreditCard className="size-4 text-primary" />{t('payment.admin.settings')}</h3>
       <p className="mt-1 text-sm text-muted-foreground">{t('payment.admin.settingsText', { limit: data.freeTeamLimit })}</p>
-      <div className="mt-5 grid gap-6 md:grid-cols-[12rem_minmax(0,1fr)]">
+      <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-[12rem_minmax(0,1fr)]">
         <div className="flex flex-col items-center gap-2">
           {data.qrUrl
             ? <img src={data.qrUrl} alt="Kaspi QR" className="aspect-square w-44 rounded-2xl border border-border bg-white object-contain p-2" />
@@ -43,7 +43,7 @@ function KaspiSettings() {
             onChange={e => { const x = e.target.files?.[0]; e.target.value = ''; if (x) void act(() => uploadKaspiQr(x)) }} />
           <Button size="sm" variant="outline" disabled={busy} onClick={() => file.current?.click()}><ImageUp className="size-4" />{t('payment.admin.uploadQr')}</Button>
         </div>
-        <form className="grid gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act(() => updatePlatformSettings({ proPrice: price, recipient: f.recipient, phone: f.phone, note: f.note })) }}>
+        <form className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act(() => updatePlatformSettings({ proPrice: price, recipient: f.recipient, phone: f.phone, note: f.note })) }}>
           <div><Label htmlFor="ps-price">{t('payment.admin.price')}</Label><Input id="ps-price" inputMode="numeric" value={f.proPrice} onChange={e => setF({ ...f, proPrice: e.target.value.replace(/\D/g, '') })} /></div>
           <div><Label htmlFor="ps-rec">{t('payment.admin.recipient')}</Label><Input id="ps-rec" maxLength={100} value={f.recipient} onChange={e => setF({ ...f, recipient: e.target.value })} placeholder="Ермек А." /></div>
           <div className="sm:col-span-2"><Label htmlFor="ps-phone">{t('payment.admin.phone')}</Label><Input id="ps-phone" maxLength={30} value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder="+7 7XX XXX XX XX" /></div>
@@ -76,6 +76,9 @@ function PaymentRow({ p, onDone }: { p: AdminPayment; onDone: () => void }) {
           <p className="mt-1 text-sm"><Link to={`/tournaments/${p.tournament.id}`} className="font-semibold text-primary hover:underline">«{p.tournament.name}»</Link> · {t('payment.admin.teams', { n: p.tournament.maxTeams })}</p>
           {p.payer && <p className="text-xs text-muted-foreground">{p.payer.name} · {p.payer.email}</p>}
           {p.payerNote && <p className="mt-1 text-sm">{t('payment.admin.payerNote')}: <i>{p.payerNote}</i></p>}
+          {p.hasReceipt
+            ? <a href={receiptUrl(p.id)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"><FileText className="size-4" />{t('payment.openReceipt')}</a>
+            : p.status === 'pending' && <p className="mt-1 text-xs text-muted-foreground">{t('payment.admin.noReceipt')}</p>}
           {p.adminNote && <p className="mt-1 text-xs text-danger">{p.adminNote}</p>}
         </div>
         <div className="text-right text-xs text-muted-foreground">

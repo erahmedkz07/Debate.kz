@@ -26,13 +26,13 @@ const SPEAKER = { min: 60, max: 80, step: 0.5 }
 const REPLY = { min: 30, max: 40, step: 0.5 }
 
 // the sheet comes from the API; without a network the copy saved on the last visit is used
-async function loadSheet(debateId: string) {
+async function loadSheet(debateId: string, userId: string) {
   try {
     const sheet = await getBallot(debateId)
-    saveBallotSheet(debateId, sheet)
+    saveBallotSheet(debateId, userId, sheet)
     return { sheet, cached: false }
   } catch (e) {
-    const sheet = isRetryable(e) ? loadBallotSheet(debateId) : null
+    const sheet = isRetryable(e) ? loadBallotSheet(debateId, userId) : null
     if (sheet) return { sheet, cached: true }
     throw e
   }
@@ -79,10 +79,12 @@ export default function Ballot() {
   const { debateId = '' } = useParams()
   const { t } = useTranslation()
   const { user } = useAuth()
-  const { data: loaded, loading, error, reload } = useAsync(() => loadSheet(debateId), [debateId])
+  // the page is behind RequireAuth, so there is always a user here
+  const uid = user?.id ?? ''
+  const { data: loaded, loading, error, reload } = useAsync(() => loadSheet(debateId, uid), [debateId, uid])
   const data = loaded?.sheet
   // everything typed is kept on the device until the ballot is accepted: a reload or a dropped connection loses nothing
-  const [draft] = useState(() => loadBallotDraft(debateId))
+  const [draft] = useState(() => loadBallotDraft(debateId, uid))
   const [scores, setScores] = useState<Record<string, string>>(draft?.scores ?? {})
   // speakerId (substantive) or "reply:<side>" -> comment
   const [feedback, setFeedback] = useState<Record<string, string>>(draft?.feedback ?? {})
@@ -93,14 +95,14 @@ export default function Ballot() {
   const [confirm, setConfirm] = useState(false)
   const [sending, setSending] = useState(false)
   const [done, setDone] = useState<false | 'sent' | 'queued'>(false)
-  const [queued, setQueued] = useState(() => queuedBallot(debateId, user?.id))
+  const [queued, setQueued] = useState(() => queuedBallot(debateId, uid))
 
   useEffect(() => {
     const touched = Object.values(scores).some(Boolean) || Object.values(feedback).some(Boolean) || !!reply.proposition || !!reply.opposition || !!winner
-    if (touched && !done) saveBallotDraft(debateId, { scores, feedback, reply, replyBy, winner })
-  }, [debateId, scores, feedback, reply, replyBy, winner, done])
+    if (touched && !done) saveBallotDraft(debateId, uid, { scores, feedback, reply, replyBy, winner })
+  }, [debateId, uid, scores, feedback, reply, replyBy, winner, done])
   useEffect(() => {
-    const sync = () => setQueued(queuedBallot(debateId, user?.id))
+    const sync = () => setQueued(queuedBallot(debateId, uid))
     sync()
     window.addEventListener(OUTBOX_EVENT, sync)
     return () => window.removeEventListener(OUTBOX_EVENT, sync)
@@ -150,8 +152,8 @@ export default function Ballot() {
     try {
       await submitBallot(debateId, payload)
       // an older copy waiting in the queue must not overwrite this one later
-      dropBallot(debateId)
-      clearBallotDraft(debateId)
+      dropBallot(debateId, uid)
+      clearBallotDraft(debateId, uid)
       setConfirm(false)
       setDone('sent')
       toast.success(t('ballot.success'))

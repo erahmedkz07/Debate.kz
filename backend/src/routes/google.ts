@@ -195,7 +195,7 @@ googleRouter.get('/google/callback', limiter, async (req: Request, res: Response
     if (created) await welcomeGoogleLetter(user)
     setSession(res, user.id)
     // a new account goes to the profile to add phone, school and city
-    return created ? back(res, '/me', { welcome: '1' }) : back(res, flow.next, {})
+    return created ? back(res, '/me', { welcome: '1' }) : back(res, '/login', { next: flow.next })
   } catch (e) {
     if (e instanceof FlowError) return fail(e.message)
     console.error('[google]', e)

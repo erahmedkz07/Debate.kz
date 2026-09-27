@@ -55,11 +55,11 @@ function NoClub({ onJoined }: { onJoined: () => Promise<void> }) {
           </ul>
         </Card>
       )}
-      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
         <Card className="p-6">
           <h3 className="flex items-center gap-2 font-bold"><Plus className="size-4 text-primary" />{t('club.createClub')}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{t('club.createText')}</p>
-          <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act('create', () => createClub({ ...f, institution: f.institution || undefined }), t('club.created')) }}>
+          <form className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act('create', () => createClub({ ...f, institution: f.institution || undefined }), t('club.created')) }}>
             <div className="sm:col-span-2"><Label htmlFor="mc-name">{t('club.name')}</Label><Input id="mc-name" maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={t('club.namePlaceholder')} /></div>
             <div><Label htmlFor="mc-city">{t('common.city')}</Label><Input id="mc-city" maxLength={60} value={f.city} onChange={e => setF({ ...f, city: e.target.value })} /></div>
             <div><Label htmlFor="mc-inst">{t('common.institution')}</Label><Input id="mc-inst" maxLength={150} value={f.institution} onChange={e => setF({ ...f, institution: e.target.value })} /></div>

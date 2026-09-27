@@ -344,6 +344,8 @@ export interface TournamentPayment {
   payerNote?: string
   adminNote?: string
   kaspi?: KaspiInfo
+  id?: string
+  hasReceipt?: boolean
 }
 export interface AdminPayment {
   id: string
@@ -356,6 +358,7 @@ export interface AdminPayment {
   handledAt?: string
   handledBy?: string
   tournament: { id: string; name: string; maxTeams: number }
+  hasReceipt?: boolean
   payer?: { name: string; email: string }
 }
 export interface PlatformSettings extends KaspiInfo { proPrice: number; freeTeamLimit: number }

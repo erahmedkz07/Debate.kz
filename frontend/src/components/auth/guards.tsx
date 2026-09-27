@@ -11,11 +11,12 @@ export const loginUrl = (next: string) => `/login?next=${encodeURIComponent(next
 
 // Route guard: guests go to /login?next=..., wrong role sees a friendly 403
 export function RequireAuth({ roles, children }: { roles?: Role[]; children: ReactNode }) {
-  const { user, ready } = useAuth()
+  const { user, ready, loggedOut } = useAuth()
   const location = useLocation()
   // wait for the session check before deciding
   if (!ready) return <div className="grid min-h-[60vh] place-items-center"><span className="ornament block w-16 animate-pulse text-primary" style={{ aspectRatio: '560/308' }} /></div>
-  if (!user) return <Navigate to={loginUrl(location.pathname + location.search)} replace />
+  // after "log out" the page is not remembered: the next person to sign in must not be sent to the previous user's page
+  if (!user) return <Navigate to={loggedOut ? '/' : loginUrl(location.pathname + location.search)} replace />
   if (roles && !roles.includes(user.role)) return <Forbidden />
   return <>{children}</>
 }
@@ -49,7 +50,7 @@ export function LoginRequiredDialog({ open, onOpenChange, text }: { open: boolea
       <DialogContent heading={t('authGate.title')} className="max-w-md text-center">
         <span className="mx-auto -mt-2 mb-4 grid size-16 place-items-center rounded-2xl bg-primary-soft text-primary"><LockKeyhole className="size-8" /></span>
         <p className="text-muted-foreground">{text ?? t('authGate.text')}</p>
-        <div className="mt-6 grid gap-2 sm:grid-cols-2">
+        <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Button onClick={() => navigate(`/login?next=${next}`)}><LogIn className="size-4" />{t('nav.login')}</Button>
           <Button variant="outline" onClick={() => navigate(`/register?next=${next}`)}><UserPlus className="size-4" />{t('auth.toRegister')}</Button>
         </div>

@@ -98,7 +98,7 @@ export default function Notifications() {
       <CabinetHeader title={t('notifications.title')} subtitle={t('notifications.subtitle')}
         action={mode === 'mine' && unread > 0 && <Button variant="outline" onClick={readAll}><CheckCheck className="size-4" />{t('notifications.readAll')}</Button>} />
       <Tabs value={tab} onValueChange={setTab} className="mt-6">
-        <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
           <SideTabsList aria-label={t('notifications.title')}>
             <SideTabsTrigger value="all">
               <Inbox className="size-4" />{t('notifications.all')}

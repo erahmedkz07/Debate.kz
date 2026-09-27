@@ -15,7 +15,7 @@ export const organizerRouter = Router()
 const org = requireAuth()
 
 export { FREE_TEAM_LIMIT } from '../services/plans.js'
-import { assertRoomForTeam, planFor } from '../services/plans.js'
+import { assertRoomForTeam, newReference, planFor, platformSettings } from '../services/plans.js'
 import multer from 'multer'
 import sharp from 'sharp'
 import { randomBytes } from 'node:crypto'
@@ -54,6 +54,7 @@ const createSchema = z.object({
   requireApproval: z.boolean().default(true),
   registrationDeadline: day.optional(),
   languages: z.array(z.enum(['ru', 'kz'])).min(1),
+  paymentReference: z.string().regex(/^DKZ-[A-Z2-9]{6}$/).optional(), // from GET /plans/quote, for tournaments above the free limit
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
 
@@ -89,6 +90,12 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
     },
     include: summaryInclude,
   })
+  // a Pro tournament gets its payment at once, with the reference the organizer already saw (and maybe paid with)
+  if (pro) {
+    const taken = d.paymentReference && await prisma.payment.findUnique({ where: { reference: d.paymentReference } })
+    const settings = await platformSettings()
+    await prisma.payment.create({ data: { tournamentId: t.id, userId: req.user!.id, amount: settings.proPrice, reference: d.paymentReference && !taken ? d.paymentReference : newReference() } })
+  }
   // admins learn that a tournament waits for their review
   background(notifyAdminsNewTournament(t.id))
   res.status(201).json(toSummary(t))
@@ -430,4 +437,27 @@ organizerRouter.post('/tournaments/:id/cover', org, coverUpload.single('cover'),
   await prisma.tournament.update({ where: { id }, data: { coverUrl: `/uploads/covers/${file}` } })
   await removeUploadedCover(cur.coverUrl)
   res.json({ cover: `/uploads/covers/${file}` })
+})
+
+// ---------- schedule ----------
+// The organizer writes the programme (day of the tournament, time, what happens); it is shown on the public page.
+organizerRouter.put('/tournaments/:id/schedule', org, async (req, res) => {
+  const id = param(req, 'id')
+  await assertCanManage(req.user, id)
+  const { items } = body(req, z.object({
+    items: z.array(z.object({
+      day: z.number().int().min(1).max(14),
+      time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      title: z.string().trim().min(2).max(120),
+    })).max(60),
+  }))
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id } })
+  const days = Math.round((t.endDate.getTime() - t.startDate.getTime()) / 86_400_000) + 1
+  if (items.some(i => i.day > days)) throw badRequest('schedule_day_outside')
+  await prisma.$transaction([
+    prisma.scheduleItem.deleteMany({ where: { tournamentId: id } }),
+    prisma.scheduleItem.createMany({ data: items.map(i => ({ ...i, tournamentId: id })) }),
+  ])
+  const saved = await prisma.scheduleItem.findMany({ where: { tournamentId: id }, orderBy: [{ day: 'asc' }, { time: 'asc' }] })
+  res.json(saved.map(s => ({ day: s.day, time: s.time, title: s.title })))
 })

@@ -20,7 +20,7 @@ export default function Tools() {
     <>
       <PageHeader title={t('tools.title')} subtitle={t('tools.subtitle')} />
       <div className="container-page py-12">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {tools.map(({ to, key, icon: Icon }, i) => (
             <Reveal key={to} delay={i * 0.04}>
               <Link to={to} className="group flex h-full flex-col rounded-2xl border border-border bg-card p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20">

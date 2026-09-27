@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { LogOut, Menu, Moon, Plus, Sun } from 'lucide-react'
 import { Logo } from '@/components/brand'
@@ -56,6 +56,7 @@ export function Header() {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
   const { user, signOut } = useAuth()
+  const navigate = useNavigate()
   // guests see "create tournament" + "login"; a signed-in user sees only their avatar
   // (the avatar menu leads to the cabinet; creating is in "My tournaments" and on the home page)
   const canCreate = !user
@@ -146,7 +147,7 @@ export function Header() {
               <div className="mt-6 flex flex-col gap-3 border-t border-border pt-6">
                 {canCreate && <Button asChild size="lg"><Link to="/dashboard/tournaments/new"><Plus className="size-4" />{t('nav.createTournament')}</Link></Button>}
                 {user
-                  ? <Button variant="outline" size="lg" className="text-danger" onClick={() => { signOut(); setOpen(false) }}><LogOut className="size-4" />{t('authGate.logout')}</Button>
+                  ? <Button variant="outline" size="lg" className="text-danger" onClick={() => { setOpen(false); navigate('/', { replace: true }); void signOut() }}><LogOut className="size-4" />{t('authGate.logout')}</Button>
                   : <Button asChild variant="outline" size="lg"><Link to="/login">{t('nav.login')}</Link></Button>}
                 <div className="flex items-center justify-between pt-2">
                   <span className="text-sm font-semibold text-muted-foreground">{t('nav.toggleTheme')}</span>

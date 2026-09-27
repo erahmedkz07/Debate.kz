@@ -24,7 +24,7 @@ export default function MyTournaments() {
         </div>
       </div>
 
-      <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <Link to="/dashboard/tournaments/new"
           className="group flex min-h-72 flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-primary/40 bg-primary-soft/40 p-6 text-center transition-all hover:border-primary hover:bg-primary-soft">
           <span className="grid size-16 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-transform group-hover:scale-110 group-hover:rotate-6">

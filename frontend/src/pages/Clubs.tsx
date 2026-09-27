@@ -90,11 +90,11 @@ export default function Clubs() {
       </PageHeader>
       <div className="container-page py-10">
         {error ? <ErrorState onRetry={reload} /> : loading && !data ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[0, 1, 2].map(i => <Skeleton key={i} className="h-36" />)}</div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{[0, 1, 2].map(i => <Skeleton key={i} className="h-36" />)}</div>
         ) : !data?.length ? (
           <EmptyState icon={<Users className="size-7" />} title={t('club.empty')} text={t('club.emptyText')} />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{data.map(c => <ClubCard key={c.id} c={c} />)}</div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{data.map(c => <ClubCard key={c.id} c={c} />)}</div>
         )}
       </div>
 

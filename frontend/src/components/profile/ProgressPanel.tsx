@@ -72,7 +72,7 @@ export function ProgressPanel() {
         </details>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Card className="p-6">
           <h3 className="mb-4 font-bold">{t('progress.byPosition')}</h3>
           <DotScale domain={SPEECH} empty={t('progress.noData')}

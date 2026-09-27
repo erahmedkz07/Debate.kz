@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { AuthError, login } from '@/api'
-import { roleHome, useAuth } from '@/lib/auth'
+import { landingFor, useAuth } from '@/lib/auth'
 import { images } from '@/mocks/images'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
@@ -38,7 +38,7 @@ export default function Login() {
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
   const emailValue = watch('email')?.trim()
 
-  if (user) return <Navigate to={next ?? roleHome[user.role]} replace />
+  if (user) return <Navigate to={landingFor(user, next)} replace />
 
   const onSubmit = async (v: Form) => {
     setFormError(null)
@@ -47,7 +47,7 @@ export default function Login() {
       const u = await login(v.email, v.password)
       signIn(u)
       toast.success(t('auth.welcome', { name: u.name.split(' ')[0] }))
-      navigate(next ?? roleHome[u.role], { replace: true })
+      navigate(landingFor(u, next), { replace: true })
     } catch (e) {
       setFormError(e instanceof AuthError ? t(`auth.errors.${e.code}`) : t('common.error'))
       setInvalid(e instanceof AuthError && e.code === 'invalid')

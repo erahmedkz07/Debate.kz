@@ -184,7 +184,7 @@ export default function Timer() {
         </Card>
 
         {mode === 'debate' && (
-          <ol className="mt-6 grid gap-2 sm:grid-cols-2">
+          <ol className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {format.speeches.map((s, i) => (
               <li key={i}>
                 <button type="button" onClick={() => go(i)} aria-current={i === index}

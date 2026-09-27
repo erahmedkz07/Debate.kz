@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { AlertCircle, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
 import { AuthError, getGoogleConfig, register as registerUser } from '@/api'
 import { useAsync } from '@/lib/hooks'
-import { roleHome, useAuth } from '@/lib/auth'
+import { landingFor, useAuth } from '@/lib/auth'
 import { safeNext } from './Login'
 import { images } from '@/mocks/images'
 import { Button } from '@/components/ui/button'
@@ -37,7 +37,7 @@ export default function Register() {
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
 
-  if (user) return <Navigate to={next ?? roleHome[user.role]} replace />
+  if (user) return <Navigate to={landingFor(user, next)} replace />
 
   const onSubmit = async (v: Form) => {
     setFormError(null)
@@ -46,7 +46,7 @@ export default function Register() {
       const u = await registerUser(data)
       signIn(u)
       toast.success(t('auth.registerSuccess'), { description: t('verify.checkInbox', { email: u.email }) })
-      navigate(next ?? roleHome[u.role], { replace: true })
+      navigate(landingFor(u, next), { replace: true })
     } catch (e) {
       setFormError(e instanceof AuthError ? t(`auth.errors.${e.code}`) : t('common.error'))
     }
@@ -68,7 +68,7 @@ export default function Register() {
           <Input id="name" autoComplete="name" aria-invalid={!!errors.name} {...register('name')} />
           <FieldError message={errors.name?.message} />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="email">{t('auth.email')}</Label>
             <Input id="email" type="email" autoComplete="email" placeholder="name@mail.kz" aria-invalid={!!errors.email} {...register('email')} />
@@ -80,7 +80,7 @@ export default function Register() {
             <FieldError message={errors.phone?.message} />
           </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="password">{t('auth.password')}</Label>
             <div className="relative">

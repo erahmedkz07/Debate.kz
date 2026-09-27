@@ -31,45 +31,43 @@ export function ManageClub({ clubId, onLeft }: { clubId: string; onLeft: () => v
 
   return (
     <div className="space-y-6">
-      <Card className="flex flex-wrap items-center justify-between gap-4 p-6">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-extrabold tracking-tight">{data.name}</h2>
-          <p className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{data.city}</span>
-            {data.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{data.institution}</span>}
-            <span className="flex items-center gap-1.5"><Users className="size-4 text-primary" />{t('club.membersCount', { count: data.members.length })} · {t('club.teamsCount', { count: data.teams.length })}</span>
-          </p>
+      {/* one header card: who the club is, what a member can do, and the join link */}
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-4 p-6">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-extrabold tracking-tight">{data.name}</h2>
+            <p className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{data.city}</span>
+              {data.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{data.institution}</span>}
+              <span className="flex items-center gap-1.5"><Users className="size-4 text-primary" />{t('club.membersCount', { count: data.members.length })} · {t('club.teamsCount', { count: data.teams.length })}</span>
+            </p>
+          </div>
+          <MemberTools club={data} onDone={reload} onLeft={onLeft} />
         </div>
-        <Button asChild variant="outline" size="sm"><Link to={`/clubs/${data.id}`}><Eye className="size-4" />{t('club.publicPage')}</Link></Button>
+        <InviteLink club={data} onDone={reload} />
       </Card>
 
       <JoinRequests club={data} onDone={reload} />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
-        <div className="space-y-6">
-          <section>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-lg font-bold">{t('club.teams')}</h3>
-              <AddTeam club={data} onDone={reload} />
-            </div>
-            {data.teams.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('club.noTeams')} text={t('club.noTeamsMember')} /> : (
-              <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                {data.teams.map(team => <TeamCard key={team.id} club={data} team={team} onDone={reload} />)}
-              </div>
-            )}
-          </section>
-          {noTeam.length > 0 && (
-            <section>
-              <h3 className="mb-3 text-lg font-bold">{t('club.noTeamMembers')}</h3>
-              <Card className="divide-y divide-border">{noTeam.map(m => <MemberRow key={m.id} club={data} m={m} onDone={reload} />)}</Card>
-            </section>
-          )}
+      <section>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-lg font-bold">{t('club.teams')}</h3>
+          <AddTeam club={data} onDone={reload} />
         </div>
-        <aside className="space-y-4">
-          <MemberTools club={data} onDone={reload} onLeft={onLeft} />
-          {data.log && <ClubLog log={data.log} />}
-        </aside>
-      </div>
+        {data.teams.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('club.noTeams')} text={t('club.noTeamsMember')} /> : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            {data.teams.map(team => <TeamCard key={team.id} club={data} team={team} onDone={reload} />)}
+          </div>
+        )}
+      </section>
+      {noTeam.length > 0 && (
+        <section>
+          <h3 className="mb-3 text-lg font-bold">{t('club.noTeamMembers')}</h3>
+          <Card className="divide-y divide-border">{noTeam.map(m => <MemberRow key={m.id} club={data} m={m} onDone={reload} />)}</Card>
+        </section>
+      )}
+      {data.log && data.log.length > 0 && <ClubLog log={data.log} />}
+      <p className="text-center text-xs text-muted-foreground">{t('club.equalNote')}</p>
     </div>
   )
 }
@@ -222,14 +220,35 @@ function AddTeam({ club, onDone }: { club: ClubDetails; onDone: () => void }) {
   )
 }
 
-// invite link, club details and leaving: available to every member
+// the join link: every member can share it or make a new one (the old link stops working)
+function InviteLink({ club, onDone }: { club: ClubDetails; onDone: () => void }) {
+  const { t } = useTranslation()
+  const link = `${location.origin}/clubs/join/${club.joinCode}`
+  const reset = async () => {
+    try { await resetClubCode(club.id); toast.success(t('club.codeReset')); onDone() } catch (e) { toast.error(errorMessage(e, t)) }
+  }
+  return (
+    <div className="grid grid-cols-1 gap-3 border-t border-border bg-muted/40 px-6 py-4 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] md:items-center">
+      <div>
+        <h3 className="flex items-center gap-2 text-sm font-bold"><Link2 className="size-4 text-primary" />{t('club.inviteTitle')}</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t('club.inviteText')}</p>
+      </div>
+      <div className="flex min-w-0 gap-2">
+        <Input readOnly value={link} aria-label={t('club.inviteTitle')} onFocus={e => e.target.select()} className="min-w-0 font-mono text-xs" />
+        <Button size="sm" variant="outline" className="h-11 shrink-0" title={t('club.copied')} aria-label={t('club.copied')} onClick={() => navigator.clipboard.writeText(link).then(() => toast.success(t('club.copied')), () => toast(link))}><Copy className="size-4" /></Button>
+        <Button size="sm" variant="ghost" className="h-11 shrink-0" title={t('club.resetCode')} aria-label={t('club.resetCode')} onClick={reset}><RefreshCw className="size-4" /></Button>
+      </div>
+    </div>
+  )
+}
+
+// the club's details, the public page and leaving: available to every member
 function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () => void; onLeft: () => void }) {
   const { t } = useTranslation()
   const { signIn } = useAuth()
   const [edit, setEdit] = useState(false)
   const [leave, setLeave] = useState(false)
   const [f, setF] = useState({ name: club.name, city: club.city, institution: club.institution ?? '', description: club.description })
-  const link = `${location.origin}/clubs/join/${club.joinCode}`
   const refreshMe = async () => { const me = await getMe(); if (me) signIn(me) }
   // true when it worked, so a dialog closes only on success
   const act = async (fn: () => Promise<unknown>, ok?: string) => {
@@ -237,23 +256,14 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
   }
   return (
     <>
-      <Card className="p-5">
-        <h3 className="flex items-center gap-2 font-bold"><Link2 className="size-4 text-primary" />{t('club.inviteTitle')}</h3>
-        <p className="mt-1 text-sm text-muted-foreground">{t('club.inviteText')}</p>
-        <div className="mt-3 flex gap-2">
-          <Input readOnly value={link} aria-label={t('club.inviteTitle')} onFocus={e => e.target.select()} className="font-mono text-xs" />
-          <Button size="sm" variant="outline" className="shrink-0" onClick={() => navigator.clipboard.writeText(link).then(() => toast.success(t('club.copied')), () => toast(link))}><Copy className="size-4" /></Button>
-        </div>
-        <button type="button" onClick={() => act(() => resetClubCode(club.id), t('club.codeReset'))} className="mt-2 inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"><RefreshCw className="size-3.5" />{t('club.resetCode')}</button>
-      </Card>
-      <Card className="flex flex-col gap-2 p-5">
-        <Button variant="outline" onClick={() => setEdit(true)}><Pencil className="size-4" />{t('club.edit')}</Button>
-        <Button variant="ghost" className="text-danger" onClick={() => setLeave(true)}><LogOut className="size-4" />{t('club.leave')}</Button>
-        <p className="text-xs text-muted-foreground">{t('club.equalNote')}</p>
-      </Card>
+      <div className="flex flex-wrap gap-2">
+        <Button asChild variant="outline" size="sm"><Link to={`/clubs/${club.id}`}><Eye className="size-4" />{t('club.publicPage')}</Link></Button>
+        <Button variant="outline" size="sm" onClick={() => { setF({ name: club.name, city: club.city, institution: club.institution ?? '', description: club.description }); setEdit(true) }}><Pencil className="size-4" />{t('club.edit')}</Button>
+        <Button variant="ghost" size="sm" className="text-danger" onClick={() => setLeave(true)}><LogOut className="size-4" />{t('club.leave')}</Button>
+      </div>
       <Dialog open={edit} onOpenChange={setEdit}>
         <DialogContent heading={t('club.edit')}>
-          <form className="grid gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act(() => updateClub(club.id, f), t('common.saved')).then(ok => { if (ok) { setEdit(false); void refreshMe() } }) }}>
+          <form className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act(() => updateClub(club.id, f), t('common.saved')).then(ok => { if (ok) { setEdit(false); void refreshMe() } }) }}>
             <div className="sm:col-span-2"><Label htmlFor="c-name">{t('club.name')}</Label><Input id="c-name" maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
             <div><Label htmlFor="c-city">{t('common.city')}</Label><Input id="c-city" maxLength={60} value={f.city} onChange={e => setF({ ...f, city: e.target.value })} /></div>
             <div><Label htmlFor="c-inst">{t('common.institution')}</Label><Input id="c-inst" maxLength={150} value={f.institution} onChange={e => setF({ ...f, institution: e.target.value })} /></div>
@@ -287,7 +297,7 @@ function ClubLog({ log }: { log: NonNullable<ClubDetails['log']> }) {
   return (
     <Card className="p-5">
       <h3 className="flex items-center gap-2 font-bold"><History className="size-4 text-primary" />{t('club.log')}</h3>
-      <ul className="mt-3 space-y-2.5 text-sm">
+      <ul className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2.5 text-sm md:grid-cols-2">
         {shown.map(l => (
           <li key={l.id}>
             <b>{l.userName}</b> {t(`club.actions.${l.action}`, { defaultValue: l.action })}{l.detail && <span className="text-muted-foreground"> · {l.detail}</span>}

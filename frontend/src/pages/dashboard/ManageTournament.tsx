@@ -4,16 +4,16 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, Circle, DoorOpen, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  Award, CalendarClock, ChevronRight, Circle, DoorOpen, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
-  updateDebate, updateRound, updateTeam, updateTournament, type TeamInput,
+  updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
-import type { Debate, Judge, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
+import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
-import { cn, formatDateRange, initials } from '@/lib/utils'
+import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -40,6 +40,7 @@ const sections = [
   { key: 'registrations', icon: Inbox },
   { key: 'teams', icon: Users },
   { key: 'judges', icon: Gavel },
+  { key: 'schedule', icon: CalendarClock },
   { key: 'rounds', icon: ListOrdered },
   { key: 'draw', icon: Shuffle },
   { key: 'ballots', icon: ClipboardList },
@@ -98,11 +99,17 @@ function Overview({ data }: SectionProps) {
     { label: t('dashboard.overview.ballots'), value: `${submitted}/${live.length}`, icon: ClipboardList, color: 'bg-danger-soft text-danger' },
   ]
   const nextRound = data.rounds.find(r => r.status !== 'completed')
+  const teams = data.teams.filter(x => !x.swing).length
+  const need = judgesNeeded(data)
+  const drawn = !!nextRound && data.debates.some(d => d.roundId === nextRound.id)
+  // each step is ticked automatically when it is really done; a click opens the section where it is done
   const steps = [
-    { text: t('dashboard.overview.checklist1'), done: data.teams.length >= 2 },
-    { text: t('dashboard.overview.checklist2'), done: data.judges.length * 2 >= data.teams.length },
-    { text: t('dashboard.overview.checklist3'), done: !nextRound || data.debates.some(d => d.roundId === nextRound.id) },
-    { text: t('dashboard.overview.checklist4'), done: !nextRound || nextRound.status !== 'draft' },
+    { text: t('dashboard.overview.checklist1', { count: teams }), done: teams >= 2, to: 'teams' },
+    { text: t('dashboard.overview.checklist2', { need, have: data.judges.length }), done: teams >= 2 && data.judges.length >= need, to: 'judges' },
+    { text: t('dashboard.overview.checklistSchedule'), done: data.schedule.length > 0, to: 'schedule' },
+    { text: t('dashboard.overview.checklistMotion'), done: !nextRound || !!nextRound.motion.trim(), to: 'rounds' },
+    { text: t('dashboard.overview.checklist3'), done: !nextRound || drawn, to: 'draw' },
+    { text: t('dashboard.overview.checklist4'), done: !nextRound || nextRound.status !== 'draft', to: 'draw' },
   ]
   return (
     <>
@@ -118,11 +125,15 @@ function Overview({ data }: SectionProps) {
       </div>
       <Card className="mt-6 p-6">
         <h3 className="text-lg font-bold">{t('dashboard.overview.next')}{nextRound && <span className="font-normal text-muted-foreground"> · {nextRound.name}</span>}</h3>
-        <ul className="mt-4 space-y-2">
+        <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.overview.checklistHint')}</p>
+        <ul className="mt-4 space-y-1">
           {steps.map(s => (
-            <li key={s.text} className="flex items-center gap-3 rounded-xl p-3 text-sm font-medium">
-              <CheckCircle2 className={cn('size-5 shrink-0', s.done ? 'text-success' : 'text-border')} fill={s.done ? 'currentColor' : 'none'} stroke={s.done ? 'white' : 'currentColor'} />
-              <span className={cn(s.done && 'text-muted-foreground line-through')}>{s.text}</span>
+            <li key={s.text}>
+              <Link to={`/dashboard/tournaments/${data.id}/${s.to}`} className="group flex items-center gap-3 rounded-xl p-3 text-sm font-medium transition-colors hover:bg-muted">
+                <CheckCircle2 className={cn('size-5 shrink-0', s.done ? 'text-success' : 'text-border')} fill={s.done ? 'currentColor' : 'none'} stroke={s.done ? 'white' : 'currentColor'} />
+                <span className={cn('flex-1', s.done && 'text-muted-foreground line-through')}>{s.text}</span>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              </Link>
             </li>
           ))}
         </ul>
@@ -149,7 +160,7 @@ function Registrations({ data, reload }: SectionProps) {
       {regs.error ? <ErrorState onRetry={regs.reload} /> : !regs.data ? <Skeleton className="h-48" /> : regs.data.length === 0 ? (
         <EmptyState icon={<Inbox className="size-7" />} title={t('dashboard.registrations.empty')} />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {regs.data.map(r => (
             <Card key={r.id} className="p-5">
               <div className="flex items-start justify-between gap-3">
@@ -192,7 +203,7 @@ function TeamDialog({ team, open, onOpenChange, onSave, saving }: { team: Team |
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent heading={team ? t('dashboard.teams.editTitle') : t('dashboard.teams.addTitle')}>
         <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (valid) onSave(form) }}>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div><Label htmlFor="tn">{t('tournament.registerDialog.teamName')}</Label><Input id="tn" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label htmlFor="ti">{t('tournament.registerDialog.institution')}</Label><Input id="ti" value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} /></div>
           </div>
@@ -349,7 +360,7 @@ function Judges({ data, reload }: SectionProps) {
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
       {data.status !== 'finished' && <div className="mb-5"><EmailInvites tournamentId={data.id} kind="judge" /></div>}
       {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {data.judges.map(j => (
           <Card key={j.id} className="flex items-center gap-3 p-4">
             <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
@@ -394,6 +405,8 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
   const [motion, setMotion] = useState(round.motion)
   useEffect(() => setMotion(round.motion), [round.motion])
   const dirty = motion.trim() !== round.motion
+  // why "publish" is not available yet, said next to the button instead of a silent grey button
+  const blocker = round.status !== 'draft' ? null : !hasDraw ? t('dashboard.rounds.needDraw') : !motion.trim() ? t('dashboard.rounds.needMotion') : null
 
   const save = async () => { if (await run('save', () => updateRound(round.id, { motion }), t('dashboard.teams.saved'))) reload() }
   const release = async () => {
@@ -417,7 +430,7 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
           )}
           {dirty && round.status !== 'completed' && <Button size="sm" variant="outline" disabled={!!busy} onClick={save}>{t('common.save')}</Button>}
           {round.status === 'draft' && (
-            <Button size="sm" disabled={!!busy || !motion.trim() || !hasDraw} title={!hasDraw ? t('dashboard.rounds.needDraw') : undefined} onClick={release}>
+            <Button size="sm" disabled={!!busy || !!blocker} title={blocker ?? undefined} onClick={release}>
               {busy === 'release' ? <Loader2 className="size-4 animate-spin" /> : <Megaphone className="size-4" />}{t('dashboard.rounds.release')}
             </Button>
           )}
@@ -431,7 +444,7 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
       <div className="mt-4">
         <Label htmlFor={`m-${round.id}`}>{t('dashboard.rounds.motion')}</Label>
         <Textarea id={`m-${round.id}`} rows={2} value={motion} disabled={round.status === 'completed'} onChange={e => setMotion(e.target.value)} placeholder={t('dashboard.rounds.motionPlaceholder')} />
-        {round.status === 'draft' && !hasDraw && <p className="mt-2 text-xs text-muted-foreground">{t('dashboard.rounds.needDraw')}</p>}
+        {blocker && <p className="mt-2 text-xs text-muted-foreground">{blocker}</p>}
       </div>
     </Card>
   )
@@ -445,6 +458,69 @@ function Rounds({ data, reload }: SectionProps) {
       <div className="space-y-4">
         {data.rounds.map(r => <RoundCard key={r.id} round={r} hasDraw={data.debates.some(d => d.roundId === r.id)} reload={reload} />)}
       </div>
+    </>
+  )
+}
+
+/* ---------- Schedule ---------- */
+// judges needed for a draw: one per room, the same count the backend checks
+function judgesNeeded(data: TournamentDetails, presentOnly = false, addSwing = true) {
+  let n = data.teams.filter(x => !x.swing && (!presentOnly || x.checkedIn)).length
+  if (n % 2 && addSwing) n++
+  return Math.max(1, Math.ceil(n / 2))
+}
+
+const dayMs = 24 * 60 * 60 * 1000
+function Schedule({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const start = new Date(`${data.startDate.slice(0, 10)}T00:00:00`)
+  const days = Math.min(14, Math.max(1, Math.round((new Date(`${data.endDate.slice(0, 10)}T00:00:00`).getTime() - start.getTime()) / dayMs) + 1))
+  // local calendar date of day N (formatDate takes YYYY-MM-DD)
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const dayLabel = (d: number) => `${t('tournament.day', { n: d })} · ${formatDate(ymd(new Date(start.getFullYear(), start.getMonth(), start.getDate() + d - 1)), { day: 'numeric', month: 'long', weekday: 'short' })}`
+  const [items, setItems] = useState<ScheduleItem[]>(() => data.schedule.map(s => ({ ...s })))
+  const set = (i: number, p: Partial<ScheduleItem>) => setItems(list => list.map((x, j) => (j === i ? { ...x, ...p } : x)))
+  const add = (day: number) => {
+    const last = items.filter(x => x.day === day).at(-1)
+    setItems(list => [...list, { day, time: last ? last.time : '09:00', title: '' }])
+  }
+  const invalid = items.some(x => x.title.trim().length < 2 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(x.time))
+  const dirty = JSON.stringify(items) !== JSON.stringify(data.schedule)
+  const save = async () => {
+    const sorted = items.map(x => ({ ...x, title: x.title.trim() })).sort((a, b) => a.day - b.day || a.time.localeCompare(b.time))
+    if (await run('save', () => updateSchedule(data.id, sorted), t('dashboard.schedule.saved'))) { setItems(sorted); reload() }
+  }
+
+  return (
+    <>
+      <SectionTitle title={t('dashboard.nav.schedule')}
+        action={<Button disabled={!!busy || invalid || !dirty} onClick={save}>{busy === 'save' ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t('common.save')}</Button>} />
+      <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.schedule.hint')}</p>
+      <div className="space-y-4">
+        {Array.from({ length: days }, (_, k) => k + 1).map(day => (
+          <Card key={day} className="p-5">
+            <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-primary">{dayLabel(day)}</h3>
+            <div className="space-y-2">
+              {items.map((x, i) => x.day === day && (
+                <div key={i} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                  <Input type="time" value={x.time} onChange={e => set(i, { time: e.target.value })} className="w-32 shrink-0" aria-label={t('dashboard.schedule.time')} />
+                  <Input value={x.title} maxLength={120} onChange={e => set(i, { title: e.target.value })} placeholder={t('dashboard.schedule.titlePlaceholder')}
+                    aria-label={t('dashboard.schedule.title')} aria-invalid={x.title.length > 0 && x.title.trim().length < 2} className="min-w-0 flex-1" />
+                  {days > 1 && (
+                    <Select size="sm" className="w-28 shrink-0" value={String(x.day)} onValueChange={v => set(i, { day: Number(v) })} aria-label={t('dashboard.schedule.moveDay')}
+                      options={Array.from({ length: days }, (_, k) => ({ value: String(k + 1), label: t('tournament.day', { n: k + 1 }) }))} />
+                  )}
+                  <Button variant="ghost" size="icon" onClick={() => setItems(list => list.filter((_, j) => j !== i))} aria-label={t('common.delete')}><Trash2 className="size-4" /></Button>
+                </div>
+              ))}
+              {!items.some(x => x.day === day) && <p className="text-sm text-muted-foreground">{t('dashboard.schedule.emptyDay')}</p>}
+            </div>
+            <Button variant="outline" size="sm" className="mt-3" disabled={items.length >= 60} onClick={() => add(day)}><Plus className="size-4" />{t('dashboard.schedule.add')}</Button>
+          </Card>
+        ))}
+      </div>
+      {invalid && <p className="mt-3 text-sm text-danger">{t('dashboard.schedule.invalid')}</p>}
     </>
   )
 }
@@ -472,6 +548,9 @@ function Draw({ data, reload }: SectionProps) {
 
   const present = data.teams.filter(x => x.checkedIn && !x.swing).length
   const protect = protectClubs ?? round.number <= CLUB_PROTECTED_ROUNDS
+  const need = judgesNeeded(data, presentOnly && present > 0, addSwing)
+  const fewJudges = editable && data.judges.length < need
+  const noMotion = !round.motion.trim()
   const generate = async () => {
     let report: DrawReport | undefined
     const ok = await run('generate', async () => { report = (await generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing, method, protectClubs: protect })).report }, t('dashboard.draw.generated'))
@@ -498,7 +577,7 @@ function Draw({ data, reload }: SectionProps) {
               </Button>
             )}
             {round.status === 'draft' && current.length > 0 && (
-              <Button disabled={!!busy || !round.motion.trim()} title={!round.motion.trim() ? t('dashboard.draw.needMotion') : undefined} onClick={publish}>
+              <Button disabled={!!busy || noMotion} title={noMotion ? t('dashboard.draw.needMotion') : undefined} onClick={publish}>
                 <Megaphone className="size-4" />{t('dashboard.draw.publish')}
               </Button>
             )}
@@ -526,7 +605,18 @@ function Draw({ data, reload }: SectionProps) {
           </div>
         </div>
       )}
-      {round.status === 'draft' && current.length > 0 && !round.motion.trim() && <p className="mb-3 text-sm text-danger">{t('dashboard.draw.needMotion')}</p>}
+      {fewJudges && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">
+          <p className="font-medium">{t('dashboard.draw.fewJudges', { need, have: data.judges.length })}</p>
+          <Button asChild size="sm" variant="outline"><Link to={`/dashboard/tournaments/${data.id}/judges`}><Gavel className="size-4" />{t('dashboard.draw.addJudges')}</Link></Button>
+        </div>
+      )}
+      {round.status === 'draft' && current.length > 0 && noMotion && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">
+          <p className="font-medium">{t('dashboard.draw.needMotion')}</p>
+          <Button asChild size="sm" variant="outline"><Link to={`/dashboard/tournaments/${data.id}/rounds`}><Pencil className="size-4" />{t('dashboard.draw.setMotion')}</Link></Button>
+        </div>
+      )}
       {current.length === 0 ? (
         <EmptyState icon={<Shuffle className="size-7" />} title={t('dashboard.draw.empty')} text={t('dashboard.draw.emptyText')}
           action={editable && <Button disabled={!!busy} onClick={generate}><Shuffle className="size-4" />{t('dashboard.draw.generate')}</Button>} />
@@ -649,7 +739,7 @@ function Ballots({ data }: SectionProps) {
         <div className="flex justify-between text-sm font-semibold"><span>{t('dashboard.ballots.progress', { done, total: list.length })}</span><span className="text-primary">{list.length ? Math.round((done / list.length) * 100) : 0}%</span></div>
         <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-gradient-to-r from-primary to-success transition-all" style={{ width: `${list.length ? (done / list.length) * 100 : 0}%` }} /></div>
       </Card>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {list.map(d => (
           <Card key={d.id} className="flex items-center gap-4 p-4">
             <div className="min-w-0 flex-1">
@@ -689,7 +779,7 @@ function DetailsCard({ data, reload }: SectionProps) {
         <h3 className="font-bold">{t('dashboard.details.title')}</h3>
         <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.details.text')}</p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <Label htmlFor="d-city">{t('wizard.city')}</Label>
           <Select id="d-city" value={f.city} onValueChange={c => setF({ ...f, city: c })} options={[...new Set([f.city, ...cities])].map(c => ({ value: c, label: c }))} />
@@ -897,7 +987,7 @@ export default function ManageTournament() {
   if (error instanceof NotFoundError) return <NotFound />
   if (error) return <div className="p-10"><ErrorState onRetry={reload} /></div>
   if (loading && !data) {
-    return <div className="mx-auto grid max-w-[90rem] gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[240px_1fr]"><Skeleton className="h-96" /><Skeleton className="h-96" /></div>
+    return <div className="mx-auto grid max-w-[90rem] gap-6 px-4 py-8 sm:px-6 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)]"><Skeleton className="h-96" /><Skeleton className="h-96" /></div>
   }
   if (!data) return null
 
@@ -914,7 +1004,7 @@ export default function ManageTournament() {
       <p className="mt-1 text-sm text-muted-foreground">{formatDateRange(data.startDate, data.endDate)} · {data.city}</p>
       <ModerationBanner status={data.moderation} note={data.moderationNote} className="mt-4" />
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[240px_1fr]">
+      <div className="mt-6 grid gap-6 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-1 lg:px-0">
           <div className="contents lg:block lg:rounded-2xl lg:border lg:border-border lg:bg-card lg:p-2">
             {sections.map(({ key, icon: Icon }) => (
@@ -940,6 +1030,7 @@ export default function ManageTournament() {
           {current === 'registrations' && <Registrations {...props} />}
           {current === 'teams' && <Teams {...props} />}
           {current === 'judges' && <Judges {...props} />}
+          {current === 'schedule' && <Schedule {...props} />}
           {current === 'rounds' && <Rounds {...props} />}
           {current === 'draw' && <Draw {...props} />}
           {current === 'ballots' && <Ballots {...props} />}

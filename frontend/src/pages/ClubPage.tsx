@@ -80,7 +80,7 @@ export default function ClubPage() {
         <section>
           <h2 className="mb-4 text-xl font-bold">{t('club.teams')}</h2>
           {data.teams.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('club.noTeams')} /> : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {data.teams.map(team => (
                 <Card key={team.id} className="p-5">
                   <h3 className="text-lg font-bold">{team.name}</h3>

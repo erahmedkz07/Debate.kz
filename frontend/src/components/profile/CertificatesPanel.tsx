@@ -19,7 +19,7 @@ export function CertificatesPanel() {
   if (loading || !data) return <Skeleton className="h-48" />
   if (!data.length) return <EmptyState icon={<Award className="size-7" />} title={t('certificate.emptyTitle')} text={t('certificate.emptyText')} />
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {data.map(c => {
         const a = award(c)
         return (

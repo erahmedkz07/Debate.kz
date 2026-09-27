@@ -389,7 +389,7 @@ export default function AdminPanel() {
       <CabinetHeader title={t('admin.title')} subtitle={t('admin.subtitle')} />
       <Tabs value={tab} onValueChange={setTab} className="mt-6">
         {/* laptops: sections in a sticky sidebar next to the content; phones: tabs on top */}
-        <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
           <SideTabsList aria-label={t('admin.title')}>
             <SideTabsTrigger value="overview"><LayoutDashboard className="size-4" />{t('dashboard.nav.overview')}</SideTabsTrigger>
             <SideTabsTrigger value="tournaments">

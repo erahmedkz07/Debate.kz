@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
@@ -7,7 +7,9 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Loader2, PartyPopper, Trophy } from 'lucide-react'
-import { createTournament, getCities, getCoverTemplates, uploadTournamentCover } from '@/api'
+import { claimPayment, createTournament, getCities, getCoverTemplates, getPlanQuote, uploadTournamentCover } from '@/api'
+import { KaspiPayBox } from '@/components/payments/KaspiPayBox'
+import { Skeleton } from '@/components/ui/states'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { useAsync } from '@/lib/hooks'
@@ -19,7 +21,7 @@ import { Select } from '@/components/ui/select'
 import { DatePicker } from '@/components/ui/date-picker'
 
 import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
-const steps = ['basic', 'format', 'registration', 'summary'] as const
+type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
 
 export default function CreateTournament() {
   const { t } = useTranslation()
@@ -59,17 +61,33 @@ export default function CreateTournament() {
   // tournaments cannot start in the past
   const today = new Date().toISOString().slice(0, 10)
   const paid = Number(v.maxTeams) > FREE_LIMIT
+  // above the free limit the organizer pays right in the wizard: QR, amount, reference, then the receipt
+  const steps: Step[] = paid ? ['basic', 'format', 'registration', 'payment', 'summary'] : ['basic', 'format', 'registration', 'summary']
+  const current = steps[Math.min(step, steps.length - 1)]
+  const [quote, setQuote] = useState<Awaited<ReturnType<typeof getPlanQuote>> | null>(null)
+  const [payNote, setPayNote] = useState('')
+  const [receipt, setReceipt] = useState<File | null>(null)
+  useEffect(() => {
+    if (paid && !quote) getPlanQuote().then(setQuote, e => toast.error(errorMessage(e, t)))
+  }, [paid, quote, t])
+  const paymentReady = !!quote && !!receipt && payNote.trim().length >= 2
 
-  const fieldsByStep: (keyof Form)[][] = [
-    ['name', 'city', 'startDate', 'endDate', 'level'],
-    ['prelims', 'breakSize'],
-    ['maxTeams'],
-    [],
-  ]
+  const fieldsByStep: Record<Step, (keyof Form)[]> = {
+    basic: ['name', 'city', 'startDate', 'endDate', 'level'],
+    format: ['prelims', 'breakSize'],
+    registration: ['maxTeams'],
+    payment: [],
+    summary: [],
+  }
   const next = async () => {
-    if (await trigger(fieldsByStep[step])) setStep(s => s + 1)
+    if (current === 'payment' && !paymentReady) return void toast.error(t('wizard.payFirst'))
+    if (await trigger(fieldsByStep[current])) setStep(s => Math.min(s, steps.length - 1) + 1)
   }
   const onSubmit = async (f: Form) => {
+    if (paid && !paymentReady) {
+      setStep(steps.indexOf('payment'))
+      return void toast.error(t('wizard.payFirst'))
+    }
     try {
       const created = await createTournament({
         name: f.name.trim(), city: f.city, startDate: f.startDate, endDate: f.endDate, level: f.level,
@@ -78,10 +96,15 @@ export default function CreateTournament() {
         registrationDeadline: f.regDeadline || undefined,
         languages: [...(f.langKz ? ['kz' as const] : []), ...(f.langRu ? ['ru' as const] : [])],
         coverUrl: cover && !coverFile ? cover : undefined,
+        paymentReference: paid ? quote?.reference : undefined,
       })
+      // the receipt goes to the admin queue at once; if it fails, the organizer can resend it from the settings
+      if (paid && receipt) {
+        await claimPayment(created.id, payNote.trim(), receipt).catch(e => toast.warning(t('wizard.receiptFailed'), { description: errorMessage(e, t) }))
+      }
       // the own picture goes up after the tournament exists; if it fails, the tournament keeps a template
       if (coverFile) await uploadTournamentCover(created.id, coverFile).catch(() => toast.warning(t('wizard.coverFailed')))
-      toast.success(t('wizard.created'), { description: user?.role === 'admin' ? undefined : t('moderation.sentForReview') })
+      toast.success(t('wizard.created'), { description: paid ? t('wizard.paymentSent') : user?.role === 'admin' ? undefined : t('moderation.sentForReview') })
       navigate(`/dashboard/tournaments/${created.id}/teams`)
     } catch (e) {
       toast.error(errorMessage(e, t))
@@ -121,14 +144,14 @@ export default function CreateTournament() {
         <Card className="mt-8 overflow-hidden p-6 sm:p-8">
           <AnimatePresence mode="wait">
             <motion.div key={step} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }} className="space-y-5">
-              {step === 0 && (
+              {current === 'basic' && (
                 <>
                   <div>
                     <Label htmlFor="name">{t('wizard.name')}</Label>
                     <Input id="name" placeholder={t('wizard.namePlaceholder')} aria-invalid={!!errors.name} {...register('name')} />
                     <FieldError message={errors.name?.message} />
                   </div>
-                  <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="city">{t('wizard.city')}</Label>
                       <Select id="city" invalid={!!errors.city} value={v.city ?? ''} placeholder={t('wizard.cityPlaceholder')}
@@ -196,10 +219,10 @@ export default function CreateTournament() {
                 </>
               )}
 
-              {step === 1 && (
+              {current === 'format' && (
                 <>
                   <Label>{t('wizard.format')}</Label>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="relative rounded-2xl border-2 border-primary bg-primary-soft p-5">
                       <Check className="absolute right-4 top-4 size-5 text-primary" />
                       <Trophy className="size-7 text-primary" />
@@ -212,7 +235,7 @@ export default function CreateTournament() {
                       <p className="mt-1 text-sm text-muted-foreground">4 × 2</p>
                     </div>
                   </div>
-                  <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="prelims">{t('wizard.prelims')}</Label>
                       <Select id="prelims" value={String(v.prelims)} onValueChange={n => setValue('prelims', Number(n))}
@@ -227,14 +250,14 @@ export default function CreateTournament() {
                 </>
               )}
 
-              {step === 2 && (
+              {current === 'registration' && (
                 <>
                   <div>
                     <Label htmlFor="max">{t('wizard.maxTeams')}</Label>
                     <Input id="max" type="number" min={4} max={128} aria-invalid={!!errors.maxTeams} {...register('maxTeams')} />
                     <FieldError message={errors.maxTeams && '4–128'} />
                   </div>
-                  <PlanNotice paid={paid} />
+                  <PlanNotice paid={paid} ready={false} />
                   <div className="divide-y divide-border rounded-2xl border border-border px-4">
                     <div className="py-2"><Switch label={t('wizard.regOpen')} checked={v.regOpen} onChange={c => setValue('regOpen', c)} /></div>
                     <div className="py-2"><Switch label={t('wizard.regApproval')} checked={v.approval} onChange={c => setValue('approval', c)} /></div>
@@ -258,14 +281,14 @@ export default function CreateTournament() {
                 </>
               )}
 
-              {step === 3 && (
+              {current === 'summary' && (
                 <>
                   <div className="flex items-center gap-3">
                     <PartyPopper className="size-7 text-primary" />
                     <h2 className="text-xl font-bold">{v.name}</h2>
                   </div>
                   {cover && <img src={cover} alt="" className="h-40 w-full rounded-2xl object-cover" />}
-                  <dl className="grid gap-x-6 gap-y-3 rounded-2xl bg-muted/60 p-5 text-sm sm:grid-cols-2">
+                  <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-2xl bg-muted/60 p-5 text-sm sm:grid-cols-2">
                     {[
                       [t('wizard.city'), v.city],
                       [t('wizard.level'), t(`level.${v.level}`)],
@@ -279,7 +302,20 @@ export default function CreateTournament() {
                       <div key={k} className="flex justify-between gap-3"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-bold">{val}</dd></div>
                     ))}
                   </dl>
-                  <PlanNotice paid={paid} />
+                  <PlanNotice paid={paid} ready={paymentReady} />
+                </>
+              )}
+
+              {current === 'payment' && (
+                <>
+                  <div>
+                    <h2 className="text-xl font-bold">{t('payment.title')}</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">{t('wizard.payIntro')}</p>
+                  </div>
+                  {quote
+                    ? <KaspiPayBox amount={quote.amount} reference={quote.reference} kaspi={quote.kaspi} limit={quote.freeTeamLimit}
+                        note={payNote} onNote={setPayNote} receipt={receipt} onReceipt={setReceipt} />
+                    : <Skeleton className="h-64" />}
                 </>
               )}
             </motion.div>
@@ -287,9 +323,9 @@ export default function CreateTournament() {
         </Card>
 
         <div className="mt-6 flex justify-between gap-3">
-          <Button type="button" variant="ghost" onClick={() => setStep(s => s - 1)} disabled={step === 0}><ArrowLeft className="size-4" />{t('common.back')}</Button>
-          {step < steps.length - 1
-            ? <Button type="button" onClick={next}>{t('common.next')}<ArrowRight className="size-4" /></Button>
+          <Button type="button" variant="ghost" onClick={() => setStep(s => Math.min(s, steps.length - 1) - 1)} disabled={step === 0}><ArrowLeft className="size-4" />{t('common.back')}</Button>
+          {current !== 'summary'
+            ? <Button type="button" onClick={next} disabled={current === 'payment' && !paymentReady}>{t('common.next')}<ArrowRight className="size-4" /></Button>
             : <Button type="submit" variant="accent" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t('wizard.create')}</Button>}
         </div>
       </form>
@@ -297,11 +333,16 @@ export default function CreateTournament() {
   )
 }
 
-function PlanNotice({ paid }: { paid: boolean }) {
+function PlanNotice({ paid, ready }: { paid: boolean; ready: boolean }) {
   const { t } = useTranslation()
+  if (paid && ready) return (
+    <p className="flex items-start gap-3 rounded-2xl bg-primary-soft p-4 text-sm font-medium">
+      <Check className="mt-0.5 size-5 shrink-0 text-primary" />{t('wizard.paidReady', { limit: FREE_LIMIT })}
+    </p>
+  )
   return paid ? (
     <p className="flex items-start gap-3 rounded-2xl border border-accent bg-accent-soft p-4 text-sm font-medium">
-      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-navy dark:text-accent" />{t('wizard.paidNotice')}
+      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-navy dark:text-accent" />{t('wizard.paidNotice', { limit: FREE_LIMIT })}
     </p>
   ) : (
     <p className="flex items-start gap-3 rounded-2xl bg-success-soft p-4 text-sm font-medium text-success">

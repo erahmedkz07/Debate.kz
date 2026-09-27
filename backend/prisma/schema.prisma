@@ -557,6 +557,7 @@ model Payment {
   reference    String        @unique // e.g. DKZ-7K2QF9: written in the Kaspi comment so the admin can match the transfer
   status       PaymentStatus @default(awaiting)
   payerNote    String?       @map("payer_note") // payer name / last digits / time, to find the transfer
+  receiptPath  String?       @map("receipt_path") // the payer\'s Kaspi receipt, stored privately (not under /uploads)
   adminNote    String?       @map("admin_note") // reason of a rejection
   paidAt       DateTime?     @map("paid_at") // when the organizer pressed "I have paid"
   handledById  String?       @map("handled_by_id")

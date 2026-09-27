@@ -34,7 +34,7 @@ export default function Formats() {
         </div>
       </PageHeader>
 
-      <div className="container-page grid gap-6 py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      <div className="container-page grid grid-cols-1 gap-6 py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <div className="space-y-6">
           <div className={cn('rounded-3xl bg-gradient-to-br p-6 text-white sm:p-8', f.accent)}>
             <p className="text-xs font-bold uppercase tracking-wider text-white/70">{f.short}</p>

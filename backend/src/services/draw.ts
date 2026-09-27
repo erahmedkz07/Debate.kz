@@ -38,7 +38,8 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   if (teams.length % 2 && opts.addSwing && teams.length >= 1) teams.push(await swingTeam(tId))
   if (teams.length < 2) throw badRequest('not_enough_teams')
   if (teams.length % 2) throw badRequest('odd_number_of_teams')
-  if (judges.length < teams.length / 2) throw badRequest('not_enough_judges')
+  // one judge per room: the error says how many are needed and how many there are
+  if (judges.length < teams.length / 2) throw badRequest('not_enough_judges', { need: teams.length / 2, have: judges.length, teams: teams.length })
 
   // order teams
   const method = opts.method ?? 'power'

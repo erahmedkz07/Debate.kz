@@ -33,7 +33,7 @@ export default function Pricing() {
     <>
       <PageHeader title={t('pricing.title')} subtitle={t('pricing.subtitle', { limit })} />
       <div className="container-page py-14">
-        <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-2">
+        <div className="mx-auto grid grid-cols-1 max-w-4xl gap-6 md:grid-cols-2">
           <Reveal className="flex flex-col rounded-3xl border-2 border-border bg-card p-8">
             <p className="text-sm font-bold uppercase tracking-wider text-primary">{t('pricing.free')}</p>
             <p className="mt-4 text-5xl font-extrabold">0 ₸</p>
@@ -63,7 +63,7 @@ export default function Pricing() {
         <section className="mx-auto mt-16 max-w-4xl">
           <h2 className="text-center text-2xl font-extrabold sm:text-3xl">{t('pricing.howTitle')}</h2>
           <p className="mx-auto mt-2 max-w-2xl text-center text-muted-foreground">{t('pricing.howText')}</p>
-          <ol className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <ol className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {steps.map((Icon, i) => (
               <li key={i}>
                 <Card className="h-full p-5">
@@ -79,7 +79,7 @@ export default function Pricing() {
         {/* reference information */}
         <section className="mx-auto mt-16 max-w-4xl">
           <h2 className="text-center text-2xl font-extrabold sm:text-3xl">{t('pricing.infoTitle')}</h2>
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
+          <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
             {info.map(({ key, icon: Icon }) => (
               <Card key={key} className="flex gap-4 p-5">
                 <Icon className="mt-0.5 size-5 shrink-0 text-primary" />
