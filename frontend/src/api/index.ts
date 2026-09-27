@@ -183,7 +183,10 @@ export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
-export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean } = {}) => http<Debate[]>('POST', `/rounds/${roundId}/draw`, opts)
+export type DrawMethod = 'power' | 'high_low' | 'random'
+export interface DrawReport { method: DrawMethod; protectClubs: boolean; sameClub: number; rematches: number }
+export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean } = {}) =>
+  http<{ debates: Debate[]; report: DrawReport }>('POST', `/rounds/${roundId}/draw`, opts)
 export const updateDebate = (debateId: string, data: Partial<{ room: string; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 

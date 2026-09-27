@@ -1,20 +1,25 @@
 import { badRequest, forbidden } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { getStandings } from './tournaments.js'
+import { pairTeams, shuffle, type DrawMethod } from './pairing.js'
 
 const ROOMS = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
 export const DEFAULT_ROOMS = ROOMS
 // the organizer's own rooms first; when they run out, numbered rooms continue
 export const roomName = (i: number, rooms: string[] = ROOMS) => rooms[i] ?? `Ауд. ${601 + i - rooms.length}`
 
-// Power-paired WSDC draw:
-// 1) teams ordered by wins, then speaker points (round 1: random)
-// 2) neighbours meet, skipping rematches when possible
+// WSDC draw:
+// 1) teams ordered by wins, then speaker points (round 1 and the random method: random order)
+// 2) pairs by the method (power: neighbours, high_low: top vs bottom, random), avoiding rematches and, in protected
+//    rounds, teams of the same club (club, or institution when the team has no club) — see services/pairing.ts
 // 3) side goes to the team that has been Proposition less often
 // 4) one judge per room: best-rated judges chair, spare judges become wings,
 //    a judge never sits on a debate with a team from their own institution
 // presentOnly: only teams that checked in; addSwing: an odd number of teams gets the stand-in "swing" team
-export async function generateDraw(roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean } = {}) {
+export interface DrawOptions { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean }
+export const CLUB_PROTECTED_ROUNDS = 2 // by default the first two rounds keep clubmates apart
+
+export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   const round = await prisma.round.findUnique({ where: { id: roundId }, include: { tournament: true } })
   if (!round) throw badRequest('round_not_found')
   if (round.status === 'completed') throw forbidden('round_completed')
@@ -25,7 +30,7 @@ export async function generateDraw(roundId: string, opts: { presentOnly?: boolea
   const [teams, judges, previous] = await Promise.all([
     prisma.team.findMany({
       where: { tournamentId: tId, swing: false, ...(opts.presentOnly && { checkedInAt: { not: null } }) },
-      select: { id: true, institutionId: true },
+      select: { id: true, institutionId: true, clubId: true },
     }),
     prisma.judge.findMany({ where: { tournamentId: tId }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
     prisma.debate.findMany({ where: { round: { tournamentId: tId, number: { lt: round.number } } }, select: { propositionTeamId: true, oppositionTeamId: true } }),
@@ -36,30 +41,26 @@ export async function generateDraw(roundId: string, opts: { presentOnly?: boolea
   if (judges.length < teams.length / 2) throw badRequest('not_enough_judges')
 
   // order teams
+  const method = opts.method ?? 'power'
   let ordered: string[]
-  if (round.number === 1 || previous.length === 0) {
-    ordered = teams.map(t => t.id).sort(() => Math.random() - 0.5)
+  if (method === 'random' || round.number === 1 || previous.length === 0) {
+    ordered = shuffle(teams.map(t => t.id))
   } else {
     const s = await getStandings(tId)
-    const rank = new Map(s.teams.map(r => [r.team.id, r.rank]))
-    ordered = teams.map(t => t.id).sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999))
+    const rank = new Map(s.teams.map((r, i) => [r.team.id, i]))
+    // equal records keep a random order among themselves
+    ordered = shuffle(teams.map(t => t.id)).sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999))
   }
 
   const met = new Set(previous.map(p => [p.propositionTeamId, p.oppositionTeamId].sort().join('|')))
   const propCount = new Map<string, number>()
   previous.forEach(p => propCount.set(p.propositionTeamId, (propCount.get(p.propositionTeamId) ?? 0) + 1))
 
-  // greedy pairing top-down, avoiding rematches
-  const pool = [...ordered]
-  const pairs: [string, string][] = []
-  while (pool.length) {
-    const a = pool.shift()!
-    let idx = pool.findIndex(b => !met.has([a, b].sort().join('|')))
-    if (idx === -1) idx = 0 // unavoidable rematch
-    const b = pool.splice(idx, 1)[0]
-    // side balance
-    pairs.push((propCount.get(a) ?? 0) <= (propCount.get(b) ?? 0) ? [a, b] : [b, a])
-  }
+  const protectClubs = opts.protectClubs ?? round.number <= CLUB_PROTECTED_ROUNDS
+  const clubOf = new Map(teams.map(t => [t.id, t.clubId ?? t.institutionId]))
+  const result = pairTeams({ order: ordered, method, met, clubOf, protectClubs })
+  // side balance: Proposition to the team that has had it less often
+  const pairs = result.pairs.map(([a, b]) => ((propCount.get(a) ?? 0) <= (propCount.get(b) ?? 0) ? [a, b] : [b, a]) as [string, string])
 
   // judge allocation
   const inst = new Map(teams.map(t => [t.id, t.institutionId]))
@@ -89,14 +90,15 @@ export async function generateDraw(roundId: string, opts: { presentOnly?: boolea
       })
     }
   })
+  return { method, protectClubs, sameClub: result.sameClub, rematches: result.rematches }
 }
 
 // the tournament's stand-in team (created once): three placeholder speakers so judges can score it; never ranked
 async function swingTeam(tournamentId: string) {
-  const existing = await prisma.team.findFirst({ where: { tournamentId, swing: true }, select: { id: true, institutionId: true } })
+  const existing = await prisma.team.findFirst({ where: { tournamentId, swing: true }, select: { id: true, institutionId: true, clubId: true } })
   if (existing) return existing
   return prisma.team.create({
     data: { tournamentId, name: 'Swing', swing: true, speakers: { create: [1, 2, 3].map(position => ({ name: `Swing ${position}`, position })) } },
-    select: { id: true, institutionId: true },
+    select: { id: true, institutionId: true, clubId: true },
   })
 }

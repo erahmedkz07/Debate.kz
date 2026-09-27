@@ -285,13 +285,20 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
   const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') } })
   if (!round) throw notFound('round_not_found')
   await assertCanManage(req.user, round.tournamentId)
-  const opts = body(req, z.object({ presentOnly: z.boolean().optional(), addSwing: z.boolean().optional() }).default({}))
-  await generateDraw(round.id, opts)
+  const opts = body(req, z.object({
+    presentOnly: z.boolean().optional(), addSwing: z.boolean().optional(),
+    method: z.enum(['power', 'high_low', 'random']).optional(), protectClubs: z.boolean().optional(),
+  }).default({}))
+  const report = await generateDraw(round.id, opts)
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
-  res.status(201).json(debates.map(x => ({
-    id: x.id, roundId: x.roundId, room: x.room, propositionTeamId: x.propositionTeamId, oppositionTeamId: x.oppositionTeamId,
-    judgeIds: x.judges.map(j => j.judgeId), winner: x.winner ?? undefined, ballotStatus: x.ballotStatus,
-  })))
+  // the report tells the organizer which wishes could not be met (same-club meetings, rematches)
+  res.status(201).json({
+    debates: debates.map(x => ({
+      id: x.id, roundId: x.roundId, room: x.room, propositionTeamId: x.propositionTeamId, oppositionTeamId: x.oppositionTeamId,
+      judgeIds: x.judges.map(j => j.judgeId), winner: x.winner ?? undefined, ballotStatus: x.ballotStatus,
+    })),
+    report,
+  })
 })
 
 organizerRouter.patch('/debates/:debateId', org, async (req, res) => {

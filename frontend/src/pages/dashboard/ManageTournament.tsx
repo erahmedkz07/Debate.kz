@@ -7,7 +7,7 @@ import {
   Award, Circle, DoorOpen, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -25,6 +25,9 @@ import { ResultsTab } from '@/pages/TournamentPage'
 import NotFound from '@/pages/NotFound'
 import { InviteButton } from '@/components/tournament/InviteDialog'
 import { EmailInvites } from '@/components/tournament/EmailInvites'
+
+// mirrors backend services/draw.ts: the first two rounds keep clubmates apart by default
+const CLUB_PROTECTED_ROUNDS = 2
 import { ModerationBanner } from '@/components/tournament/ModerationBadge'
 import { DatePicker } from '@/components/ui/date-picker'
 import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
@@ -452,6 +455,11 @@ function Draw({ data, reload }: SectionProps) {
   const [wingsFor, setWingsFor] = useState<Debate | null>(null)
   const defaultRound = data.rounds.find(r => r.status === 'released') ?? data.rounds.find(r => r.status === 'draft') ?? data.rounds[0]
   const [roundId, setRoundId] = useState(defaultRound?.id)
+  const [presentOnly, setPresentOnly] = useState(false)
+  const [addSwing, setAddSwing] = useState(true)
+  const [method, setMethod] = useState<DrawMethod>('power')
+  // null = the default for the round (clubmates kept apart in the first rounds)
+  const [protectClubs, setProtectClubs] = useState<boolean | null>(null)
   const round = data.rounds.find(r => r.id === roundId)
   if (!round) return <EmptyState title={t('common.empty')} />
 
@@ -462,9 +470,16 @@ function Draw({ data, reload }: SectionProps) {
   const rooms = [...new Set([...(data.rooms?.length ? data.rooms : DEFAULT_ROOMS), ...current.map(d => d.room)])]
 
   const present = data.teams.filter(x => x.checkedIn && !x.swing).length
-  const [presentOnly, setPresentOnly] = useState(false)
-  const [addSwing, setAddSwing] = useState(true)
-  const generate = async () => { if (await run('generate', () => generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing }), t('dashboard.draw.generated'))) reload() }
+  const protect = protectClubs ?? round.number <= CLUB_PROTECTED_ROUNDS
+  const generate = async () => {
+    let report: DrawReport | undefined
+    const ok = await run('generate', async () => { report = (await generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing, method, protectClubs: protect })).report }, t('dashboard.draw.generated'))
+    // wishes the draw could not meet are said out loud, not hidden
+    if (ok && report && (report.sameClub || report.rematches)) {
+      toast.warning(t('dashboard.draw.compromise'), { description: [report.sameClub ? t('dashboard.draw.sameClubLeft', { count: report.sameClub }) : '', report.rematches ? t('dashboard.draw.rematchesLeft', { count: report.rematches }) : ''].filter(Boolean).join(' '), duration: 10000 })
+    }
+    if (ok) reload()
+  }
   const publish = async () => { if (await run('publish', () => updateRound(round.id, { status: 'released' }), t('dashboard.draw.published'))) reload() }
   const patch = async (d: Debate, p: Parameters<typeof updateDebate>[1]) => { if (await run(d.id, () => updateDebate(d.id, p))) reload() }
 
@@ -498,6 +513,16 @@ function Draw({ data, reload }: SectionProps) {
             <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={addSwing} onChange={e => setAddSwing(e.target.checked)} />
             {t('dashboard.draw.addSwing')}
           </label>
+          <label className="flex cursor-pointer items-center gap-2" title={t('dashboard.draw.protectHint')}>
+            <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={protect} onChange={e => setProtectClubs(e.target.checked)} />
+            {t('dashboard.draw.protectClubs')}
+          </label>
+          <div className="flex w-full flex-wrap items-center gap-2 border-t border-border pt-3">
+            <span className="font-semibold">{t('dashboard.draw.method')}</span>
+            <Select size="sm" className="w-56" value={method} onValueChange={v => setMethod(v as DrawMethod)} aria-label={t('dashboard.draw.method')}
+              options={(['power', 'high_low', 'random'] as const).map(m => ({ value: m, label: t(`dashboard.draw.methods.${m}`) }))} />
+            <span className="text-xs text-muted-foreground">{t(`dashboard.draw.methodHints.${method}`)}</span>
+          </div>
         </div>
       )}
       {round.status === 'draft' && current.length > 0 && !round.motion.trim() && <p className="mb-3 text-sm text-danger">{t('dashboard.draw.needMotion')}</p>}

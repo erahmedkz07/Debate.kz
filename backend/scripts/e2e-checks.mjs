@@ -100,8 +100,8 @@ const next = det.rounds.find(x => x.status === 'draft')
 r = await org('PATCH', `/rounds/${next.id}`, { status: 'released' })
 ok(r.status === 400 && r.data.error === 'need_motion_and_draw', 'cannot release without motion and draw')
 r = await org('POST', `/rounds/${next.id}/draw`)
-ok(r.status === 201 && r.data.length === det.teams.length / 2, `power-paired draw generated (${r.data?.length} rooms)`)
-const draw = r.data
+ok(r.status === 201 && r.data.debates.length === det.teams.length / 2, `power-paired draw generated (${r.data?.debates?.length} rooms)`)
+const draw = r.data.debates
 // quality checks: every team once, no judge twice, no rematch if avoidable
 const teamIds = draw.flatMap(d => [d.propositionTeamId, d.oppositionTeamId])
 ok(new Set(teamIds).size === det.teams.length, 'every team debates exactly once')
@@ -327,8 +327,8 @@ ok(r.status === 200 && po.rooms.join('|') === 'Зал A|Зал B', 'own rooms sa
 const js = []
 for (const n of ['Первый Судья', 'Второй Судья', 'Третий Судья']) js.push((await fresh('POST', `/tournaments/${pendingOwn.id}/judges`, { name: n, rating: 7 })).data.id)
 r = await fresh('POST', `/rounds/${po.rounds[0].id}/draw`)
-ok(r.status === 201 && r.data[0].room === 'Зал A', 'the draw uses the organizer\'s rooms')
-const deb = r.data[0]
+ok(r.status === 201 && r.data.debates[0].room === 'Зал A', 'the draw uses the organizer\'s rooms')
+const deb = r.data.debates[0]
 const wing = js.find(id => id !== deb.judgeIds[0])
 r = await fresh('PATCH', `/debates/${deb.id}`, { wingJudgeIds: [] })
 ok(r.status === 200 && r.data.judgeIds.length === 1, 'wings can be cleared')
@@ -568,7 +568,7 @@ ok(r.status === 400 && r.data.error === 'odd_number_of_teams', 'three present te
 r = await org('POST', `/rounds/${t1round.id}/draw`, { presentOnly: true, addSwing: true })
 const t1drawn = (await org('GET', `/tournaments/${t1.id}`)).data
 const swing = t1drawn.teams.find(x => x.swing)
-ok(r.status === 201 && r.data.length === 2 && swing && r.data.some(d => [d.propositionTeamId, d.oppositionTeamId].includes(swing.id)), 'only present teams are drawn, the swing team evens it out')
+ok(r.status === 201 && r.data.debates.length === 2 && swing && r.data.debates.some(d => [d.propositionTeamId, d.oppositionTeamId].includes(swing.id)), 'only present teams are drawn, the swing team evens it out')
 ok(!(await client()('GET', `/tournaments/${t1.id}/standings`)).data.teams.some(x => x.team.swing || x.team.name === 'Swing'), 'the swing team is never ranked')
 r = await org('POST', `/tournaments/${t1.id}/checkin/reset`)
 ok(r.data.present === 0, 'check-in can be reset for the next day')
@@ -913,4 +913,38 @@ ok(rating.speakers.some(s => s.club?.id && s.team), 'speakers show their club an
 ok(rating.teams.some(tm => tm.club?.id), 'teams show their club')
 const topClub = rating.clubs[0]
 ok((await client()('GET', `/clubs/${topClub.id}`)).status === 200, 'a club in the rating links to its page')
+
+// ---------- 30. draw methods and "clubmates do not meet early" ----------
+const dt = (await payer('POST', '/tournaments', { ...tBody(30), name: `Жеребьёвка ${uniq}`, maxTeams: 8 })).data
+const schools = ['Школа А', 'Школа А', 'Школа А', 'Школа А', 'Школа Б', 'Школа Б', 'Школа В', 'Школа В']
+for (const [i, inst] of schools.entries()) await payer('POST', `/tournaments/${dt.id}/teams`, { name: `Д${i + 1}`, institution: inst, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+for (let i = 1; i <= 4; i++) await payer('POST', `/tournaments/${dt.id}/judges`, { name: `Судья Жеребьёвки ${i}`, rating: 5 })
+let dd = (await payer('GET', `/tournaments/${dt.id}`)).data
+const instOf = new Map(dd.teams.map(tm => [tm.id, tm.institution]))
+const dRound = dd.rounds[0]
+let clean = true, reports = []
+for (let i = 0; i < 6; i++) { // random order each time: the rule must hold every time
+  r = await payer('POST', `/rounds/${dRound.id}/draw`)
+  reports.push(r.data.report)
+  if (r.data.debates.some(d => instOf.get(d.propositionTeamId) === instOf.get(d.oppositionTeamId))) clean = false
+}
+ok(clean && reports.every(x => x.protectClubs && x.sameClub === 0 && x.method === 'power'), 'in the first rounds teams of the same club (or school) never meet, in 6 random draws')
+r = await payer('POST', `/rounds/${dRound.id}/draw`, { method: 'high_low', protectClubs: true })
+ok(r.status === 201 && r.data.report.method === 'high_low' && r.data.debates.length === 4, 'the organizer can choose the "top vs bottom" method')
+r = await payer('POST', `/rounds/${dRound.id}/draw`, { method: 'random' })
+ok(r.status === 201 && r.data.report.method === 'random', 'and the random method')
+ok((await payer('POST', `/rounds/${dRound.id}/draw`, { method: 'swiss-magic' })).status === 400, 'an unknown method is refused')
+r = await payer('POST', `/rounds/${dRound.id}/draw`, { protectClubs: false })
+ok(r.status === 201 && r.data.report.protectClubs === false, 'the club rule can be switched off for a round')
+// six teams of one school out of eight: two same-school debates cannot be avoided — the report says so
+for (const tm of dd.teams.filter(x => ['Д5', 'Д6'].includes(x.name))) {
+  await payer('PATCH', `/teams/${tm.id}`, { name: tm.name, institution: 'Школа А', speakers: tm.speakers.map(s => s.name) })
+}
+r = await payer('POST', `/rounds/${dRound.id}/draw`)
+dd = (await payer('GET', `/tournaments/${dt.id}`)).data
+const inst2 = new Map(dd.teams.map(tm => [tm.id, tm.institution]))
+const same = r.data.debates.filter(d => inst2.get(d.propositionTeamId) === inst2.get(d.oppositionTeamId)).length
+ok(r.status === 201 && same === 2 && r.data.report.sameClub === 2, 'when a clean draw is impossible, the fewest clubmate meetings are made and reported')
+ok(new Set(r.data.debates.flatMap(d => [d.propositionTeamId, d.oppositionTeamId])).size === 8, 'every team still debates exactly once')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
