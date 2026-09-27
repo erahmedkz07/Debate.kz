@@ -27,6 +27,15 @@ import { googleRouter } from './routes/google.js'
 import { mailOutbox } from './lib/mail.js'
 import { UPLOADS_DIR } from './lib/uploads.js'
 
+export function redactUrl(url: string) {
+  const [path, query] = url.split('?')
+  const safePath = path.replace(/^(\/api\/invites\/)[^/]+/, '$1***')
+  if (!query) return safePath
+  // the Google callback carries the authorization code and state: drop the whole query
+  if (path === '/api/auth/google/callback') return `${safePath}?***`
+  return `${safePath}?${query}`
+}
+
 export function createApp() {
   const app = express()
   app.disable('x-powered-by')
@@ -37,6 +46,8 @@ export function createApp() {
   app.use(cors({ origin: env.CLIENT_ORIGIN, credentials: true }))
   app.use(express.json({ limit: '100kb' }))
   app.use(cookieParser())
+  // secrets never reach the access log: Google's one-time code and state, invite tokens in the path
+  morgan.token('url', (req: express.Request) => redactUrl(req.originalUrl || req.url || ''))
   app.use(morgan(isProd ? 'combined' : 'dev'))
   app.use(loadUser)
 
