@@ -37,6 +37,8 @@ export interface Team {
   institution: string
   city: string
   speakers: Speaker[]
+  checkedIn?: boolean // present at the venue (QR check-in)
+  swing?: boolean // stand-in team for an odd draw, never ranked
 }
 
 export interface Judge {
@@ -171,6 +173,7 @@ export interface User {
   telegramNotify?: boolean
   organizes?: boolean // owns or co-organizes at least one tournament
   judges?: boolean // judges in at least one tournament
+  safeguardingOfficer?: boolean // handles behaviour reports
 }
 
 export interface TeamRegistration {
@@ -212,6 +215,42 @@ export interface AdminAction {
   createdAt: string
 }
 
+// ---------- certificates ----------
+export interface Certificate {
+  code: string
+  kind: 'speaker' | 'judge'
+  name: string
+  teamName?: string
+  institution?: string
+  teamPlace?: number
+  inBreak: boolean
+  speakerPlace?: number
+  issuedAt: string
+  tournament: { id: string; name: string; city: string; level: TournamentLevel; organizer: string; startDate: string; endDate: string }
+}
+
+// ---------- speaker progress ----------
+export interface SpeakerProgress {
+  summary: { speeches: number; debates: number; wins: number; average: number | null; best: number | null; replyAverage: number | null; trend: number | null }
+  timeline: { date: string; tournament: string; round: string; position: number; score: number; won: boolean }[]
+  byPosition: { position: number; average: number | null; count: number }[]
+  byTopic: { topic: MotionTopic; average: number; count: number }[]
+  comments: { judge: string; text: string; position: number; score: number; tournament: string; round: string; date: string }[]
+}
+
+// ---------- motion bank ----------
+export type MotionTopic = 'education' | 'technology' | 'economy' | 'politics' | 'international' | 'environment' | 'society' | 'rights' | 'media' | 'health' | 'culture' | 'sport'
+export interface MotionItem {
+  id: string
+  motion: string
+  infoSlide?: string
+  round: string
+  date: string
+  topics: MotionTopic[]
+  language: 'ru' | 'kz'
+  tournament: { id: string; name: string; level: TournamentLevel; city: string }
+}
+
 // in-app notification: the text is built on the site from type + data (RU/KZ)
 export interface AppNotification {
   id: string
@@ -235,4 +274,34 @@ export interface InvitePreview {
   invitedBy: string
   expiresAt: string
   tournament: { id: string; name: string; city: string; startDate: string; endDate: string; cover: string }
+}
+
+// ---------- find a teammate ----------
+export type TeammateKind = 'team_needed' | 'speaker_needed'
+export interface TeammatePost {
+  id: string
+  kind: TeammateKind
+  city: string
+  level: 'school' | 'university'
+  languages: ('ru' | 'kz' | 'en')[]
+  text: string
+  createdAt: string
+  expiresAt: string
+  author: { name: string; institution?: string }
+  replies: number
+  own: boolean
+  replied: boolean
+}
+
+// ---------- safeguarding ----------
+export type SafetyCategory = 'bullying' | 'harassment' | 'inappropriate' | 'threat' | 'other'
+export type SafetyStatus = 'open' | 'in_progress' | 'resolved'
+export interface MySafetyReport { id: string; category: SafetyCategory; status: SafetyStatus; createdAt: string; resolutionNote?: string }
+export interface SafetyReport extends MySafetyReport {
+  about?: string
+  place?: string
+  description: string
+  anonymous: boolean
+  reporter?: { name: string; email: string }
+  handledBy?: string
 }

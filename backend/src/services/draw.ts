@@ -13,7 +13,8 @@ export const roomName = (i: number, rooms: string[] = ROOMS) => rooms[i] ?? `ÐÑ
 // 3) side goes to the team that has been Proposition less often
 // 4) one judge per room: best-rated judges chair, spare judges become wings,
 //    a judge never sits on a debate with a team from their own institution
-export async function generateDraw(roundId: string) {
+// presentOnly: only teams that checked in; addSwing: an odd number of teams gets the stand-in "swing" team
+export async function generateDraw(roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean } = {}) {
   const round = await prisma.round.findUnique({ where: { id: roundId }, include: { tournament: true } })
   if (!round) throw badRequest('round_not_found')
   if (round.status === 'completed') throw forbidden('round_completed')
@@ -22,10 +23,14 @@ export async function generateDraw(roundId: string) {
 
   const tId = round.tournamentId
   const [teams, judges, previous] = await Promise.all([
-    prisma.team.findMany({ where: { tournamentId: tId }, select: { id: true, institutionId: true } }),
+    prisma.team.findMany({
+      where: { tournamentId: tId, swing: false, ...(opts.presentOnly && { checkedInAt: { not: null } }) },
+      select: { id: true, institutionId: true },
+    }),
     prisma.judge.findMany({ where: { tournamentId: tId }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
     prisma.debate.findMany({ where: { round: { tournamentId: tId, number: { lt: round.number } } }, select: { propositionTeamId: true, oppositionTeamId: true } }),
   ])
+  if (teams.length % 2 && opts.addSwing && teams.length >= 1) teams.push(await swingTeam(tId))
   if (teams.length < 2) throw badRequest('not_enough_teams')
   if (teams.length % 2) throw badRequest('odd_number_of_teams')
   if (judges.length < teams.length / 2) throw badRequest('not_enough_judges')
@@ -83,5 +88,15 @@ export async function generateDraw(roundId: string) {
         },
       })
     }
+  })
+}
+
+// the tournament's stand-in team (created once): three placeholder speakers so judges can score it; never ranked
+async function swingTeam(tournamentId: string) {
+  const existing = await prisma.team.findFirst({ where: { tournamentId, swing: true }, select: { id: true, institutionId: true } })
+  if (existing) return existing
+  return prisma.team.create({
+    data: { tournamentId, name: 'Swing', swing: true, speakers: { create: [1, 2, 3].map(position => ({ name: `Swing ${position}`, position })) } },
+    select: { id: true, institutionId: true },
   })
 }

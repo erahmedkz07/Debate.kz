@@ -76,6 +76,8 @@ const ballotSchema = z.object({
   scores: z.record(z.string(), z.number()), // speakerId -> substantive score
   reply: z.object({ proposition: z.number(), opposition: z.number() }),
   replySpeakers: z.object({ proposition: z.string(), opposition: z.string() }),
+  // optional short written comments: speakerId -> text for substantive speeches, "reply:<side>" for replies
+  feedback: z.record(z.string(), z.string().trim().max(400)).optional(),
 })
 
 judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
@@ -95,7 +97,8 @@ judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
   const onStep = (v: number) => Math.abs(v / step - Math.round(v / step)) < 1e-9
   const sides = { proposition: d.proposition, opposition: d.opposition } as const
   const totals = { proposition: 0, opposition: 0 }
-  const rows: { speakerId: string; side: 'proposition' | 'opposition'; position: number; score: number }[] = []
+  const rows: { speakerId: string; side: 'proposition' | 'opposition'; position: number; score: number; feedback: string | null }[] = []
+  const note = (key: string) => data.feedback?.[key] || null
 
   for (const side of ['proposition', 'opposition'] as const) {
     const team = sides[side]
@@ -104,7 +107,7 @@ judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
       const v = data.scores[s.id]
       if (typeof v !== 'number' || v < sMin || v > sMax || !onStep(v)) throw badRequest('speaker_score_out_of_range', { speakerId: s.id })
       totals[side] += v
-      rows.push({ speakerId: s.id, side, position: s.position, score: v })
+      rows.push({ speakerId: s.id, side, position: s.position, score: v, feedback: note(s.id) })
     }
     // reply speech: only the 1st or 2nd speaker may give it
     const replyBy = data.replySpeakers[side]
@@ -112,7 +115,7 @@ judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
     const r = data.reply[side]
     if (r < rMin || r > rMax || !onStep(r)) throw badRequest('reply_score_out_of_range')
     totals[side] += r
-    rows.push({ speakerId: replyBy, side, position: 4, score: r })
+    rows.push({ speakerId: replyBy, side, position: 4, score: r, feedback: note(`reply:${side}`) })
   }
   if (totals.proposition === totals.opposition) throw badRequest('tie_not_allowed')
   const higher = totals.proposition > totals.opposition ? 'proposition' : 'opposition'

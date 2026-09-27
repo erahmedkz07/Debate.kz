@@ -5,7 +5,8 @@ import { prisma } from '../lib/prisma.js'
 
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
-export const summaryInclude = { _count: { select: { teams: true } } } satisfies Prisma.TournamentInclude
+// the swing team (stand-in for an odd draw) never counts toward the team limit
+export const summaryInclude = { _count: { select: { teams: { where: { swing: false } } } } } satisfies Prisma.TournamentInclude
 type SummaryRow = Prisma.TournamentGetPayload<{ include: typeof summaryInclude }>
 
 export const toSummary = (t: SummaryRow) => ({
@@ -21,6 +22,7 @@ type TeamRow = Prisma.TeamGetPayload<{ include: typeof teamInclude }>
 export const toTeam = (t: TeamRow) => ({
   id: t.id, tournamentId: t.tournamentId, name: t.name, institution: t.institution?.name ?? '', city: t.city ?? '',
   speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id })),
+  checkedIn: !!t.checkedInAt, swing: t.swing,
 })
 
 const debateInclude = { judges: { orderBy: { isChair: 'desc' } } } satisfies Prisma.DebateInclude
@@ -124,7 +126,8 @@ export async function getTournamentDetails(id: string, viewer?: User) {
 
 export async function getStandings(tournamentId: string) {
   const [teams, debates] = await Promise.all([
-    prisma.team.findMany({ where: { tournamentId }, include: teamInclude }),
+    // swing teams only fill the draw; they are never ranked
+    prisma.team.findMany({ where: { tournamentId, swing: false }, include: teamInclude }),
     prisma.debate.findMany({
       where: { round: { tournamentId, status: 'completed' }, winner: { not: null } },
       include: { ballots: { include: { scores: true } } },

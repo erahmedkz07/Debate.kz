@@ -15,7 +15,7 @@ export function background(p: Promise<unknown>) {
 const site = (path: string) => `${env.CLIENT_ORIGIN}${path}`
 
 // a link as a button when Telegram accepts it (public https), otherwise as a line of text
-function withLink(text: string, label: string, path: string, extra: InlineButton[][] = []): [string, SendOptions] {
+export function withLink(text: string, label: string, path: string, extra: InlineButton[][] = []): [string, SendOptions] {
   const url = site(path)
   if (linkable(url)) return [text, { buttons: [[{ text: label, url }], ...extra] }]
   return [`${text}\n\n${label}: ${url}`, extra.length ? { buttons: extra } : {}]

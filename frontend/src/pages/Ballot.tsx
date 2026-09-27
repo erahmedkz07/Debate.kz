@@ -1,24 +1,57 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { AlertCircle, ArrowLeft, CheckCircle2, DoorOpen, Loader2, Minus, Plus, Trophy } from 'lucide-react'
+import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Minus, Plus, Timer, Trophy } from 'lucide-react'
 import { getBallot, NotFoundError, submitBallot } from '@/api'
 import type { Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
+import { useAuth } from '@/lib/auth'
+import {
+  clearBallotDraft, dropBallot, isRetryable, loadBallotDraft, loadBallotSheet, OUTBOX_EVENT, queueBallot, queuedBallot, saveBallotDraft, saveBallotSheet,
+} from '@/lib/ballotOutbox'
 import { errorMessage } from '@/lib/errors'
-import { cn } from '@/lib/utils'
+import { cn, formatDateTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/input'
 import NotFound from './NotFound'
 
 type Side = 'proposition' | 'opposition'
 const SPEAKER = { min: 60, max: 80, step: 0.5 }
 const REPLY = { min: 30, max: 40, step: 0.5 }
+
+// the sheet comes from the API; without a network the copy saved on the last visit is used
+async function loadSheet(debateId: string) {
+  try {
+    const sheet = await getBallot(debateId)
+    saveBallotSheet(debateId, sheet)
+    return { sheet, cached: false }
+  } catch (e) {
+    const sheet = isRetryable(e) ? loadBallotSheet(debateId) : null
+    if (sheet) return { sheet, cached: true }
+    throw e
+  }
+}
+
+// optional written comment to a speaker; hidden behind a small link so the ballot stays compact
+function FeedbackField({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(!!value)
+  if (!open) {
+    return <button type="button" onClick={() => setOpen(true)} className="mb-2 cursor-pointer text-xs font-semibold text-primary hover:underline">+ {t('ballot.addFeedback')}</button>
+  }
+  return (
+    <div className="mb-3">
+      <Textarea rows={2} maxLength={400} value={value} onChange={e => onChange(e.target.value)} placeholder={t('ballot.feedbackPlaceholder')} aria-label={label} className="text-sm" />
+      <p className="mt-1 text-right text-[11px] text-muted-foreground tabular-nums">{value.length}/400</p>
+    </div>
+  )
+}
 
 function ScoreInput({ label, value, onChange, range, invalid }: { label: string; value: string; onChange: (v: string) => void; range: typeof SPEAKER; invalid: boolean }) {
   const bump = (d: number) => {
@@ -45,15 +78,33 @@ function ScoreInput({ label, value, onChange, range, invalid }: { label: string;
 export default function Ballot() {
   const { debateId = '' } = useParams()
   const { t } = useTranslation()
-  const { data, loading, error, reload } = useAsync(() => getBallot(debateId), [debateId])
-  const [scores, setScores] = useState<Record<string, string>>({})
-  const [reply, setReply] = useState<Record<Side, string>>({ proposition: '', opposition: '' })
-  const [replyBy, setReplyBy] = useState<Partial<Record<Side, string>>>({})
-  const [winner, setWinner] = useState<Side | null>(null)
+  const { user } = useAuth()
+  const { data: loaded, loading, error, reload } = useAsync(() => loadSheet(debateId), [debateId])
+  const data = loaded?.sheet
+  // everything typed is kept on the device until the ballot is accepted: a reload or a dropped connection loses nothing
+  const [draft] = useState(() => loadBallotDraft(debateId))
+  const [scores, setScores] = useState<Record<string, string>>(draft?.scores ?? {})
+  // speakerId (substantive) or "reply:<side>" -> comment
+  const [feedback, setFeedback] = useState<Record<string, string>>(draft?.feedback ?? {})
+  const [reply, setReply] = useState<Record<Side, string>>(draft?.reply ?? { proposition: '', opposition: '' })
+  const [replyBy, setReplyBy] = useState<Partial<Record<Side, string>>>(draft?.replyBy ?? {})
+  const [winner, setWinner] = useState<Side | null>(draft?.winner ?? null)
   const [tried, setTried] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [sending, setSending] = useState(false)
-  const [done, setDone] = useState(false)
+  const [done, setDone] = useState<false | 'sent' | 'queued'>(false)
+  const [queued, setQueued] = useState(() => queuedBallot(debateId, user?.id))
+
+  useEffect(() => {
+    const touched = Object.values(scores).some(Boolean) || Object.values(feedback).some(Boolean) || !!reply.proposition || !!reply.opposition || !!winner
+    if (touched && !done) saveBallotDraft(debateId, { scores, feedback, reply, replyBy, winner })
+  }, [debateId, scores, feedback, reply, replyBy, winner, done])
+  useEffect(() => {
+    const sync = () => setQueued(queuedBallot(debateId, user?.id))
+    sync()
+    window.addEventListener(OUTBOX_EVENT, sync)
+    return () => window.removeEventListener(OUTBOX_EVENT, sync)
+  }, [debateId, user?.id])
 
   const inRange = (v: string, r: typeof SPEAKER) => v !== '' && !isNaN(Number(v)) && Number(v) >= r.min && Number(v) <= r.max
 
@@ -86,22 +137,34 @@ export default function Ballot() {
   }
   const send = async () => {
     setSending(true)
+    const payload = {
+      winner: winner!,
+      replySpeakers: {
+        proposition: replyBy.proposition ?? data.proposition.speakers[0].id,
+        opposition: replyBy.opposition ?? data.opposition.speakers[0].id,
+      },
+      scores: Object.fromEntries(allSpeakers.map(s => [s.id, Number(scores[s.id])])),
+      reply: { proposition: Number(reply.proposition), opposition: Number(reply.opposition) },
+      feedback: Object.fromEntries(Object.entries(feedback).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v)),
+    }
     try {
-      await submitBallot(debateId, {
-        winner: winner!,
-        replySpeakers: {
-          proposition: replyBy.proposition ?? data.proposition.speakers[0].id,
-          opposition: replyBy.opposition ?? data.opposition.speakers[0].id,
-        },
-        scores: Object.fromEntries(allSpeakers.map(s => [s.id, Number(scores[s.id])])),
-        reply: { proposition: Number(reply.proposition), opposition: Number(reply.opposition) },
-      })
+      await submitBallot(debateId, payload)
+      // an older copy waiting in the queue must not overwrite this one later
+      dropBallot(debateId)
+      clearBallotDraft(debateId)
       setConfirm(false)
-      setDone(true)
+      setDone('sent')
       toast.success(t('ballot.success'))
     } catch (e) {
-      // the server re-validates every WSDC rule; show its verdict
-      toast.error(errorMessage(e, t))
+      if (isRetryable(e) && user) {
+        // no connection: keep it on the device, OfflineSync sends it when the network is back
+        queueBallot({ debateId, userId: user.id, label: `${data.tournament.name} · ${t('ballot.round', { n: data.round.number })} · ${data.debate.room}`, payload })
+        setConfirm(false)
+        setDone('queued')
+      } else {
+        // the server re-validates every WSDC rule; show its verdict
+        toast.error(errorMessage(e, t))
+      }
     } finally {
       setSending(false)
     }
@@ -111,9 +174,19 @@ export default function Ballot() {
     return (
       <div className="container-page grid min-h-[60vh] max-w-lg place-items-center py-16 text-center">
         <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-          <span className="mx-auto grid size-20 place-items-center rounded-full bg-success-soft text-success"><CheckCircle2 className="size-10" /></span>
-          <h1 className="mt-6 text-3xl font-extrabold">{t('ballot.done')}</h1>
-          <p className="mt-2 text-muted-foreground">{t('ballot.doneText')}</p>
+          {done === 'queued' ? (
+            <>
+              <span className="mx-auto grid size-20 place-items-center rounded-full bg-accent-soft text-navy dark:text-accent"><CloudUpload className="size-10" /></span>
+              <h1 className="mt-6 text-3xl font-extrabold">{t('offline.queuedTitle')}</h1>
+              <p className="mt-2 text-muted-foreground">{t('offline.queuedText')}</p>
+            </>
+          ) : (
+            <>
+              <span className="mx-auto grid size-20 place-items-center rounded-full bg-success-soft text-success"><CheckCircle2 className="size-10" /></span>
+              <h1 className="mt-6 text-3xl font-extrabold">{t('ballot.done')}</h1>
+              <p className="mt-2 text-muted-foreground">{t('ballot.doneText')}</p>
+            </>
+          )}
           <Button asChild size="lg" className="mt-8"><Link to={`/tournaments/${data.tournament.id}`}>{t('ballot.backToTournament')}</Link></Button>
         </motion.div>
       </div>
@@ -136,8 +209,11 @@ export default function Ballot() {
         </div>
         <div className="divide-y divide-border px-5">
           {team.speakers.map((s, i) => (
-            <ScoreInput key={s.id} label={`${i + 1}. ${s.name}`} value={scores[s.id] ?? ''} range={SPEAKER}
-              invalid={tried && !inRange(scores[s.id] ?? '', SPEAKER)} onChange={v => setScores(p => ({ ...p, [s.id]: v }))} />
+            <div key={s.id}>
+              <ScoreInput label={`${i + 1}. ${s.name}`} value={scores[s.id] ?? ''} range={SPEAKER}
+                invalid={tried && !inRange(scores[s.id] ?? '', SPEAKER)} onChange={v => setScores(p => ({ ...p, [s.id]: v }))} />
+              <FeedbackField label={t('ballot.feedbackFor', { name: s.name })} value={feedback[s.id] ?? ''} onChange={v => setFeedback(p => ({ ...p, [s.id]: v }))} />
+            </div>
           ))}
           <div className="py-2.5">
             <div className="flex items-center justify-between gap-3">
@@ -149,6 +225,7 @@ export default function Ballot() {
               </div>
             </div>
             <ScoreInput label={team.speakers.find(s => s.id === (replyBy[side] ?? replyOptions[0].id))!.name} value={reply[side]} range={REPLY} invalid={tried && !inRange(reply[side], REPLY)} onChange={v => setReply(p => ({ ...p, [side]: v }))} />
+            <FeedbackField label={t('ballot.feedbackReply')} value={feedback[`reply:${side}`] ?? ''} onChange={v => setFeedback(p => ({ ...p, [`reply:${side}`]: v }))} />
           </div>
         </div>
       </Card>
@@ -157,7 +234,17 @@ export default function Ballot() {
 
   return (
     <div className="container-page max-w-3xl py-8">
-      <Link to={`/tournaments/${data.tournament.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{data.tournament.name}</Link>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link to={`/tournaments/${data.tournament.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{data.tournament.name}</Link>
+        {/* the timekeeper's timer opens in a new tab so the ballot keeps its entered scores */}
+        <a href="/timer" target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"><Timer className="size-4" />{t('timer.title')}</a>
+      </div>
+      {loaded?.cached && (
+        <p role="status" className="mt-4 flex items-start gap-2 rounded-2xl bg-accent-soft p-4 text-sm"><CloudOff className="mt-0.5 size-4 shrink-0" />{t('offline.cachedSheet')}</p>
+      )}
+      {queued && (
+        <p role="status" className="mt-4 flex items-start gap-2 rounded-2xl bg-primary-soft p-4 text-sm"><CloudUpload className="mt-0.5 size-4 shrink-0 text-primary" />{t('offline.queuedHere', { time: formatDateTime(queued.savedAt) })}</p>
+      )}
       <div className="mt-4 rounded-2xl bg-gradient-to-br from-primary to-navy p-5 text-white sm:p-6">
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-navy">{t('ballot.round', { n: data.round.number })}</span>
@@ -200,6 +287,7 @@ export default function Ballot() {
 
       <div className="sticky bottom-0 -mx-4 mt-6 border-t border-border bg-background/90 px-4 py-4 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
         <Button size="lg" className="w-full" onClick={onSubmit}>{t('ballot.submit')}</Button>
+        <p className="mt-2 text-center text-xs text-muted-foreground">{t('offline.draftHint')}</p>
       </div>
 
       <Dialog open={confirm} onOpenChange={setConfirm}>

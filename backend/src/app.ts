@@ -17,6 +17,12 @@ import { avatarRouter } from './routes/avatar.js'
 import { invitesRouter } from './routes/invites.js'
 import { telegramRouter } from './routes/telegram.js'
 import { notificationsRouter } from './routes/notifications.js'
+import { motionsRouter } from './routes/motions.js'
+import { progressRouter } from './routes/progress.js'
+import { certificatesRouter } from './routes/certificates.js'
+import { checkinRouter } from './routes/checkin.js'
+import { teammatesRouter } from './routes/teammates.js'
+import { safetyRouter } from './routes/safety.js'
 import { UPLOADS_DIR } from './lib/uploads.js'
 
 export function createApp() {
@@ -42,7 +48,7 @@ export function createApp() {
   app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '30d', immutable: true, index: false, dotfiles: 'deny' }))
 
   app.use('/api/auth', authRouter)
-  app.use('/api', publicRouter, meRouter, avatarRouter, invitesRouter, judgeRouter, telegramRouter, notificationsRouter, organizerRouter, adminRouter)
+  app.use('/api', publicRouter, meRouter, avatarRouter, invitesRouter, judgeRouter, telegramRouter, notificationsRouter, motionsRouter, progressRouter, certificatesRouter, checkinRouter, teammatesRouter, safetyRouter, organizerRouter, adminRouter)
 
   app.use('/api', notFoundHandler)
   app.use(errorHandler)

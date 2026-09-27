@@ -1,6 +1,8 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
+  Certificate, MotionItem, MotionTopic, SpeakerProgress,
+  MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
@@ -134,6 +136,7 @@ export interface BallotPayload {
   scores: Record<string, number> // speakerId -> substantive speech score
   reply: Record<'proposition' | 'opposition', number>
   replySpeakers: Record<'proposition' | 'opposition', string>
+  feedback?: Record<string, string> // speakerId or "reply:<side>" -> short comment to the speaker
 }
 export const submitBallot = (debateId: string, payload: BallotPayload) =>
   http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload)
@@ -167,7 +170,7 @@ export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
-export const generateDraw = (roundId: string) => http<Debate[]>('POST', `/rounds/${roundId}/draw`)
+export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean } = {}) => http<Debate[]>('POST', `/rounds/${roundId}/draw`, opts)
 export const updateDebate = (debateId: string, data: Partial<{ room: string; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 
@@ -192,6 +195,38 @@ export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
+// ---------- certificates & check-in ----------
+export const verifyCertificate = (code: string) => or404(http<Certificate>('GET', `/certificates/${encodeURIComponent(code)}`))
+export const getMyCertificates = () => http<Certificate[]>('GET', '/me/certificates')
+export const getTournamentCertificates = (id: string) => http<Certificate[]>('GET', `/tournaments/${id}/certificates`)
+type CheckinStatus = { code?: string; present: number; total: number }
+export const getCheckin = (id: string) => http<CheckinStatus>('GET', `/tournaments/${id}/checkin`)
+export const newCheckinCode = (id: string) => http<CheckinStatus>('POST', `/tournaments/${id}/checkin/code`)
+export const resetCheckin = (id: string) => http<CheckinStatus>('POST', `/tournaments/${id}/checkin/reset`)
+export const setTeamCheckin = (teamId: string, present: boolean) => http<{ ok: true }>('PATCH', `/teams/${teamId}/checkin`, { present })
+export const checkIn = (tournamentId: string, code: string) =>
+  http<{ team: string; tournament: string; alreadyChecked: boolean }>('POST', `/checkin/${tournamentId}`, { code })
+
+export const getProgress = () => http<SpeakerProgress>('GET', '/me/progress')
+
+// ---------- motion bank ----------
+export const getMotions = (f: { search?: string; level?: 'school' | 'university'; lang?: 'ru' | 'kz'; topic?: MotionTopic; page?: number }) =>
+  http<{ items: MotionItem[]; total: number; page: number; pages: number; topicCounts: Record<MotionTopic, number> }>('GET', `/motions${qs(f)}`)
+
+// ---------- find a teammate ----------
+export const getTeammatePosts = (f: { kind?: string; city?: string; level?: string }) => http<TeammatePost[]>('GET', `/teammates${qs(f)}`)
+export const createTeammatePost = (d: { kind: TeammateKind | string; city: string; level: string; languages: string[]; text: string }) =>
+  http<{ id: string }>('POST', '/teammates', d)
+export const closeTeammatePost = (id: string) => http<void>('DELETE', `/teammates/${id}`)
+export const replyToTeammatePost = (id: string, message: string) => http<{ ok: true }>('POST', `/teammates/${id}/reply`, { message })
+
+// ---------- safeguarding ----------
+export const createSafetyReport = (d: { category: SafetyCategory; about?: string; place?: string; description: string; anonymous: boolean }) =>
+  http<{ id: string }>('POST', '/safety-reports', d)
+export const getMySafetyReports = () => http<MySafetyReport[]>('GET', '/me/safety-reports')
+export const getSafetyReports = () => http<SafetyReport[]>('GET', '/safety-reports')
+export const updateSafetyReport = (id: string, d: { status: SafetyStatus; resolutionNote?: string }) => http<{ ok: true }>('PATCH', `/safety-reports/${id}`, d)
+
 // ---------- notifications ----------
 export const getNotifications = (before?: string) =>
   http<{ items: AppNotification[]; unread: number; hasMore: boolean }>('GET', `/me/notifications${qs({ before })}`)
@@ -201,4 +236,4 @@ export const getPlatformNotifications = (before?: string) =>
   http<{ items: AppNotification[]; hasMore: boolean; unread?: number }>('GET', `/admin/notifications${qs({ before })}`)
 
 export const getAdminActions = () => http<AdminAction[]>('GET', '/admin/actions')
-export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)
+export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean; safeguardingOfficer: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)

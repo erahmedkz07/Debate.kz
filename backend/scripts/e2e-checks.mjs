@@ -493,4 +493,132 @@ if (adN.hasMore) {
   ok(page2.items.every(n => n.createdAt < adN.items.at(-1).createdAt), 'the next page continues where the first ended')
 }
 
+// ---------- 19. motion bank ----------
+const bank = (await client()('GET', '/motions')).data
+ok(bank.total > 0 && bank.items.length <= 24 && bank.items.every(m => m.motion && m.tournament.id), `motion bank lists released motions (${bank.total})`)
+ok((await client()('GET', `/motions?search=${encodeURIComponent('уведомления в Telegram')}`)).data.total === 0, 'motions of non-public tournaments never appear')
+const eduBank = (await client()('GET', '/motions?topic=education')).data
+ok(eduBank.items.every(m => m.topics.includes('education')) && bank.topicCounts.education === eduBank.total, 'topic filter and counters agree')
+ok((await client()('GET', '/motions?lang=kz')).data.items.every(m => m.language === 'kz'), 'language filter')
+ok((await client()('GET', '/motions?topic=astrology')).status === 400, 'unknown topics are rejected')
+
+// ---------- 20. judges' written feedback and speaker progress ----------
+const t4live = (await org('GET', `/tournaments/${t4id}`)).data
+const liveRound = t4live.rounds.find(x => x.status === 'released')
+const myDebate = (await student('GET', '/me/debates')).data.find(x => x.round.id === liveRound.id)
+const COMMENT = 'Сильная структура, но не хватило ответов на POI'
+for (const d of t4live.debates.filter(x => x.roundId === liveRound.id && !x.winner)) {
+  const bd = (await org('GET', `/ballots/${d.id}`)).data
+  const sc = {}, fb = {}
+  bd.proposition.speakers.forEach(s => (sc[s.id] = 75)); bd.opposition.speakers.forEach(s => (sc[s.id] = 72))
+  if (d.id === myDebate.debate.id) [...bd.proposition.speakers, ...bd.opposition.speakers].forEach(s => (fb[s.id] = COMMENT))
+  fb['reply:proposition'] = 'Хороший итог'
+  const res = await org('POST', `/ballots/${d.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id }, feedback: fb })
+  if (res.status !== 201) ok(false, `ballot with feedback ${res.status} ${JSON.stringify(res.data)}`)
+}
+r = await org('POST', `/ballots/${myDebate.debate.id}`, { winner: 'proposition', scores: {}, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: 'x', opposition: 'y' }, feedback: { x: 'a'.repeat(401) } })
+ok(r.status === 400, 'a comment longer than 400 characters is rejected')
+let prog = (await student('GET', '/me/progress')).data
+ok(!prog.comments.some(c => c.text === COMMENT), 'comments stay hidden until the round is completed')
+r = await org('PATCH', `/rounds/${liveRound.id}`, { status: 'completed' })
+prog = (await student('GET', '/me/progress')).data
+ok(r.status === 200 && prog.comments.some(c => c.text === COMMENT && c.judge && c.round === liveRound.name), "after the round the speaker sees the judge's comment")
+ok(prog.summary.speeches >= 3 && prog.summary.average >= 60 && prog.summary.average <= 80 && prog.timeline.length === prog.summary.speeches, `progress: ${prog.summary.speeches} speeches, average ${prog.summary.average}`)
+ok(prog.byPosition.length === 3 && prog.byPosition.every(p => p.average === null || (p.average >= 60 && p.average <= 80)), 'averages by position')
+ok((await timur('GET', '/me/progress')).data.comments.every(c => c.text !== COMMENT), "nobody else sees someone's comments")
+ok((await client()('GET', '/me/progress')).status === 401, 'progress needs sign-in')
+
+// ---------- 21. certificates with QR verification ----------
+const finishedT = (await org('GET', '/organizer/tournaments')).data.find(x => x.status === 'finished')
+const certs = (await org('GET', `/tournaments/${finishedT.id}/certificates`)).data
+ok(certs.length > 0 && certs.every(c => /^[A-Z2-9]{10}$/.test(c.code)), `certificates issued for a finished tournament (${certs.length})`)
+ok(certs.some(c => c.kind === 'speaker' && c.teamPlace === 1) && certs.some(c => c.kind === 'judge'), 'speakers (with team place) and judges get certificates')
+ok(certs.filter(c => c.speakerPlace).length <= 3 && certs.filter(c => c.inBreak).every(c => c.teamPlace <= finishedT.breakSize), 'top-3 speakers and the break are marked correctly')
+const again = (await org('GET', `/tournaments/${finishedT.id}/certificates`)).data
+ok(again.length === certs.length && again.every(c => certs.some(x => x.code === c.code)), 'issuing is idempotent: codes never change')
+const one = certs[0]
+r = await client()('GET', `/certificates/${one.code}`)
+ok(r.status === 200 && r.data.name === one.name && r.data.tournament.name === finishedT.name, 'anyone can verify a certificate by its code')
+ok((await client()('GET', `/certificates/${one.code.toLowerCase()}`)).status === 200, 'the code is case-insensitive')
+ok((await client()('GET', '/certificates/ABCDEFGHJK')).status === 404 && (await client()('GET', '/certificates/nonsense')).status === 404, 'unknown codes are rejected')
+ok((await student('GET', `/tournaments/${finishedT.id}/certificates`)).status === 403, 'only organizers list every certificate')
+ok((await org('GET', `/tournaments/${t1.id}/certificates`)).data.length === 0, 'no certificates before the tournament is finished')
+const judgeOfFinished = certs.find(c => c.kind === 'judge')
+const jc = (await judge('GET', '/me/certificates')).data
+ok(Array.isArray(jc) && jc.every(c => c.kind === 'judge' || c.kind === 'speaker') && jc.every(c => certs.some(x => x.code === c.code) || c.tournament.id !== finishedT.id), 'my certificates list only my own')
+ok(!(await student('GET', '/me/certificates')).data.some(c => c.code === judgeOfFinished?.code), "nobody gets someone else's certificate")
+
+// ---------- 22. QR check-in and the swing team ----------
+r = await org('POST', `/tournaments/${t1.id}/checkin/code`)
+const ciCode = r.data.code
+ok(r.status === 200 && /^[A-Z2-9]{6}$/.test(ciCode) && r.data.present === 0, 'organizer creates a check-in code')
+ok((await student('POST', `/checkin/${t1.id}`, { code: 'WRONG1' })).data.error === 'wrong_checkin_code', 'a wrong code is rejected')
+r = await student('POST', `/checkin/${t1.id}`, { code: ciCode.toLowerCase() })
+ok(r.status === 200 && r.data.team === 'E2E Команда', 'a team member checks the team in by scanning the QR')
+ok((await timur('POST', `/checkin/${t1.id}`, { code: ciCode })).data.error === 'not_in_tournament', 'people without a team cannot check in')
+for (let i = 0; i < 10; i++) await sabina('POST', `/checkin/${t1.id}`, { code: 'ZZZZZZ' })
+ok((await sabina('POST', `/checkin/${t1.id}`, { code: ciCode })).status === 429, 'guessing the code is blocked after 10 misses')
+const t1teams = (await org('GET', `/tournaments/${t1.id}`)).data.teams
+for (const tm of t1teams.filter(x => x.name !== 'E2E Команда').slice(0, 2)) await org('PATCH', `/teams/${tm.id}/checkin`, { present: true })
+ok((await org('GET', `/tournaments/${t1.id}/checkin`)).data.present === 3, 'the organizer marks teams by hand (3 present)')
+ok((await student('PATCH', `/teams/${t1teams[0].id}/checkin`, { present: false })).status === 403, 'participants cannot mark teams')
+const t1round = (await org('GET', `/tournaments/${t1.id}`)).data.rounds.find(x => x.status === 'draft')
+r = await org('POST', `/rounds/${t1round.id}/draw`, { presentOnly: true })
+ok(r.status === 400 && r.data.error === 'odd_number_of_teams', 'three present teams cannot be paired without a swing')
+r = await org('POST', `/rounds/${t1round.id}/draw`, { presentOnly: true, addSwing: true })
+const t1drawn = (await org('GET', `/tournaments/${t1.id}`)).data
+const swing = t1drawn.teams.find(x => x.swing)
+ok(r.status === 201 && r.data.length === 2 && swing && r.data.some(d => [d.propositionTeamId, d.oppositionTeamId].includes(swing.id)), 'only present teams are drawn, the swing team evens it out')
+ok(!(await client()('GET', `/tournaments/${t1.id}/standings`)).data.teams.some(x => x.team.swing || x.team.name === 'Swing'), 'the swing team is never ranked')
+r = await org('POST', `/tournaments/${t1.id}/checkin/reset`)
+ok(r.data.present === 0, 'check-in can be reset for the next day')
+
+// ---------- 23. find a teammate ----------
+ok((await client()('GET', '/teammates')).status === 200, 'anyone can browse the teammate board')
+const post = { kind: 'team_needed', city: 'Астана', level: 'school', languages: ['ru', 'kz'], text: 'Ищу команду на школьные турниры, опыт 1 год' }
+ok((await client()('POST', '/teammates', post)).status === 401, 'guests cannot post')
+ok((await student('POST', '/teammates', { ...post, text: 'коротко' })).status === 400, 'too short posts are rejected')
+r = await student('POST', '/teammates', post)
+const postId = r.data.id
+ok(r.status === 201, 'a participant posts "looking for a team"')
+await student('POST', '/teammates', { ...post, kind: 'speaker_needed', text: 'Ищем третьего спикера в команду Вектор' })
+await student('POST', '/teammates', { ...post, text: 'Ещё одно объявление о поиске команды' })
+ok((await student('POST', '/teammates', { ...post, text: 'Четвёртое объявление подряд — лишнее' })).data.error === 'too_many_posts', 'at most 3 active posts per person')
+const board = (await client()('GET', '/teammates?kind=team_needed&city=Астана')).data
+const mineOnBoard = board.find(p => p.id === postId)
+ok(mineOnBoard && mineOnBoard.author.name && !JSON.stringify(mineOnBoard).match(/@|\+7|phone|email/i), 'posts never expose contacts')
+r = await timur('POST', `/teammates/${postId}/reply`, { message: 'Привет! Я из Астаны, давай в команду. Мой Telegram @timur' })
+ok(r.status === 201, 'someone replies to a post')
+ok((await timur('POST', `/teammates/${postId}/reply`, { message: 'Ещё раз привет' })).status === 409, 'one reply per person and post')
+ok((await student('POST', `/teammates/${postId}/reply`, { message: 'Ответ самому себе' })).data.error === 'own_post', 'you cannot reply to your own post')
+await new Promise(res => setTimeout(res, 300))
+const stNotes = (await student('GET', '/me/notifications')).data.items
+ok(stNotes.some(n => n.type === 'participant.teammateReply' && n.data.message.includes('@timur')), 'the reply reaches the author as a notification')
+ok((await timur('DELETE', `/teammates/${postId}`)).status === 403, "you cannot close someone else's post")
+r = await student('DELETE', `/teammates/${postId}`)
+ok(r.status === 204 && !(await client()('GET', '/teammates')).data.some(p => p.id === postId), 'the author closes the post')
+
+// ---------- 24. report behaviour (safeguarding) ----------
+const report = { category: 'bullying', about: 'Участник команды X', place: 'Кубок Астаны, раунд 2', description: 'Во время раунда оскорблял спикеров соперника, это видели судьи', anonymous: true }
+ok((await client()('POST', '/safety-reports', report)).status === 401, 'reporting needs sign-in')
+ok((await student('POST', '/safety-reports', { ...report, description: 'коротко' })).status === 400, 'a report needs a description')
+r = await student('POST', '/safety-reports', report)
+const safetyId = r.data.id
+ok(r.status === 201, 'a participant reports bullying')
+ok((await student('GET', '/safety-reports')).status === 403 && (await timur('GET', '/safety-reports')).status === 403, 'ordinary users cannot read reports')
+let queueS = (await admin('GET', '/safety-reports')).data
+ok(queueS.some(x => x.id === safetyId && x.anonymous && !x.reporter), 'admins see the report; an anonymous reporter stays hidden')
+await new Promise(res => setTimeout(res, 300))
+ok((await admin('GET', '/me/notifications')).data.items.some(n => n.type === 'admin.safetyReport'), 'admins are notified')
+const sabinaUser = (await admin('GET', '/admin/users')).data.find(u => u.email === 'sabina@mail.kz')
+r = await admin('PATCH', `/admin/users/${sabinaUser.id}`, { safeguardingOfficer: true })
+ok(r.status === 200 && (await sabina('GET', '/safety-reports')).status === 200, 'an admin appoints a safeguarding officer who can read reports')
+r = await sabina('PATCH', `/safety-reports/${safetyId}`, { status: 'resolved', resolutionNote: 'Поговорили с тренером команды' })
+ok(r.status === 200 && (await student('GET', '/me/safety-reports')).data.find(x => x.id === safetyId).status === 'resolved', 'the officer resolves it and the reporter sees the status')
+await new Promise(res => setTimeout(res, 300))
+ok((await student('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.safetyUpdate' && n.data.status === 'resolved'), 'the reporter is notified')
+ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'user.safeguardingOn' && a.targetId === sabinaUser.id), 'appointing an officer is logged')
+await admin('PATCH', `/admin/users/${sabinaUser.id}`, { safeguardingOfficer: false })
+ok((await sabina('GET', '/safety-reports')).status === 403, 'removing the role removes access')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

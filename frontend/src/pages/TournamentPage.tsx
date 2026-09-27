@@ -14,6 +14,7 @@ import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
 import type { Debate, Round, TournamentDetails } from '@/types'
 import { useAsync } from '@/lib/hooks'
+import { breakForecast } from '@/lib/breakForecast'
 import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
 import { Badge, StatusDot, statusVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -291,7 +292,7 @@ function RoundBanner({ round }: { round: Round }) {
   )
 }
 
-export function ResultsTab({ id, kind }: { id: string; kind: 'teams' | 'speakers' }) {
+export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds'> }) {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getStandings(id), [id])
   if (error) return <ErrorState onRetry={reload} />
@@ -304,7 +305,22 @@ export function ResultsTab({ id, kind }: { id: string; kind: 'teams' | 'speakers
     : <span className="grid size-8 place-items-center text-sm font-bold text-muted-foreground">{rank}</span>
 
   if (kind === 'teams') {
+    const breakSize = tournament?.breakSize ?? 0
+    // prelim rounds that still can change the table
+    const done = tournament?.rounds.filter(r => r.status === 'completed' && r.number <= tournament.preliminaryRounds).length ?? 0
+    const remaining = tournament ? Math.max(0, tournament.preliminaryRounds - done) : 0
+    const forecast = tournament && tournament.status === 'ongoing' && breakSize > 0 && done > 0 && remaining > 0
+      ? breakForecast(data.teams, breakSize, remaining) : null
+    const look = { safe: 'success', live: 'accent', out: 'muted' } as const
     return (
+      <>
+      {forecast && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
+          <p><b>{t('tournament.break.title', { count: breakSize })}</b> · {t('tournament.break.remaining', { count: remaining })}</p>
+          <p className="text-muted-foreground">{t('tournament.break.line', { count: forecast.line })}</p>
+          <p className="w-full text-xs text-muted-foreground">{t('tournament.break.hint')}</p>
+        </div>
+      )}
       <Card className="overflow-x-auto">
         <table className="w-full min-w-[520px] text-sm">
           <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -313,20 +329,27 @@ export function ResultsTab({ id, kind }: { id: string; kind: 'teams' | 'speakers
               <th className="px-4 py-3">{t('common.team')}</th>
               <th className="px-4 py-3 text-center">{t('tournament.wins')}</th>
               <th className="px-4 py-3 text-right">{t('tournament.speakerPoints')}</th>
+              {forecast && <th className="px-4 py-3 text-right">{t('tournament.break.column')}</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {data.teams.map(r => (
-              <tr key={r.team.id} className={cn('hover:bg-muted/40', r.rank <= 4 && 'bg-primary-soft/40')}>
+              <tr key={r.team.id} className={cn('hover:bg-muted/40', breakSize > 0 && r.rank <= breakSize && 'bg-primary-soft/40')}>
                 <td className="px-4 py-3">{medal(r.rank)}</td>
                 <td className="px-4 py-3"><p className="font-bold">{r.team.name}</p><p className="text-xs text-muted-foreground">{r.team.institution}</p></td>
                 <td className="px-4 py-3 text-center"><span className="font-bold text-success">{r.wins}</span><span className="text-muted-foreground"> – {r.losses}</span></td>
                 <td className="px-4 py-3 text-right font-semibold tabular-nums">{r.speakerPoints.toFixed(1)}</td>
+                {forecast && (
+                  <td className="px-4 py-3 text-right">
+                    <Badge variant={look[forecast.status.get(r.team.id) ?? 'live']}>{t(`tournament.break.${forecast.status.get(r.team.id) ?? 'live'}`)}</Badge>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+      </>
     )
   }
   return (
@@ -416,7 +439,12 @@ export default function TournamentPage() {
             <span className="flex items-center gap-2"><MapPin className="size-4 text-accent" />{data.city}</span>
             <span className="flex items-center gap-2"><Building2 className="size-4 text-accent" />{t('tournament.organizer')}: {data.organizer}</span>
           </div>
-          <div className="mt-8"><RegisterTeamDialog tournament={data} /></div>
+          <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <RegisterTeamDialog tournament={data} />
+            {data.status === 'registration' && (
+              <Link to={`/teammates?city=${encodeURIComponent(data.city)}&level=${data.level}`} className="text-sm font-semibold text-white/85 underline-offset-4 hover:text-accent hover:underline">{t('teammates.noTeam')}</Link>
+            )}
+          </div>
         </div>
       </section>
 
@@ -433,7 +461,7 @@ export default function TournamentPage() {
           <TabsContent value="overview"><Overview data={data} /></TabsContent>
           <TabsContent value="teams"><TeamsTab data={data} /></TabsContent>
           <TabsContent value="draw"><DrawTab data={data} /></TabsContent>
-          <TabsContent value="results"><ResultsTab id={data.id} kind="teams" /></TabsContent>
+          <TabsContent value="results"><ResultsTab id={data.id} kind="teams" tournament={data} /></TabsContent>
           <TabsContent value="speakers"><ResultsTab id={data.id} kind="speakers" /></TabsContent>
           <TabsContent value="judges"><JudgesTab data={data} /></TabsContent>
         </Tabs>

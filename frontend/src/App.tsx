@@ -7,6 +7,7 @@ import Home from '@/pages/Home'
 import NotFound from '@/pages/NotFound'
 import { AuthProvider } from '@/lib/auth'
 import { RequireAuth } from '@/components/auth/guards'
+import { OfflineSync } from '@/components/offline/OfflineSync'
 
 const Tournaments = lazy(() => import('@/pages/Tournaments'))
 const TournamentPage = lazy(() => import('@/pages/TournamentPage'))
@@ -28,6 +29,15 @@ const ForgotPassword = lazy(() => import('@/pages/auth/ForgotPassword'))
 const ResetPassword = lazy(() => import('@/pages/auth/ResetPassword'))
 const InvitePage = lazy(() => import('@/pages/InvitePage'))
 const Notifications = lazy(() => import('@/pages/cabinet/Notifications'))
+const Motions = lazy(() => import('@/pages/Motions'))
+const Timer = lazy(() => import('@/pages/Timer'))
+const Projector = lazy(() => import('@/pages/Projector'))
+const CertificatePrint = lazy(() => import('@/pages/CertificatePrint'))
+const VerifyCertificate = lazy(() => import('@/pages/VerifyCertificate'))
+const CheckIn = lazy(() => import('@/pages/CheckIn'))
+const Teammates = lazy(() => import('@/pages/Teammates'))
+const Safety = lazy(() => import('@/pages/Safety'))
+const SafetyReports = lazy(() => import('@/pages/cabinet/SafetyReports'))
 
 function PageLoader() {
   return (
@@ -50,6 +60,12 @@ export default function App() {
                 <Route path="tournaments" element={<Tournaments />} />
                 <Route path="tournaments/:id" element={<TournamentPage />} />
                 <Route path="rating" element={<Rating />} />
+                <Route path="motions" element={<Motions />} />
+                <Route path="timer" element={<Timer />} />
+                <Route path="teammates" element={<Teammates />} />
+                <Route path="safety" element={<Safety />} />
+                <Route path="verify/:code" element={<VerifyCertificate />} />
+                <Route path="checkin/:tournamentId" element={<RequireAuth><CheckIn /></RequireAuth>} />
                 <Route path="about" element={<About />} />
                 <Route path="pricing" element={<Pricing />} />
                 <Route path="ballot/:debateId" element={<RequireAuth><Ballot /></RequireAuth>} />
@@ -57,6 +73,11 @@ export default function App() {
                 <Route path="invite/:token" element={<InvitePage />} />
                 <Route path="*" element={<NotFound />} />
               </Route>
+              {/* the venue screen: no site header, full screen */}
+              <Route path="tournaments/:id/projector" element={<Projector />} />
+              {/* print views: one certificate, or all certificates of a tournament */}
+              <Route path="certificates/:code" element={<CertificatePrint />} />
+              <Route path="tournaments/:id/certificates/print" element={<RequireAuth><CertificatePrint /></RequireAuth>} />
               <Route path="login" element={<Login />} />
               <Route path="register" element={<Register />} />
               <Route path="forgot-password" element={<ForgotPassword />} />
@@ -66,6 +87,8 @@ export default function App() {
                 <Route path="me" element={<Profile />} />
                 <Route path="judge" element={<JudgeDashboard />} />
                 <Route path="notifications" element={<Notifications />} />
+                {/* admins and safeguarding officers; the page and the API both check it */}
+                <Route path="safety/reports" element={<SafetyReports />} />
                 <Route path="admin" element={<RequireAuth roles={['admin']}><AdminPanel /></RequireAuth>} />
                 <Route path="dashboard">
                   <Route index element={<MyTournaments />} />
@@ -76,6 +99,7 @@ export default function App() {
             </Routes>
           </Suspense>
           <Toaster position="top-center" richColors closeButton />
+          <OfflineSync />
         </BrowserRouter>
       </MotionConfig>
     </AuthProvider>

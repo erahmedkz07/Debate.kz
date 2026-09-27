@@ -65,6 +65,8 @@ export default function Notifications() {
       kind: d.kind ? t(`notifications.kind.${d.kind}`) : '',
       result: d.result ? t(`profile.result.${d.result}`) : '',
       plan: d.pro ? ' · Pro' : '',
+      status: d.status ? t(`safety.status.${d.status}`) : '',
+      category: d.category ? t(`safety.categories.${d.category}`) : '',
     }
   }
 

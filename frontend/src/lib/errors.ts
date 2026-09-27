@@ -6,3 +6,6 @@ export function errorMessage(e: unknown, t: TFunction) {
   const code = e instanceof ApiError ? e.code : 'unknown_error'
   return t(`apiErrors.${code}`, { defaultValue: t('apiErrors.default') })
 }
+
+// the same for a bare error code (e.g. one stored with a queued offline ballot)
+export const apiErrorText = (code: string, t: TFunction) => t(`apiErrors.${code}`, { defaultValue: t('apiErrors.default') })
