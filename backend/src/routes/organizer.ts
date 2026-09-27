@@ -5,7 +5,7 @@ import { fromDay, toDay } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { assertCanManage, assertOwner, participationIn, summaryInclude, toSummary, toTeam } from '../services/tournaments.js'
+import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -14,7 +14,8 @@ export const organizerRouter = Router()
 // any signed-in user; per-tournament rights are checked with assertCanManage / assertOwner
 const org = requireAuth()
 
-export const FREE_TEAM_LIMIT = 12
+export { FREE_TEAM_LIMIT } from '../services/plans.js'
+import { assertRoomForTeam, planFor } from '../services/plans.js'
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -59,7 +60,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
     })
     if (active >= ACTIVE_TOURNAMENT_LIMIT) throw badRequest('tournament_limit_reached')
   }
-  const pro = d.maxTeams > FREE_TEAM_LIMIT
+  const pro = planFor(d.maxTeams) === 'pro'
   const start = fromDay(d.startDate), end = fromDay(d.endDate)
   const t = await prisma.tournament.create({
     data: {
@@ -116,11 +117,12 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     if (deadline && deadline > start) throw badRequest('deadline_after_start')
     Object.assign(data, { startDate: fromDay(start), endDate: fromDay(end), registrationDeadline: deadline ? fromDay(deadline) : null })
   }
-  // team limit: never below the teams already in; crossing 12 switches the plan (Pro is confirmed by an admin)
+  // team limit: never below the teams already in; crossing the free limit switches the plan (Pro is confirmed by an admin)
   if (maxTeams !== undefined && maxTeams !== cur.maxTeams) {
     if (maxTeams < cur._count.teams) throw badRequest('below_team_count')
-    const pro = maxTeams > FREE_TEAM_LIMIT
-    if (pro && cur.plan === 'free') Object.assign(data, { plan: 'pro', paid: false })
+    const pro = planFor(maxTeams) === 'pro'
+    // a Pro payment confirmed earlier stays valid if the limit goes down and up again
+    if (pro && cur.plan === 'free') Object.assign(data, { plan: 'pro', paid: (await prisma.payment.count({ where: { tournamentId: cur.id, status: 'confirmed' } })) > 0 })
     if (!pro && cur.plan === 'pro') Object.assign(data, { plan: 'free', paid: true })
     data.maxTeams = maxTeams
   }
@@ -178,13 +180,14 @@ organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
   const d = body(req, teamSchema)
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { _count: { select: { teams: { where: { swing: false } } } } } })
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
+  assertRoomForTeam(t, t._count.teams)
   if (await prisma.team.findUnique({ where: { tournamentId_name: { tournamentId: t.id, name: d.name } } })) throw conflict('team_name_taken')
   const team = await prisma.team.create({
     data: {
       tournamentId: t.id, name: d.name, city: d.city, institutionId: await institutionId(d.institution, t.level),
       speakers: { create: d.speakers.map((name, i) => ({ name, position: i + 1 })) },
     },
-    include: { institution: true, speakers: { orderBy: { position: 'asc' } } },
+    include: teamInclude,
   })
   res.status(201).json(toTeam(team))
 })
@@ -199,7 +202,7 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
     return tx.team.update({
       where: { id: existing.id },
       data: { name: d.name, city: d.city, institutionId: await institutionId(d.institution, existing.tournament.level) },
-      include: { institution: true, speakers: { orderBy: { position: 'asc' } } },
+      include: teamInclude,
     })
   })
   res.json(toTeam(team))
@@ -282,13 +285,20 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
   const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') } })
   if (!round) throw notFound('round_not_found')
   await assertCanManage(req.user, round.tournamentId)
-  const opts = body(req, z.object({ presentOnly: z.boolean().optional(), addSwing: z.boolean().optional() }).default({}))
-  await generateDraw(round.id, opts)
+  const opts = body(req, z.object({
+    presentOnly: z.boolean().optional(), addSwing: z.boolean().optional(),
+    method: z.enum(['power', 'high_low', 'random']).optional(), protectClubs: z.boolean().optional(),
+  }).default({}))
+  const report = await generateDraw(round.id, opts)
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
-  res.status(201).json(debates.map(x => ({
-    id: x.id, roundId: x.roundId, room: x.room, propositionTeamId: x.propositionTeamId, oppositionTeamId: x.oppositionTeamId,
-    judgeIds: x.judges.map(j => j.judgeId), winner: x.winner ?? undefined, ballotStatus: x.ballotStatus,
-  })))
+  // the report tells the organizer which wishes could not be met (same-club meetings, rematches)
+  res.status(201).json({
+    debates: debates.map(x => ({
+      id: x.id, roundId: x.roundId, room: x.room, propositionTeamId: x.propositionTeamId, oppositionTeamId: x.oppositionTeamId,
+      judgeIds: x.judges.map(j => j.judgeId), winner: x.winner ?? undefined, ballotStatus: x.ballotStatus,
+    })),
+    report,
+  })
 })
 
 organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
@@ -363,12 +373,16 @@ organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
     const role = await participationIn(reg.userId, reg.tournamentId)
     if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
     if (reg.tournament._count.teams >= reg.tournament.maxTeams) throw badRequest('tournament_full')
+    assertRoomForTeam(reg.tournament, reg.tournament._count.teams)
     if (await prisma.team.findUnique({ where: { tournamentId_name: { tournamentId: reg.tournamentId, name: reg.teamName } } })) throw conflict('team_name_taken')
     const instId = await institutionId(reg.institution, reg.tournament.level)
+    // the club and club team the applicant stated, if they still exist
+    const clubTeam = reg.clubTeamId ? await prisma.clubTeam.findUnique({ where: { id: reg.clubTeamId } }) : null
     await prisma.$transaction([
       prisma.team.create({
         data: {
           tournamentId: reg.tournamentId, name: reg.teamName, institutionId: instId, city: reg.user.city,
+          clubId: clubTeam?.clubId ?? null, clubTeamId: clubTeam?.id ?? null,
           speakers: { create: reg.speakers.map((name, i) => ({ name, position: i + 1, userId: name === reg.user.name ? reg.userId : undefined })) },
         },
       }),

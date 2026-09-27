@@ -29,6 +29,7 @@ export function Footer() {
             <li><Link className="hover:text-accent" to="/motions">{t('nav.motions')}</Link></li>
             <li><Link className="hover:text-accent" to="/timer">{t('timer.title')}</Link></li>
             <li><Link className="hover:text-accent" to="/teammates">{t('teammates.title')}</Link></li>
+            <li><Link className="hover:text-accent" to="/clubs">{t('footer.clubs')}</Link></li>
             <li><Link className="hover:text-accent" to="/pricing">{t('nav.pricing')}</Link></li>
             <li><Link className="hover:text-accent" to="/dashboard/tournaments/new">{t('nav.createTournament')}</Link></li>
           </ul>
@@ -38,6 +39,10 @@ export function Footer() {
           <h3 className="mb-4 font-bold text-white">{t('footer.resources')}</h3>
           <ul className="space-y-2.5 text-sm">
             <li><Link className="hover:text-accent" to="/about">{t('nav.about')}</Link></li>
+            <li><Link className="hover:text-accent" to="/tools">{t('footer.tools')}</Link></li>
+            <li><Link className="hover:text-accent" to="/formats">{t('footer.formats')}</Link></li>
+            <li><Link className="hover:text-accent" to="/reference">{t('footer.reference')}</Link></li>
+            <li><Link className="hover:text-accent" to="/news">{t('footer.news')}</Link></li>
             <li><a className="hover:text-accent" href="https://www.wsdcdebating.org/" target="_blank" rel="noreferrer">{t('footer.rules')}</a></li>
             <li><Link className="hover:text-accent" to="/pricing#faq">{t('footer.help')}</Link></li>
             <li><Link className="hover:text-accent" to="/safety">{t('safety.title')}</Link></li>

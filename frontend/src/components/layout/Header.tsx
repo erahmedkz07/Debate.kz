@@ -11,12 +11,14 @@ import { Avatar, UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { cn } from '@/lib/utils'
 
+// "Home" shows only on wide screens in the top bar (the logo leads home too); every item is in the mobile menu
 const links = [
-  { to: '/', key: 'home' },
+  { to: '/', key: 'home', wide: true },
   { to: '/tournaments', key: 'tournaments' },
   { to: '/rating', key: 'rating' },
-  { to: '/motions', key: 'motions' },
-  { to: '/about', key: 'about' },
+  { to: '/clubs', key: 'clubs' },
+  { to: '/tools', key: 'tools' },
+  { to: '/news', key: 'news' },
   { to: '/pricing', key: 'pricing' },
 ] as const
 
@@ -82,7 +84,7 @@ export function Header() {
               key={l.to}
               to={l.to}
               end={l.to === '/'}
-              className={({ isActive }) => cn('relative rounded-lg px-2.5 py-2 text-sm font-semibold xl:px-3.5 transition-colors hover:text-primary', isActive ? (onDark ? 'text-white' : 'text-primary') : onDark ? 'text-white/80 hover:text-white' : 'text-foreground/80')}
+              className={({ isActive }) => cn('relative whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-semibold xl:px-3.5 transition-colors hover:text-primary', 'wide' in l && 'hidden xl:block', isActive ? (onDark ? 'text-white' : 'text-primary') : onDark ? 'text-white/80 hover:text-white' : 'text-foreground/80')}
             >
               {({ isActive }) => (
                 <>

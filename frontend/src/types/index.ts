@@ -39,6 +39,8 @@ export interface Team {
   speakers: Speaker[]
   checkedIn?: boolean // present at the venue (QR check-in)
   swing?: boolean // stand-in team for an odd draw, never ranked
+  club?: Ref // the club and club team it comes from
+  clubTeam?: Ref
 }
 
 export interface Judge {
@@ -118,6 +120,7 @@ export interface RatingTeam {
   rank: number
   name: string
   institution: string
+  club?: Ref
   city: string
   level: TournamentLevel
   tournaments: number
@@ -129,10 +132,26 @@ export interface RatingSpeaker {
   rank: number
   name: string
   team: string
+  club?: Ref
   city: string
   level: TournamentLevel
   tournaments: number
   average: number
+}
+
+export interface RatingClub {
+  rank: number
+  id: string
+  name: string
+  city: string
+  level: TournamentLevel | 'mixed' // plays both school and university events
+  tournaments: number
+  teams: number
+  wins: number
+  debates: number
+  winRate: number // %
+  points: number
+  speakerAverage: number
 }
 
 export interface Testimonial {
@@ -176,6 +195,8 @@ export interface User {
   telegramNotify?: boolean
   organizes?: boolean // owns or co-organizes at least one tournament
   judges?: boolean // judges in at least one tournament
+  club?: Ref // required in the profile before applying to tournaments
+  clubTeam?: Ref
   safeguardingOfficer?: boolean // handles behaviour reports
 }
 
@@ -273,9 +294,10 @@ export interface MyTournament extends Tournament {
 
 export interface InvitePreview {
   kind: 'judge' | 'co_organizer'
-  state: 'valid' | 'used' | 'expired'
+  state: 'valid' | 'used' | 'expired' | 'declined'
   invitedBy: string
   expiresAt: string
+  forEmail?: string // invites by email: masked address of the invited person
   tournament: { id: string; name: string; city: string; startDate: string; endDate: string; cover: string }
 }
 
@@ -307,4 +329,73 @@ export interface SafetyReport extends MySafetyReport {
   anonymous: boolean
   reporter?: { name: string; email: string }
   handledBy?: string
+}
+
+// ---------- plans & Kaspi QR payments ----------
+export type PaymentStatus = 'awaiting' | 'pending' | 'confirmed' | 'rejected'
+export interface KaspiInfo { recipient?: string; phone?: string; qrUrl?: string; note?: string }
+export interface TournamentPayment {
+  required: boolean
+  paid: boolean
+  freeTeamLimit: number
+  amount?: number
+  reference?: string
+  status?: PaymentStatus
+  payerNote?: string
+  adminNote?: string
+  kaspi?: KaspiInfo
+}
+export interface AdminPayment {
+  id: string
+  amount: number
+  reference: string
+  status: PaymentStatus
+  payerNote?: string
+  adminNote?: string
+  paidAt?: string
+  handledAt?: string
+  handledBy?: string
+  tournament: { id: string; name: string; maxTeams: number }
+  payer?: { name: string; email: string }
+}
+export interface PlatformSettings extends KaspiInfo { proPrice: number; freeTeamLimit: number }
+
+export interface EmailInvite {
+  id: string
+  email: string
+  kind: 'judge' | 'co_organizer'
+  state: 'pending' | 'accepted' | 'declined' | 'expired'
+  acceptedBy?: string
+  createdAt: string
+}
+
+// ---------- clubs ----------
+export interface Ref { id: string; name: string }
+export interface ClubSummary { id: string; name: string; city: string; institution?: string; members: number; teams: number }
+export interface ClubMemberInfo { id: string; name: string; avatarUrl?: string; teamId?: string }
+export interface ClubDetails {
+  id: string
+  name: string
+  city: string
+  institution?: string
+  description: string
+  createdAt: string
+  teams: { id: string; name: string; members: ClubMemberInfo[] }[]
+  members: ClubMemberInfo[]
+  isMember: boolean
+  joinCode?: string // members only
+  log?: { id: string; userName: string; action: string; detail: string; createdAt: string }[]
+}
+
+// ---------- news ----------
+export interface NewsItem {
+  id: string
+  title: string
+  summary: string
+  body?: string // only on the article page
+  coverUrl?: string
+  published: boolean
+  publishedAt?: string
+  updatedAt: string
+  author?: string
 }

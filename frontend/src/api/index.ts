@@ -2,9 +2,10 @@
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
   Certificate, MotionItem, MotionTopic, SpeakerProgress,
+  AdminPayment, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem,
   MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
-  AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
+  AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
@@ -46,7 +47,7 @@ export interface LiveRound {
 }
 export const getLive = () => http<LiveRound | null>('GET', '/live')
 export const getTestimonials = () => http<Testimonial[]>('GET', '/testimonials')
-export const getRating = () => http<{ teams: RatingTeam[]; speakers: RatingSpeaker[] }>('GET', '/rating')
+export const getRating = () => http<{ teams: RatingTeam[]; speakers: RatingSpeaker[]; clubs: RatingClub[] }>('GET', '/rating')
 
 // ---------- auth ----------
 
@@ -182,7 +183,10 @@ export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
-export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean } = {}) => http<Debate[]>('POST', `/rounds/${roundId}/draw`, opts)
+export type DrawMethod = 'power' | 'high_low' | 'random'
+export interface DrawReport { method: DrawMethod; protectClubs: boolean; sameClub: number; rematches: number }
+export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean } = {}) =>
+  http<{ debates: Debate[]; report: DrawReport }>('POST', `/rounds/${roundId}/draw`, opts)
 export const updateDebate = (debateId: string, data: Partial<{ room: string; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 
@@ -198,6 +202,12 @@ export const createInvite = (tournamentId: string, kind: 'judge' | 'co_organizer
 export const getInvite = (token: string) => or404(http<InvitePreview>('GET', `/invites/${encodeURIComponent(token)}`))
 export const acceptInvite = (token: string) =>
   http<{ ok: true; kind: 'judge' | 'co_organizer'; tournamentId: string }>('POST', `/invites/${encodeURIComponent(token)}/accept`)
+export const declineInvite = (token: string) => http<{ ok: true }>('POST', `/invites/${encodeURIComponent(token)}/decline`)
+// invites by email: the person gets a notification and a letter; only that address can accept
+export const inviteByEmail = (tournamentId: string, email: string, kind: 'judge' | 'co_organizer') =>
+  http<EmailInvite & { registered: boolean; mailed: boolean }>('POST', `/tournaments/${tournamentId}/invites/email`, { email, kind })
+export const getEmailInvites = (tournamentId: string) => http<EmailInvite[]>('GET', `/tournaments/${tournamentId}/invites`)
+export const revokeInvite = (tournamentId: string, inviteId: string) => http<void>('DELETE', `/tournaments/${tournamentId}/invites/${inviteId}`)
 
 // ---------- admin ----------
 
@@ -249,3 +259,44 @@ export const getPlatformNotifications = (before?: string) =>
 
 export const getAdminActions = () => http<AdminAction[]>('GET', '/admin/actions')
 export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean; safeguardingOfficer: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)
+
+// ---------- plans & Kaspi QR payments ----------
+export const getPlans = () => http<{ freeTeamLimit: number; proPrice: number }>('GET', '/plans')
+export const getTournamentPayment = (id: string) => http<TournamentPayment>('GET', `/tournaments/${id}/payment`)
+export const claimPayment = (id: string, payerNote: string) => http<{ ok: true }>('POST', `/tournaments/${id}/payment/claim`, { payerNote })
+export const getAdminPayments = () => http<AdminPayment[]>('GET', '/admin/payments')
+export const handlePayment = (id: string, status: 'confirmed' | 'rejected', adminNote?: string) =>
+  http<{ ok: true }>('PATCH', `/admin/payments/${id}`, { status, adminNote })
+export const getPlatformSettings = () => http<PlatformSettings>('GET', '/admin/settings')
+export const updatePlatformSettings = (d: { proPrice?: number; recipient?: string; phone?: string; note?: string }) =>
+  http<PlatformSettings>('PATCH', '/admin/settings', d)
+export function uploadKaspiQr(file: File) {
+  const form = new FormData()
+  form.append('qr', file)
+  return upload<PlatformSettings>('/admin/settings/kaspi-qr', form)
+}
+
+// ---------- clubs ----------
+export const getClubs = (f: { search?: string; city?: string } = {}) => http<ClubSummary[]>('GET', `/clubs${qs(f)}`)
+export const getClub = (id: string) => or404(http<ClubDetails>('GET', `/clubs/${id}`))
+export const getClubByCode = (code: string) => or404(http<ClubSummary>('GET', `/clubs/code/${encodeURIComponent(code)}`))
+export const getMyClub = () => http<{ club?: Ref & { city: string }; team?: Ref }>('GET', '/me/club')
+export const createClub = (d: { name: string; city: string; institution?: string; description?: string }) => http<{ id: string }>('POST', '/clubs', d)
+export const updateClub = (id: string, d: { name?: string; city?: string; institution?: string; description?: string }) => http<{ ok: true }>('PATCH', `/clubs/${id}`, d)
+export const resetClubCode = (id: string) => http<{ joinCode: string }>('POST', `/clubs/${id}/code`)
+export const joinClub = (code: string) => http<{ id: string }>('POST', '/clubs/join', { code })
+export const leaveClub = (id: string) => http<void>('POST', `/clubs/${id}/leave`)
+export const removeClubMember = (id: string, userId: string) => http<void>('DELETE', `/clubs/${id}/members/${userId}`)
+export const createClubTeam = (id: string, name: string, join = false) => http<Ref>('POST', `/clubs/${id}/teams`, { name, join })
+export const renameClubTeam = (teamId: string, name: string) => http<{ ok: true }>('PATCH', `/club-teams/${teamId}`, { name })
+export const deleteClubTeam = (teamId: string) => http<void>('DELETE', `/club-teams/${teamId}`)
+export const setMemberTeam = (clubId: string, userId: string, teamId: string | null) => http<{ ok: true }>('PUT', `/clubs/${clubId}/members/${userId}/team`, { teamId })
+
+// ---------- news ----------
+export const getNews = (page = 1, drafts = false) =>
+  http<{ items: NewsItem[]; total: number; page: number; pages: number }>('GET', `/news${qs({ page, drafts: drafts ? '1' : undefined })}`)
+export const getNewsItem = (id: string) => or404(http<NewsItem>('GET', `/news/${id}`))
+export type NewsInput = { title: string; summary: string; body: string; coverUrl?: string; published?: boolean }
+export const createNews = (d: NewsInput) => http<{ id: string }>('POST', '/news', d)
+export const updateNews = (id: string, d: Partial<NewsInput>) => http<{ ok: true }>('PATCH', `/news/${id}`, d)
+export const deleteNews = (id: string) => http<void>('DELETE', `/news/${id}`)

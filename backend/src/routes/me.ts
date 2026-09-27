@@ -139,11 +139,14 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
   if (t.registrationDeadline && t.registrationDeadline < new Date(toDay(new Date()))) throw forbidden('registration_closed')
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
+  // a participant states their club and team in the profile first (organizers and ratings need to know who is from where)
+  const membership = await prisma.clubMember.findUnique({ where: { userId: req.user!.id } })
+  if (!membership?.teamId) throw badRequest('club_required')
   if (await prisma.teamRegistration.findUnique({ where: { tournamentId_teamName: { tournamentId: t.id, teamName: data.teamName } } })) {
     throw conflict('team_name_taken')
   }
   const reg = await prisma.teamRegistration.create({
-    data: { tournamentId: t.id, userId: req.user!.id, teamName: data.teamName, institution: data.institution, speakers: data.speakers, contactPhone: data.phone },
+    data: { tournamentId: t.id, userId: req.user!.id, teamName: data.teamName, institution: data.institution, speakers: data.speakers, contactPhone: data.phone, clubId: membership.clubId, clubTeamId: membership.teamId },
   })
   background(notifyNewRegistration(reg.id))
   res.status(201).json({ ...reg, createdAt: toDay(reg.createdAt) })

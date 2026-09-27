@@ -49,9 +49,9 @@ export async function inbox(userIds: (string | null | undefined)[], type: string
   if (to.length) await prisma.notification.createMany({ data: to.map(userId => ({ userId, type, data, link })) })
 }
 
-const organizersOf = async (tournamentId: string) =>
+export const organizersOf = async (tournamentId: string) =>
   (await prisma.tournamentOrganizer.findMany({ where: { tournamentId }, select: { userId: true } })).map(o => o.userId)
-const admins = async () => (await prisma.user.findMany({ where: { role: 'admin', blocked: false }, select: { id: true } })).map(u => u.id)
+export const admins = async () => (await prisma.user.findMany({ where: { role: 'admin', blocked: false }, select: { id: true } })).map(u => u.id)
 
 // ---------- domain events ----------
 

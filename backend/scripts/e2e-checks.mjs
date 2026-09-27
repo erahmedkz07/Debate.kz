@@ -100,8 +100,8 @@ const next = det.rounds.find(x => x.status === 'draft')
 r = await org('PATCH', `/rounds/${next.id}`, { status: 'released' })
 ok(r.status === 400 && r.data.error === 'need_motion_and_draw', 'cannot release without motion and draw')
 r = await org('POST', `/rounds/${next.id}/draw`)
-ok(r.status === 201 && r.data.length === det.teams.length / 2, `power-paired draw generated (${r.data?.length} rooms)`)
-const draw = r.data
+ok(r.status === 201 && r.data.debates.length === det.teams.length / 2, `power-paired draw generated (${r.data?.debates?.length} rooms)`)
+const draw = r.data.debates
 // quality checks: every team once, no judge twice, no rematch if avoidable
 const teamIds = draw.flatMap(d => [d.propositionTeamId, d.oppositionTeamId])
 ok(new Set(teamIds).size === det.teams.length, 'every team debates exactly once')
@@ -312,12 +312,12 @@ r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { city: 'Алматы'
 let po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
 ok(r.status === 200 && po.city === 'Алматы' && po.startDate === '2026-12-20' && po.registrationDeadline === '2026-12-15', 'city, dates and deadline updated')
 ok(po.rounds.every(x => x.date === '2026-12-20' || x.date === '2026-12-21'), 'unreleased rounds moved to the new dates')
-r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 16 })
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 24 })
 po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
-ok(r.status === 200 && po.plan === 'pro' && po.paid === false, 'raising the limit above 12 switches to unpaid Pro')
+ok(r.status === 200 && po.plan === 'pro' && po.paid === false, 'raising the limit above 20 switches to unpaid Pro')
 r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 8 })
 po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
-ok(po.plan === 'free' && po.paid === true, 'lowering back to 12 or less returns to Free')
+ok(po.plan === 'free' && po.paid === true, 'lowering back to 20 or less returns to Free')
 for (const n of ['Альфа', 'Бета']) await fresh('POST', `/tournaments/${pendingOwn.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
 r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 4 })
 ok(r.status === 200, 'limit can equal the minimum')
@@ -327,8 +327,8 @@ ok(r.status === 200 && po.rooms.join('|') === 'Зал A|Зал B', 'own rooms sa
 const js = []
 for (const n of ['Первый Судья', 'Второй Судья', 'Третий Судья']) js.push((await fresh('POST', `/tournaments/${pendingOwn.id}/judges`, { name: n, rating: 7 })).data.id)
 r = await fresh('POST', `/rounds/${po.rounds[0].id}/draw`)
-ok(r.status === 201 && r.data[0].room === 'Зал A', 'the draw uses the organizer\'s rooms')
-const deb = r.data[0]
+ok(r.status === 201 && r.data.debates[0].room === 'Зал A', 'the draw uses the organizer\'s rooms')
+const deb = r.data.debates[0]
 const wing = js.find(id => id !== deb.judgeIds[0])
 r = await fresh('PATCH', `/debates/${deb.id}`, { wingJudgeIds: [] })
 ok(r.status === 200 && r.data.judgeIds.length === 1, 'wings can be cleared')
@@ -568,7 +568,7 @@ ok(r.status === 400 && r.data.error === 'odd_number_of_teams', 'three present te
 r = await org('POST', `/rounds/${t1round.id}/draw`, { presentOnly: true, addSwing: true })
 const t1drawn = (await org('GET', `/tournaments/${t1.id}`)).data
 const swing = t1drawn.teams.find(x => x.swing)
-ok(r.status === 201 && r.data.length === 2 && swing && r.data.some(d => [d.propositionTeamId, d.oppositionTeamId].includes(swing.id)), 'only present teams are drawn, the swing team evens it out')
+ok(r.status === 201 && r.data.debates.length === 2 && swing && r.data.debates.some(d => [d.propositionTeamId, d.oppositionTeamId].includes(swing.id)), 'only present teams are drawn, the swing team evens it out')
 ok(!(await client()('GET', `/tournaments/${t1.id}/standings`)).data.teams.some(x => x.team.swing || x.team.name === 'Swing'), 'the swing team is never ranked')
 r = await org('POST', `/tournaments/${t1.id}/checkin/reset`)
 ok(r.data.present === 0, 'check-in can be reset for the next day')
@@ -736,4 +736,234 @@ r = await sabina('POST', '/me/password', { currentPassword: 'demo1234', newPassw
 ok(r.status === 200 && (await mails('sabina@mail.kz')).some(m => m.subject.includes('пароль изменён')), 'a password change sends a "password changed" letter')
 await sabina('POST', '/me/password', { currentPassword: 'sabina-new-1', newPassword: 'demo1234' })
 
+
+// ---------- 26. Pro tournaments (> 20 teams) paid by Kaspi QR, confirmed by an admin ----------
+r = await client()('GET', '/plans')
+ok(r.status === 200 && r.data.freeTeamLimit === 20 && r.data.proPrice > 0, 'the public plan info says: free up to 20 teams, with the Pro price')
+await admin('PATCH', '/admin/settings', { proPrice: 25000, recipient: 'Ермек А.', phone: '+7 777 000 00 00', note: 'Укажите код платежа в комментарии' })
+ok((await client()('PATCH', '/admin/settings', { proPrice: 1 })).status === 401 && (await student('PATCH', '/admin/settings', { proPrice: 1 })).status === 403, 'only admins change the price and the Kaspi details')
+const payer = client()
+r = await payer('POST', '/auth/register', { name: 'Плательщик Тестов', email: `payer.${uniq}@mail.kz`, phone: '+7 707 222 11 00', password: 'secret123', consent: true })
+await payer('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+const small = (await payer('POST', '/tournaments', { ...tBody(20), name: `Малый ${uniq}`, maxTeams: 20 })).data
+const smallD = (await payer('GET', `/tournaments/${small.id}`)).data
+ok(smallD.plan === 'free' && smallD.paid === true, 'a tournament of 20 teams is free')
+ok((await payer('GET', `/tournaments/${small.id}/payment`)).data.required === false, 'a free tournament needs no payment')
+const big = (await payer('POST', '/tournaments', { ...tBody(21), name: `Большой ${uniq}`, maxTeams: 24 })).data
+const bigD = (await payer('GET', `/tournaments/${big.id}`)).data
+ok(bigD.plan === 'pro' && bigD.paid === false, 'more than 20 teams is Pro and waits for payment')
+let pay = (await payer('GET', `/tournaments/${big.id}/payment`)).data
+ok(pay.required && !pay.paid && pay.amount === 25000 && /^DKZ-[A-Z2-9]{6}$/.test(pay.reference) && pay.status === 'awaiting' && pay.kaspi.recipient === 'Ермек А.',
+  'the organizer gets the amount, a payment reference and the Kaspi details')
+ok((await payer('GET', `/tournaments/${big.id}/payment`)).data.reference === pay.reference, 'the reference stays the same on every visit')
+ok((await student('GET', `/tournaments/${big.id}/payment`)).status === 403, 'strangers cannot see the payment')
+for (let i = 1; i <= 20; i++) await payer('POST', `/tournaments/${big.id}/teams`, { name: `Команда ${i}`, institution: `Школа ${i}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+r = await payer('POST', `/tournaments/${big.id}/teams`, { name: 'Команда 21', institution: 'Школа 21', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+ok(r.status === 402 && r.data.error === 'payment_required', 'an unpaid Pro tournament stops at 20 teams')
+ok((await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: '' })).status === 400, '"I have paid" needs the payer name or time')
+r = await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'Плательщик Т., 14:05' })
+ok(r.status === 200 && (await payer('GET', `/tournaments/${big.id}/payment`)).data.status === 'pending', '"I have paid" puts the payment in the admin queue')
+ok((await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'ещё раз' })).data?.error === 'payment_already_claimed', 'it cannot be claimed twice while waiting')
+await new Promise(res => setTimeout(res, 300))
+ok((await admin('GET', '/me/notifications')).data.items.some(n => n.type === 'admin.paymentClaimed' && n.data.reference === pay.reference), 'admins are notified with the reference')
+let queue = (await admin('GET', '/admin/payments')).data
+const payRow = queue.find(x => x.reference === pay.reference)
+ok(payRow?.status === 'pending' && payRow.payerNote === 'Плательщик Т., 14:05' && payRow.tournament.id === big.id, 'the admin sees the claim with the payer note')
+ok((await student('GET', '/admin/payments')).status === 403, 'only admins see payments')
+ok((await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'rejected' })).data?.error === 'reason_required', 'a rejection needs a reason')
+r = await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'rejected', adminNote: 'Перевод не найден' })
+pay = (await payer('GET', `/tournaments/${big.id}/payment`)).data
+ok(r.status === 200 && pay.status === 'rejected' && pay.adminNote === 'Перевод не найден' && !pay.paid, 'the admin rejects; the organizer sees why')
+ok((await mails(`payer.${uniq}@mail.kz`)).some(m => m.subject.includes('не подтверждена')), 'the organizer gets a "not confirmed" letter')
+await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'Плательщик Т., перевод 15:20' })
+r = await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'confirmed' })
+pay = (await payer('GET', `/tournaments/${big.id}/payment`)).data
+ok(r.status === 200 && pay.paid && pay.status === 'confirmed', 'after the second claim the admin confirms; the tournament is paid')
+ok((await payer('POST', `/tournaments/${big.id}/teams`, { name: 'Команда 21', institution: 'Школа 21', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })).status === 201, 'the 21st team is accepted after payment')
+ok((await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'confirmed' })).data?.error === 'payment_not_pending', 'a handled payment cannot be handled again')
+ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'tournament.paid' && a.targetId === big.id && a.note.includes(pay.reference)), 'the confirmation is in the audit log with the reference')
+ok((await mails(`payer.${uniq}@mail.kz`)).some(m => m.subject.includes('подтверждена') && !m.subject.includes('не ')), 'the organizer gets a "payment confirmed" letter')
+await payer('PATCH', `/tournaments/${big.id}`, { maxTeams: 20 })
+await payer('PATCH', `/tournaments/${big.id}`, { maxTeams: 24 })
+ok((await payer('GET', `/tournaments/${big.id}`)).data.paid === true, 'a confirmed payment stays valid when the limit changes')
+await admin('PATCH', '/admin/settings', { proPrice: 20000 })
+
+
+// ---------- 27. judges (and co-organizers) invited by email ----------
+await admin('PATCH', `/admin/tournaments/${small.id}`, { moderation: 'approved' })
+ok((await student('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })).status === 403, 'only the organizers of a tournament can invite')
+r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'Sabina@Mail.kz' })
+ok(r.status === 201 && r.data.registered === true && r.data.state === 'pending' && r.data.kind === 'judge', 'an organizer invites a registered person as a judge by email')
+ok((await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })).data?.error === 'already_invited', 'the same person cannot be invited twice while the invite is open')
+await new Promise(res => setTimeout(res, 300))
+const invNote = (await sabina('GET', '/me/notifications')).data.items.find(n => n.type === 'participant.inviteReceived' && n.data.tournament === small.name)
+ok(!!invNote && invNote.link.startsWith('/invite/'), 'the invited person gets a notification with the invite')
+ok((await mails('sabina@mail.kz')).some(m => m.subject.includes('приглашение судить') && m.action?.url.includes('/invite/')), 'and a letter with the invite link')
+const invToken = invNote.link.split('/').pop()
+r = await client()('GET', `/invites/${invToken}`)
+ok(r.data.forEmail === 's***@mail.kz' && r.data.state === 'valid', 'the invite page shows whom it is for, with the address masked')
+ok((await timur('POST', `/invites/${invToken}/accept`)).data?.error === 'invite_other_email', 'another account cannot accept an invite sent to someone else')
+ok((await timur('POST', `/invites/${invToken}/decline`)).data?.error === 'invite_other_email', 'nor decline it')
+r = await sabina('POST', `/invites/${invToken}/decline`)
+let invList = (await payer('GET', `/tournaments/${small.id}/invites`)).data
+ok(r.status === 200 && invList.find(i => i.email === 'sabina@mail.kz')?.state === 'declined', 'the person declines; the organizer sees "declined"')
+await new Promise(res => setTimeout(res, 300))
+ok((await payer('GET', '/me/notifications')).data.items.some(n => n.type === 'organizer.inviteDeclined'), 'the organizer is notified about the refusal')
+ok((await sabina('POST', `/invites/${invToken}/accept`)).data?.error === 'invite_declined', 'a declined invite cannot be accepted later')
+r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })
+ok(r.status === 201, 'after a refusal the organizer may invite again')
+await new Promise(res => setTimeout(res, 300))
+const inv2 = (await sabina('GET', '/me/notifications')).data.items.filter(n => n.type === 'participant.inviteReceived' && n.data.tournament === small.name)[0].link.split('/').pop()
+r = await sabina('POST', `/invites/${inv2}/accept`)
+ok(r.status === 200 && r.data.kind === 'judge' && (await sabina('GET', '/judge/assignments')).status === 200, 'accepting turns on the judge functions for this tournament')
+invList = (await payer('GET', `/tournaments/${small.id}/invites`)).data
+ok(invList.some(i => i.state === 'accepted' && i.acceptedBy), 'the organizer sees who accepted')
+ok((await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })).data?.error === 'already_joined', 'someone who already judges here is not invited again')
+
+// a participant of the tournament cannot be invited to judge it
+await student('POST', `/tournaments/${small.id}/registrations`, { teamName: `Студенты ${uniq}`, institution: 'Лицей', speakers: ['Студент Демо', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+ok((await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'student@debate.kz' })).data?.error === 'conflict_of_interest', 'a person registered as a participant cannot be invited to judge')
+
+// someone without an account: the letter asks to sign up with that address
+const newbie = `newjudge.${uniq}@mail.kz`
+r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: newbie })
+ok(r.status === 201 && r.data.registered === false && (await mails(newbie)).some(m => m.text.includes('зарегистрируйтесь')), 'an address without an account gets a sign-up invite')
+const newbieToken = (await mails(newbie)).at(-1).action.url.split('/').pop()
+const nb = client()
+r = await nb('POST', '/auth/register', { name: 'Новый Судья', email: newbie, phone: '+7 707 333 44 55', password: 'secret123', consent: true })
+await nb('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+ok((await nb('POST', `/invites/${newbieToken}/accept`)).status === 200, 'after signing up with that address the invite can be accepted')
+
+// withdrawing an unanswered invite
+r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'timur@mail.kz' })
+const tInv = r.data.id
+ok((await payer('DELETE', `/tournaments/${small.id}/invites/${tInv}`)).status === 204 && (await payer('GET', `/tournaments/${small.id}/invites`)).data.find(i => i.id === tInv).state === 'expired', 'the organizer can withdraw an unanswered invite')
+
+
+// ---------- 28. clubs and teams (all members equal) ----------
+const stSession = (await student('GET', '/auth/me')).data.user
+ok(!!stSession.club?.name && !!stSession.clubTeam?.name, 'the demo participant has a club and a team in the profile')
+r = await client()('GET', '/clubs')
+ok(r.status === 200 && r.data.length > 0 && r.data.every(c => c.name && c.city && typeof c.members === 'number'), 'the public club list works')
+const clubA = client(), clubB = client(), outsider = client()
+for (const [c, n] of [[clubA, 'a'], [clubB, 'b'], [outsider, 'o']]) {
+  r = await c('POST', '/auth/register', { name: `Клубный Член${n}`, email: `club${n}.${uniq}@mail.kz`, phone: '+7 707 555 66 77', password: 'secret123', consent: true })
+  await c('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+}
+r = await clubA('POST', '/clubs', { name: `Клуб ${uniq}`, city: 'Астана', institution: 'ЕНУ' })
+const clubId = r.data.id
+ok(r.status === 201, 'a verified user creates a club and becomes its member')
+ok((await clubA('POST', '/clubs', { name: `Второй ${uniq}`, city: 'Астана' })).data?.error === 'already_in_club', 'one person is in one club only')
+ok((await clubB('POST', '/clubs', { name: `Клуб ${uniq}`, city: 'Астана' })).data?.error === 'club_exists', 'club names are unique within a city')
+let club = (await clubA('GET', `/clubs/${clubId}`)).data
+ok(club.isMember && /^[A-Z2-9]{8}$/.test(club.joinCode) && club.log.some(l => l.action === 'created'), 'members see the join code and the club log')
+ok((await client()('GET', `/clubs/${clubId}`)).data.joinCode === undefined, 'outsiders do not see the join code')
+r = await clubA('POST', `/clubs/${clubId}/teams`, { name: 'Альфа', join: true })
+const alpha = r.data.id
+ok(r.status === 201 && (await clubA('GET', '/me/club')).data.team?.name === 'Альфа', 'a member creates a team and joins it')
+ok((await clubA('POST', `/clubs/${clubId}/teams`, { name: 'Альфа' })).data?.error === 'team_exists', 'team names are unique in a club')
+ok((await outsider('POST', `/clubs/${clubId}/teams`, { name: 'Чужая' })).data?.error === 'not_club_member', 'a non-member cannot change the club')
+ok((await client()('GET', `/clubs/code/${club.joinCode}`)).data.id === clubId, 'the join link shows which club it is')
+r = await clubB('POST', '/clubs/join', { code: club.joinCode.toLowerCase() })
+ok(r.status === 200 && r.data.id === clubId, 'a person joins with the link (the code is case-insensitive)')
+await new Promise(res => setTimeout(res, 300))
+ok((await clubA('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubJoined'), 'members are told who joined')
+// all members are equal: the newcomer creates a team, renames, moves members, edits the club
+r = await clubB('POST', `/clubs/${clubId}/teams`, { name: 'Бета' })
+const beta = r.data.id
+const aId = (await clubA('GET', '/auth/me')).data.user.id, bId = (await clubB('GET', '/auth/me')).data.user.id
+ok((await clubB('PUT', `/clubs/${clubId}/members/${aId}/team`, { teamId: beta })).status === 200 && (await clubA('GET', '/me/club')).data.team?.name === 'Бета', 'any member can put another member into a team')
+ok((await clubB('PATCH', `/club-teams/${alpha}`, { name: 'Альфа-2' })).status === 200, 'any member can rename a team')
+ok((await clubB('PATCH', `/clubs/${clubId}`, { description: 'Мы спорим по средам' })).status === 200 && (await client()('GET', `/clubs/${clubId}`)).data.description === 'Мы спорим по средам', 'any member edits the club page')
+club = (await clubA('GET', `/clubs/${clubId}`)).data
+ok(club.log.some(l => l.action === 'team.assigned' && l.userName.includes('Членb')) && club.log.some(l => l.action === 'team.renamed'), 'the log shows who changed what')
+ok(club.teams.find(t => t.id === beta).members.some(m => m.id === aId), 'the club page lists team members')
+const otherClub = (await client()('GET', '/clubs')).data.find(c => c.id !== clubId)
+ok((await clubB('PUT', `/clubs/${clubId}/members/${bId}/team`, { teamId: (await client()('GET', `/clubs/${otherClub.id}`)).data.teams[0]?.id ?? 'x' })).data?.error === 'team_not_in_club', 'a member cannot be put into a team of another club')
+const oldCode = club.joinCode
+r = await clubB('POST', `/clubs/${clubId}/code`)
+ok(r.data.joinCode !== oldCode && (await outsider('POST', '/clubs/join', { code: oldCode })).status === 404, 'resetting the link stops the old one')
+// registration for a tournament needs a club and a team
+r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `Без клуба ${uniq}`, institution: 'Школа', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+ok(r.data?.error === 'club_required', 'without a club and a team in the profile you cannot apply to a tournament')
+await outsider('POST', '/clubs/join', { code: r.data ? (await clubA('GET', `/clubs/${clubId}`)).data.joinCode : '' })
+await outsider('PUT', `/clubs/${clubId}/members/${(await outsider('GET', '/auth/me')).data.user.id}/team`, { teamId: beta })
+r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `С клубом ${uniq}`, institution: 'ЕНУ', speakers: ['Клубный Членo', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+ok(r.status === 201, 'with a club and a team the application goes through')
+const smallRegs = (await payer('GET', `/tournaments/${small.id}/registrations`)).data
+await payer('PATCH', `/registrations/${smallRegs.find(x => x.teamName === `С клубом ${uniq}`).id}`, { status: 'confirmed' })
+const smallTeams = (await payer('GET', `/tournaments/${small.id}`)).data.teams
+ok(smallTeams.find(tm => tm.name === `С клубом ${uniq}`)?.club?.id === clubId, 'the confirmed tournament team remembers its club')
+// leaving and removing
+const oId = (await outsider('GET', '/auth/me')).data.user.id
+ok((await clubB('DELETE', `/clubs/${clubId}/members/${bId}`)).data?.error === 'use_leave', 'you leave a club yourself, not remove yourself')
+r = await clubA('DELETE', `/clubs/${clubId}/members/${oId}`)
+ok(r.status === 204 && !(await outsider('GET', '/auth/me')).data.user.club, 'any member can remove another member')
+await new Promise(res => setTimeout(res, 300))
+ok((await outsider('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubRemoved'), 'the removed person is told')
+ok((await clubB('POST', `/clubs/${clubId}/leave`)).status === 204 && (await clubB('GET', '/me/club')).data.club === undefined, 'a member leaves the club')
+
+
+// ---------- 29. rating: clubs, and where speakers and teams come from ----------
+const rating = (await client()('GET', '/rating')).data
+ok(Array.isArray(rating.clubs) && rating.clubs.length > 0, 'the rating has a club table')
+ok(rating.clubs.every((c, i) => c.rank === i + 1 && c.id && c.name && c.wins <= c.debates && c.winRate >= 0 && c.winRate <= 100), 'club rows have a rank, wins not above debates and a win rate in %')
+ok(rating.clubs.every((c, i, a) => i === 0 || a[i - 1].wins > c.wins || (a[i - 1].wins === c.wins && a[i - 1].points >= c.points)), 'clubs are ordered by wins, then speaker points')
+ok(rating.speakers.some(s => s.club?.id && s.team), 'speakers show their club and team')
+ok(rating.teams.some(tm => tm.club?.id), 'teams show their club')
+const topClub = rating.clubs[0]
+ok((await client()('GET', `/clubs/${topClub.id}`)).status === 200, 'a club in the rating links to its page')
+
+// ---------- 30. draw methods and "clubmates do not meet early" ----------
+const dt = (await payer('POST', '/tournaments', { ...tBody(30), name: `Жеребьёвка ${uniq}`, maxTeams: 8 })).data
+const schools = ['Школа А', 'Школа А', 'Школа А', 'Школа А', 'Школа Б', 'Школа Б', 'Школа В', 'Школа В']
+for (const [i, inst] of schools.entries()) await payer('POST', `/tournaments/${dt.id}/teams`, { name: `Д${i + 1}`, institution: inst, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+for (let i = 1; i <= 4; i++) await payer('POST', `/tournaments/${dt.id}/judges`, { name: `Судья Жеребьёвки ${i}`, rating: 5 })
+let dd = (await payer('GET', `/tournaments/${dt.id}`)).data
+const instOf = new Map(dd.teams.map(tm => [tm.id, tm.institution]))
+const dRound = dd.rounds[0]
+let clean = true, reports = []
+for (let i = 0; i < 6; i++) { // random order each time: the rule must hold every time
+  r = await payer('POST', `/rounds/${dRound.id}/draw`)
+  reports.push(r.data.report)
+  if (r.data.debates.some(d => instOf.get(d.propositionTeamId) === instOf.get(d.oppositionTeamId))) clean = false
+}
+ok(clean && reports.every(x => x.protectClubs && x.sameClub === 0 && x.method === 'power'), 'in the first rounds teams of the same club (or school) never meet, in 6 random draws')
+r = await payer('POST', `/rounds/${dRound.id}/draw`, { method: 'high_low', protectClubs: true })
+ok(r.status === 201 && r.data.report.method === 'high_low' && r.data.debates.length === 4, 'the organizer can choose the "top vs bottom" method')
+r = await payer('POST', `/rounds/${dRound.id}/draw`, { method: 'random' })
+ok(r.status === 201 && r.data.report.method === 'random', 'and the random method')
+ok((await payer('POST', `/rounds/${dRound.id}/draw`, { method: 'swiss-magic' })).status === 400, 'an unknown method is refused')
+r = await payer('POST', `/rounds/${dRound.id}/draw`, { protectClubs: false })
+ok(r.status === 201 && r.data.report.protectClubs === false, 'the club rule can be switched off for a round')
+// six teams of one school out of eight: two same-school debates cannot be avoided — the report says so
+for (const tm of dd.teams.filter(x => ['Д5', 'Д6'].includes(x.name))) {
+  await payer('PATCH', `/teams/${tm.id}`, { name: tm.name, institution: 'Школа А', speakers: tm.speakers.map(s => s.name) })
+}
+r = await payer('POST', `/rounds/${dRound.id}/draw`)
+dd = (await payer('GET', `/tournaments/${dt.id}`)).data
+const inst2 = new Map(dd.teams.map(tm => [tm.id, tm.institution]))
+const same = r.data.debates.filter(d => inst2.get(d.propositionTeamId) === inst2.get(d.oppositionTeamId)).length
+ok(r.status === 201 && same === 2 && r.data.report.sameClub === 2, 'when a clean draw is impossible, the fewest clubmate meetings are made and reported')
+ok(new Set(r.data.debates.flatMap(d => [d.propositionTeamId, d.oppositionTeamId])).size === 8, 'every team still debates exactly once')
+
+
+// ---------- 31. news (admins write, everyone reads) ----------
+r = await client()('GET', '/news')
+ok(r.status === 200 && r.data.items.length >= 2 && r.data.items.every(n => n.published && !n.body), 'everyone sees published news (list without the full text)')
+ok(!(await client()('GET', '/news?drafts=1')).data.items.some(n => !n.published), 'guests never see drafts, even when asking')
+const drafts = (await admin('GET', '/news?drafts=1')).data.items.filter(n => !n.published)
+ok(drafts.length >= 1, 'admins see drafts')
+ok((await client()('GET', `/news/${drafts[0].id}`)).status === 404, 'a draft is not readable by others')
+ok((await student('POST', '/news', { title: 'Хочу написать новость', summary: 'Пусть все прочитают это', body: 'Длинный текст новости для проверки' })).status === 403, 'participants cannot write news')
+r = await admin('POST', '/news', { title: 'Новость из e2e', summary: 'Проверяем, как пишутся новости', body: 'Первый абзац новости.\n\nВторой абзац новости.', coverUrl: 'http://insecure.example/x.jpg' })
+ok(r.status === 400, 'a cover must be an https link')
+r = await admin('POST', '/news', { title: 'Новость из e2e', summary: 'Проверяем, как пишутся новости', body: 'Первый абзац новости.\n\nВторой абзац новости.' })
+const newsId = r.data.id
+ok(r.status === 201 && (await client()('GET', `/news/${newsId}`)).status === 404, 'a new post starts as a draft')
+r = await admin('PATCH', `/news/${newsId}`, { published: true })
+const pubNews = (await client()('GET', `/news/${newsId}`)).data
+ok(r.status === 200 && pubNews.published && pubNews.publishedAt && pubNews.body.includes('Второй абзац'), 'after publishing everyone can read it')
+ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'news.publish' && a.targetId === newsId), 'publishing is in the audit log')
+ok((await admin('DELETE', `/news/${newsId}`)).status === 204 && (await client()('GET', `/news/${newsId}`)).status === 404, 'an admin deletes a post')
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

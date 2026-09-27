@@ -82,6 +82,15 @@ enum Plan {
   pro
 }
 
+// Pro payment by Kaspi QR: the organizer pays by the platform's QR with the reference in the comment,
+// presses "I have paid" (pending), an admin checks the Kaspi statement and confirms or rejects
+enum PaymentStatus {
+  awaiting // reference issued, not paid yet
+  pending // the organizer says it is paid; waits for an admin
+  confirmed
+  rejected
+}
+
 // ---------- people ----------
 
 model User {
@@ -117,6 +126,11 @@ model User {
   createdInvites       TournamentInvite[]    @relation("InviteCreatedBy")
   usedInvites          TournamentInvite[]    @relation("InviteUsedBy")
   adminActions         AdminAction[]
+  payments             Payment[]             @relation("PaymentPayer")
+  clubMembership       ClubMember?
+  clubLogs             ClubLog[]
+  news                 News[]
+  handledPayments      Payment[]             @relation("PaymentHandler")
   notifications        Notification[]
   teammatePosts        TeammatePost[]
   teammateReplies      TeammateReply[]
@@ -193,6 +207,7 @@ model Tournament {
   registrations TeamRegistration[]
   invites       TournamentInvite[]
   certificates  Certificate[]
+  payments      Payment[]
 
   @@index([status, startDate])
   @@index([moderation])
@@ -220,6 +235,8 @@ model TournamentInvite {
   usedById     String?    @map("used_by_id")
   expiresAt    DateTime   @map("expires_at")
   usedAt       DateTime?  @map("used_at")
+  email        String? // invite by email: only the account with this address can accept it
+  declinedAt   DateTime?  @map("declined_at")
   createdAt    DateTime   @default(now()) @map("created_at")
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   createdBy    User       @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
@@ -262,9 +279,13 @@ model Team {
   city          String?
   checkedInAt   DateTime?    @map("checked_in_at") // present at the venue (QR check-in or marked by the organizer)
   swing         Boolean      @default(false) // stand-in team that evens out the draw; never ranked
+  clubId        String?      @map("club_id") // the club the team came from (ratings, same-club draw rule)
+  clubTeamId    String?      @map("club_team_id")
   createdAt     DateTime     @default(now()) @map("created_at")
   tournament    Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   institution   Institution? @relation(fields: [institutionId], references: [id])
+  club          Club?        @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  clubTeam      ClubTeam?    @relation(fields: [clubTeamId], references: [id], onDelete: SetNull)
   speakers      Speaker[]
   propositionIn Debate[]     @relation("PropositionTeam")
   oppositionIn  Debate[]     @relation("OppositionTeam")
@@ -390,6 +411,8 @@ model TeamRegistration {
   institution  String
   speakers     String[]
   contactPhone String             @map("contact_phone")
+  clubId       String?            @map("club_id")
+  clubTeamId   String?            @map("club_team_id")
   status       RegistrationStatus @default(pending)
   createdAt    DateTime           @default(now()) @map("created_at")
   tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
@@ -520,4 +543,123 @@ model Testimonial {
   order Int    @default(0)
 
   @@map("testimonials")
+}
+
+// ---------- payments ----------
+
+model Payment {
+  id           String        @id @default(cuid())
+  tournamentId String        @map("tournament_id")
+  userId       String?       @map("user_id") // who pays (the organizer)
+  amount       Int // tenge, fixed when the reference is issued
+  reference    String        @unique // e.g. DKZ-7K2QF9: written in the Kaspi comment so the admin can match the transfer
+  status       PaymentStatus @default(awaiting)
+  payerNote    String?       @map("payer_note") // payer name / last digits / time, to find the transfer
+  adminNote    String?       @map("admin_note") // reason of a rejection
+  paidAt       DateTime?     @map("paid_at") // when the organizer pressed "I have paid"
+  handledById  String?       @map("handled_by_id")
+  handledAt    DateTime?     @map("handled_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User?         @relation("PaymentPayer", fields: [userId], references: [id], onDelete: SetNull)
+  handledBy    User?         @relation("PaymentHandler", fields: [handledById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([tournamentId])
+  @@map("payments")
+}
+
+// platform-wide settings edited by admins (a single row, id = "main")
+model PlatformSetting {
+  id             String   @id @default("main")
+  proPrice       Int      @default(20000) @map("pro_price") // tenge per tournament above the free team limit
+  kaspiRecipient String?  @map("kaspi_recipient") // name shown under the QR, e.g. "Ермек А."
+  kaspiPhone     String?  @map("kaspi_phone") // for a transfer by phone number
+  kaspiQrUrl     String?  @map("kaspi_qr_url") // uploaded QR image, /uploads/platform/<file>
+  paymentNote    String?  @map("payment_note") // extra instructions
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
+}
+
+// ---------- clubs ----------
+// A club (a university or school debate society) has teams; a person belongs to one club and one of its teams.
+// All members are equal: any member edits the club, creates teams, invites by the join link and removes members;
+// every change is written to the club log so members see who did what.
+
+model Club {
+  id              String       @id @default(cuid())
+  name            String
+  city            String
+  institution     String? // university / school the club belongs to
+  description     String       @default("")
+  joinCode        String       @unique @map("join_code") // /clubs/join/<code>
+  createdAt       DateTime     @default(now()) @map("created_at")
+  teams           ClubTeam[]
+  members         ClubMember[]
+  logs            ClubLog[]
+  tournamentTeams Team[]
+
+  @@unique([name, city])
+  @@map("clubs")
+}
+
+model ClubTeam {
+  id              String       @id @default(cuid())
+  clubId          String       @map("club_id")
+  name            String
+  createdAt       DateTime     @default(now()) @map("created_at")
+  club            Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  members         ClubMember[]
+  tournamentTeams Team[]
+
+  @@unique([clubId, name])
+  @@map("club_teams")
+}
+
+model ClubMember {
+  userId   String    @id @map("user_id") // one club per person
+  clubId   String    @map("club_id")
+  teamId   String?   @map("team_id") // a team of the same club
+  joinedAt DateTime  @default(now()) @map("joined_at")
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club     Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  team     ClubTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@index([clubId])
+  @@map("club_members")
+}
+
+model ClubLog {
+  id        String   @id @default(cuid())
+  clubId    String   @map("club_id")
+  userId    String?  @map("user_id")
+  userName  String   @map("user_name") // kept after the account is gone
+  action    String // created, edited, joined, left, removed, team.created, team.renamed, team.deleted, team.assigned, code.reset
+  detail    String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([clubId, createdAt])
+  @@map("club_logs")
+}
+
+// ---------- news of the debate world (written by admins) ----------
+
+model News {
+  id          String    @id @default(cuid())
+  title       String
+  summary     String // one or two sentences for the list
+  body        String // paragraphs separated by blank lines; links are plain URLs
+  coverUrl    String?   @map("cover_url")
+  published   Boolean   @default(false) // drafts are seen only by admins
+  publishedAt DateTime? @map("published_at")
+  authorId    String?   @map("author_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  author      User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([published, publishedAt])
+  @@map("news")
 }

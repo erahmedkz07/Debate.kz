@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, ExternalLink, Eye, EyeOff, Gavel, History, LayoutDashboard, LayoutGrid, LifeBuoy, Search, ShieldCheck, Trash2, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
+import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, CreditCard, ExternalLink, Eye, EyeOff, Gavel, History, LayoutDashboard, LayoutGrid, LifeBuoy, Search, ShieldCheck, Trash2, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
 import { adminDeleteTournament, getAdminActions, getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { AdminTournament, Role, User } from '@/types'
@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange, formatDateTime } from '@/lib/utils'
 import { Avatar } from '@/components/auth/UserMenu'
+import { AdminPayments } from '@/components/payments/AdminPayments'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -338,7 +339,7 @@ function UsersTab() {
 const actionIcon: Record<string, typeof Check> = {
   'tournament.approve': CheckCircle2, 'tournament.reject': X, 'tournament.paid': CircleDollarSign, 'tournament.unpaid': CircleDollarSign,
   'tournament.show': Eye, 'tournament.hide': EyeOff, 'tournament.delete': Trash2, 'user.role': UserCog, 'user.block': Ban, 'user.unblock': Unlock,
-  'user.safeguardingOn': LifeBuoy, 'user.safeguardingOff': LifeBuoy,
+  'user.safeguardingOn': LifeBuoy, 'user.safeguardingOff': LifeBuoy, 'payment.reject': CreditCard,
 }
 const actionColor = (a: string) => (a.endsWith('reject') || a.endsWith('block') || a.endsWith('hide') || a.endsWith('delete') ? 'bg-danger-soft text-danger'
   : a.endsWith('approve') || a.endsWith('paid') || a.endsWith('unblock') || a.endsWith('show') ? 'bg-success-soft text-success' : 'bg-primary-soft text-primary')
@@ -378,7 +379,8 @@ export default function AdminPanel() {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(getAdminTournaments)
   const [list, setList] = useState<AdminTournament[]>([])
-  const [tab, setTab] = useState('overview')
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState(params.get('tab') ?? 'overview')
   useEffect(() => { if (data) setList(data) }, [data])
   const pending = list.filter(x => x.moderation === 'pending').length
 
@@ -395,6 +397,7 @@ export default function AdminPanel() {
               {pending > 0 && <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy" title={t('moderation.pending')}>{pending}</span>}
             </SideTabsTrigger>
             <SideTabsTrigger value="users"><Users className="size-4" />{t('admin.users')}</SideTabsTrigger>
+            <SideTabsTrigger value="payments"><CreditCard className="size-4" />{t('payment.admin.tab')}</SideTabsTrigger>
             <SideTabsTrigger value="log"><History className="size-4" />{t('admin.log.tab')}</SideTabsTrigger>
           </SideTabsList>
           <div className="min-w-0">
@@ -403,6 +406,7 @@ export default function AdminPanel() {
                 <TabsContent value="overview" className="mt-0"><Overview tournaments={list} setTab={setTab} /></TabsContent>
                 <TabsContent value="tournaments" className="mt-0"><TournamentsTab list={list} setList={setList} /></TabsContent>
                 <TabsContent value="users" className="mt-0"><UsersTab /></TabsContent>
+                <TabsContent value="payments" className="mt-0"><AdminPayments /></TabsContent>
                 <TabsContent value="log" className="mt-0"><LogTab /></TabsContent>
               </>
             )}

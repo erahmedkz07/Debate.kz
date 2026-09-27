@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -32,6 +32,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   const [open, setOpen] = useState(false)
   const [gate, setGate] = useState(false)
   const { user } = useAuth()
+  const navigate = useNavigate()
   const schema = z.object({
     team: z.string().trim().min(2, t('auth.errors.required')),
     institution: z.string().trim().min(2, t('auth.errors.required')),
@@ -43,7 +44,8 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    values: { team: '', institution: user?.institution ?? '', s1: user?.name ?? '', s2: '', s3: '', phone: user?.phone ?? '' },
+    // prefilled from the profile: the club team name and the club's institution
+    values: { team: user?.clubTeam?.name ?? '', institution: user?.institution ?? user?.club?.name ?? '', s1: user?.name ?? '', s2: '', s3: '', phone: user?.phone ?? '' },
   })
 
   const onSubmit = async (v: Form) => {
@@ -61,6 +63,8 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   const onOpenChange = (v: boolean) => {
     if (v && !user) return setGate(true)
     if (v && !user?.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
+    // the club and team are stated in the profile before applying
+    if (v && !user?.clubTeam) return void toast.info(t('apiErrors.club_required'), { action: { label: t('club.toProfile'), onClick: () => navigate('/me?club=1') } })
     setOpen(v)
   }
 
@@ -119,7 +123,7 @@ function Overview({ data }: { data: TournamentDetails }) {
   const facts = [
     { icon: Trophy, label: t('tournament.format'), value: 'World Schools (WSDC)' },
     { icon: Medal, label: t('tournament.prelims'), value: data.preliminaryRounds },
-    { icon: Star, label: t('tournament.break'), value: data.breakSize },
+    { icon: Star, label: t('tournament.break.label'), value: data.breakSize },
     { icon: Users, label: t('common.team'), value: `${data.teamsCount} / ${data.maxTeams}` },
     { icon: Globe, label: t('tournament.languages'), value: data.languages.map(l => (l === 'kz' ? 'Қазақша' : 'Русский')).join(', ') },
   ]

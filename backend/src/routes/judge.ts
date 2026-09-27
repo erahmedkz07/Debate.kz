@@ -6,11 +6,10 @@ import { toDay } from '../lib/dates.js'
 import { badRequest, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { isOrganizerOf, toTeam } from '../services/tournaments.js'
+import { isOrganizerOf, teamInclude, toTeam } from '../services/tournaments.js'
 
 export const judgeRouter = Router()
 
-const teamInclude = { institution: true, speakers: { orderBy: { position: 'asc' as const } } }
 
 // all debates where the signed-in user sits on the panel
 judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {

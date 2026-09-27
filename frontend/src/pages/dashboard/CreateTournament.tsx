@@ -18,7 +18,7 @@ import { FieldError, Input, Label, Switch, Textarea } from '@/components/ui/inpu
 import { Select } from '@/components/ui/select'
 import { DatePicker } from '@/components/ui/date-picker'
 
-const FREE_LIMIT = 12
+import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
 const steps = ['basic', 'format', 'registration', 'summary'] as const
 
 export default function CreateTournament() {

@@ -16,13 +16,17 @@ export const toSummary = (t: SummaryRow) => ({
   preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
 })
 
-const teamInclude = { institution: true, speakers: { orderBy: { position: 'asc' } } } satisfies Prisma.TeamInclude
+export const teamInclude = {
+  institution: true, speakers: { orderBy: { position: 'asc' } },
+  club: { select: { id: true, name: true } }, clubTeam: { select: { id: true, name: true } },
+} satisfies Prisma.TeamInclude
 type TeamRow = Prisma.TeamGetPayload<{ include: typeof teamInclude }>
 
 export const toTeam = (t: TeamRow) => ({
   id: t.id, tournamentId: t.tournamentId, name: t.name, institution: t.institution?.name ?? '', city: t.city ?? '',
   speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id })),
   checkedIn: !!t.checkedInAt, swing: t.swing,
+  club: t.club ?? undefined, clubTeam: t.clubTeam ?? undefined, // where the team comes from
 })
 
 const debateInclude = { judges: { orderBy: { isChair: 'desc' } } } satisfies Prisma.DebateInclude

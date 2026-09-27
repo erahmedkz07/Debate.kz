@@ -30,4 +30,5 @@ export function formatNumber(n: number) {
   return new Intl.NumberFormat(locale()).format(n)
 }
 
-export const initials = (name: string) => name.split(' ').map(p => p[0]).slice(0, 2).join('')
+// first letters of the first two words; signs like № or « are skipped ("Гимназия №1" -> "Г1")
+export const initials = (name: string) => (name.match(/[\p{L}\p{N}]+/gu) ?? [name]).map(p => p[0]).slice(0, 2).join('').toUpperCase()
