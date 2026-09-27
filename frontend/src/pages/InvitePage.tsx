@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { CalendarDays, Gavel, Loader2, LogIn, MapPin, ShieldCheck, Users } from 'lucide-react'
-import { acceptInvite, getInvite, NotFoundError } from '@/api'
+import { CalendarDays, Gavel, Loader2, LogIn, Mail, MapPin, ShieldCheck, Users, X } from 'lucide-react'
+import { acceptInvite, declineInvite, getInvite, NotFoundError } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
@@ -43,6 +43,19 @@ export default function InvitePage() {
     }
   }
 
+  const decline = async () => {
+    setBusy(true)
+    try {
+      await declineInvite(token)
+      toast(t('invite.declined'))
+      reload()
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="container-page max-w-xl py-12 sm:py-16">
       <Card className="overflow-hidden">
@@ -60,6 +73,11 @@ export default function InvitePage() {
           <p className="mt-3 flex items-start gap-2 rounded-xl bg-muted p-3 text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />{t('invite.scope')}
           </p>
+          {data.forEmail && (
+            <p className="mt-3 flex items-start gap-2 rounded-xl bg-primary-soft p-3 text-xs">
+              <Mail className="mt-0.5 size-4 shrink-0 text-primary" />{t('invite.forEmail', { email: data.forEmail })}
+            </p>
+          )}
 
           <div className="mt-6">
             {data.state !== 'valid' ? (
@@ -75,9 +93,12 @@ export default function InvitePage() {
                 <ResendVerification />
               </div>
             ) : (
-              <Button size="lg" className="w-full" onClick={accept} disabled={busy}>
-                {busy && <Loader2 className="size-4 animate-spin" />}{t('invite.accept')}
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button size="lg" className="flex-1" onClick={accept} disabled={busy}>
+                  {busy && <Loader2 className="size-4 animate-spin" />}{t('invite.accept')}
+                </Button>
+                <Button size="lg" variant="outline" onClick={decline} disabled={busy}><X className="size-4" />{t('invite.decline')}</Button>
+              </div>
             )}
           </div>
         </div>

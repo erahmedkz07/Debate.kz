@@ -2,7 +2,7 @@
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
   Certificate, MotionItem, MotionTopic, SpeakerProgress,
-  AdminPayment, PlatformSettings, TournamentPayment,
+  AdminPayment, PlatformSettings, TournamentPayment, EmailInvite,
   MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
@@ -199,6 +199,12 @@ export const createInvite = (tournamentId: string, kind: 'judge' | 'co_organizer
 export const getInvite = (token: string) => or404(http<InvitePreview>('GET', `/invites/${encodeURIComponent(token)}`))
 export const acceptInvite = (token: string) =>
   http<{ ok: true; kind: 'judge' | 'co_organizer'; tournamentId: string }>('POST', `/invites/${encodeURIComponent(token)}/accept`)
+export const declineInvite = (token: string) => http<{ ok: true }>('POST', `/invites/${encodeURIComponent(token)}/decline`)
+// invites by email: the person gets a notification and a letter; only that address can accept
+export const inviteByEmail = (tournamentId: string, email: string, kind: 'judge' | 'co_organizer') =>
+  http<EmailInvite & { registered: boolean; mailed: boolean }>('POST', `/tournaments/${tournamentId}/invites/email`, { email, kind })
+export const getEmailInvites = (tournamentId: string) => http<EmailInvite[]>('GET', `/tournaments/${tournamentId}/invites`)
+export const revokeInvite = (tournamentId: string, inviteId: string) => http<void>('DELETE', `/tournaments/${tournamentId}/invites/${inviteId}`)
 
 // ---------- admin ----------
 

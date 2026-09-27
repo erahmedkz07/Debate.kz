@@ -24,6 +24,7 @@ import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { ResultsTab } from '@/pages/TournamentPage'
 import NotFound from '@/pages/NotFound'
 import { InviteButton } from '@/components/tournament/InviteDialog'
+import { EmailInvites } from '@/components/tournament/EmailInvites'
 import { ModerationBanner } from '@/components/tournament/ModerationBadge'
 import { DatePicker } from '@/components/ui/date-picker'
 import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
@@ -342,6 +343,7 @@ function Judges({ data, reload }: SectionProps) {
           </div>
         } />
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
+      {data.status !== 'finished' && <div className="mb-5"><EmailInvites tournamentId={data.id} kind="judge" /></div>}
       {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {data.judges.map(j => (
@@ -829,6 +831,7 @@ function SettingsSection({ data, reload }: SectionProps) {
               <p className="text-sm text-muted-foreground">{t('dashboard.settings.coOrganizersText')}</p>
             </div>
             <InviteButton tournamentId={data.id} kind="co_organizer" />
+            <div className="w-full"><EmailInvites tournamentId={data.id} kind="co_organizer" plain /></div>
           </Card>
         )}
         {isOwner && (

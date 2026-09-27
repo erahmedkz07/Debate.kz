@@ -63,3 +63,15 @@ export const paymentRejectedLetter = (u: User, tournament: string, reason: strin
   text: `Здравствуйте, ${u.name}!\n\nМы не нашли оплату тарифа Pro для турнира «${tournament}».\n\nПричина: ${reason}\n\nПроверьте перевод в Kaspi и нажмите «Я оплатил» ещё раз, указав имя плательщика и время перевода. Если что-то непонятно — напишите на hello@debate.kz.`,
   action: { label: 'Открыть оплату турнира', url: site(`/dashboard/tournaments/${tournamentId}/settings`) },
 })
+
+// an invite by email: to a registered person or to someone who still has to sign up
+export const inviteLetter = (to: string, d: { inviter: string; tournament: string; kind: 'judge' | 'co_organizer'; registered: boolean; url: string }) => sendMail({
+  to,
+  subject: d.kind === 'judge' ? `Debate.kz — приглашение судить «${d.tournament}»` : `Debate.kz — приглашение в организаторы «${d.tournament}»`,
+  text: `Здравствуйте!\n\n${d.inviter} приглашает вас ${d.kind === 'judge' ? 'судить турнир' : 'стать соорганизатором турнира'} «${d.tournament}» на Debate.kz.\n\n${d.kind === 'judge'
+    ? 'Если вы примете приглашение, вам откроется раздел «Судейство»: назначения на дебаты и онлайн-бюллетени этого турнира. Судить турнир, в котором вы участвуете как спикер, нельзя.'
+    : 'Если вы примете приглашение, вы сможете управлять турниром вместе с организатором.'}\n\n${d.registered
+    ? 'Войдите в аккаунт с этим email и примите или отклоните приглашение.'
+    : 'У вас ещё нет аккаунта: зарегистрируйтесь на Debate.kz с этим email (можно через Google) — после этого приглашение можно принять.'} Ссылка действует 7 дней.\n\nЕсли вы не ждали этого письма, просто проигнорируйте его.`,
+  action: { label: 'Открыть приглашение', url: d.url },
+})

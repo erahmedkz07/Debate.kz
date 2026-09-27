@@ -788,4 +788,55 @@ await payer('PATCH', `/tournaments/${big.id}`, { maxTeams: 24 })
 ok((await payer('GET', `/tournaments/${big.id}`)).data.paid === true, 'a confirmed payment stays valid when the limit changes')
 await admin('PATCH', '/admin/settings', { proPrice: 20000 })
 
+
+// ---------- 27. judges (and co-organizers) invited by email ----------
+await admin('PATCH', `/admin/tournaments/${small.id}`, { moderation: 'approved' })
+ok((await student('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })).status === 403, 'only the organizers of a tournament can invite')
+r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'Sabina@Mail.kz' })
+ok(r.status === 201 && r.data.registered === true && r.data.state === 'pending' && r.data.kind === 'judge', 'an organizer invites a registered person as a judge by email')
+ok((await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })).data?.error === 'already_invited', 'the same person cannot be invited twice while the invite is open')
+await new Promise(res => setTimeout(res, 300))
+const invNote = (await sabina('GET', '/me/notifications')).data.items.find(n => n.type === 'participant.inviteReceived' && n.data.tournament === small.name)
+ok(!!invNote && invNote.link.startsWith('/invite/'), 'the invited person gets a notification with the invite')
+ok((await mails('sabina@mail.kz')).some(m => m.subject.includes('приглашение судить') && m.action?.url.includes('/invite/')), 'and a letter with the invite link')
+const invToken = invNote.link.split('/').pop()
+r = await client()('GET', `/invites/${invToken}`)
+ok(r.data.forEmail === 's***@mail.kz' && r.data.state === 'valid', 'the invite page shows whom it is for, with the address masked')
+ok((await timur('POST', `/invites/${invToken}/accept`)).data?.error === 'invite_other_email', 'another account cannot accept an invite sent to someone else')
+ok((await timur('POST', `/invites/${invToken}/decline`)).data?.error === 'invite_other_email', 'nor decline it')
+r = await sabina('POST', `/invites/${invToken}/decline`)
+let invList = (await payer('GET', `/tournaments/${small.id}/invites`)).data
+ok(r.status === 200 && invList.find(i => i.email === 'sabina@mail.kz')?.state === 'declined', 'the person declines; the organizer sees "declined"')
+await new Promise(res => setTimeout(res, 300))
+ok((await payer('GET', '/me/notifications')).data.items.some(n => n.type === 'organizer.inviteDeclined'), 'the organizer is notified about the refusal')
+ok((await sabina('POST', `/invites/${invToken}/accept`)).data?.error === 'invite_declined', 'a declined invite cannot be accepted later')
+r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })
+ok(r.status === 201, 'after a refusal the organizer may invite again')
+await new Promise(res => setTimeout(res, 300))
+const inv2 = (await sabina('GET', '/me/notifications')).data.items.filter(n => n.type === 'participant.inviteReceived' && n.data.tournament === small.name)[0].link.split('/').pop()
+r = await sabina('POST', `/invites/${inv2}/accept`)
+ok(r.status === 200 && r.data.kind === 'judge' && (await sabina('GET', '/judge/assignments')).status === 200, 'accepting turns on the judge functions for this tournament')
+invList = (await payer('GET', `/tournaments/${small.id}/invites`)).data
+ok(invList.some(i => i.state === 'accepted' && i.acceptedBy), 'the organizer sees who accepted')
+ok((await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })).data?.error === 'already_joined', 'someone who already judges here is not invited again')
+
+// a participant of the tournament cannot be invited to judge it
+await student('POST', `/tournaments/${small.id}/registrations`, { teamName: `Студенты ${uniq}`, institution: 'Лицей', speakers: ['Студент Демо', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+ok((await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'student@debate.kz' })).data?.error === 'conflict_of_interest', 'a person registered as a participant cannot be invited to judge')
+
+// someone without an account: the letter asks to sign up with that address
+const newbie = `newjudge.${uniq}@mail.kz`
+r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: newbie })
+ok(r.status === 201 && r.data.registered === false && (await mails(newbie)).some(m => m.text.includes('зарегистрируйтесь')), 'an address without an account gets a sign-up invite')
+const newbieToken = (await mails(newbie)).at(-1).action.url.split('/').pop()
+const nb = client()
+r = await nb('POST', '/auth/register', { name: 'Новый Судья', email: newbie, phone: '+7 707 333 44 55', password: 'secret123', consent: true })
+await nb('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+ok((await nb('POST', `/invites/${newbieToken}/accept`)).status === 200, 'after signing up with that address the invite can be accepted')
+
+// withdrawing an unanswered invite
+r = await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'timur@mail.kz' })
+const tInv = r.data.id
+ok((await payer('DELETE', `/tournaments/${small.id}/invites/${tInv}`)).status === 204 && (await payer('GET', `/tournaments/${small.id}/invites`)).data.find(i => i.id === tInv).state === 'expired', 'the organizer can withdraw an unanswered invite')
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

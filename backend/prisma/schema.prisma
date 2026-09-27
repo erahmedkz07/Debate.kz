@@ -232,6 +232,8 @@ model TournamentInvite {
   usedById     String?    @map("used_by_id")
   expiresAt    DateTime   @map("expires_at")
   usedAt       DateTime?  @map("used_at")
+  email        String? // invite by email: only the account with this address can accept it
+  declinedAt   DateTime?  @map("declined_at")
   createdAt    DateTime   @default(now()) @map("created_at")
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   createdBy    User       @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)

@@ -273,9 +273,10 @@ export interface MyTournament extends Tournament {
 
 export interface InvitePreview {
   kind: 'judge' | 'co_organizer'
-  state: 'valid' | 'used' | 'expired'
+  state: 'valid' | 'used' | 'expired' | 'declined'
   invitedBy: string
   expiresAt: string
+  forEmail?: string // invites by email: masked address of the invited person
   tournament: { id: string; name: string; city: string; startDate: string; endDate: string; cover: string }
 }
 
@@ -337,3 +338,12 @@ export interface AdminPayment {
   payer?: { name: string; email: string }
 }
 export interface PlatformSettings extends KaspiInfo { proPrice: number; freeTeamLimit: number }
+
+export interface EmailInvite {
+  id: string
+  email: string
+  kind: 'judge' | 'co_organizer'
+  state: 'pending' | 'accepted' | 'declined' | 'expired'
+  acceptedBy?: string
+  createdAt: string
+}
