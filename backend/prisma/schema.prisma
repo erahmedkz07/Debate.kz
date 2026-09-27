@@ -129,6 +129,7 @@ model User {
   payments             Payment[]             @relation("PaymentPayer")
   clubMembership       ClubMember?
   clubLogs             ClubLog[]
+  news                 News[]
   handledPayments      Payment[]             @relation("PaymentHandler")
   notifications        Notification[]
   teammatePosts        TeammatePost[]
@@ -642,4 +643,23 @@ model ClubLog {
 
   @@index([clubId, createdAt])
   @@map("club_logs")
+}
+
+// ---------- news of the debate world (written by admins) ----------
+
+model News {
+  id          String    @id @default(cuid())
+  title       String
+  summary     String // one or two sentences for the list
+  body        String // paragraphs separated by blank lines; links are plain URLs
+  coverUrl    String?   @map("cover_url")
+  published   Boolean   @default(false) // drafts are seen only by admins
+  publishedAt DateTime? @map("published_at")
+  authorId    String?   @map("author_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  author      User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([published, publishedAt])
+  @@map("news")
 }

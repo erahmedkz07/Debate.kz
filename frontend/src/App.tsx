@@ -39,6 +39,11 @@ const Teammates = lazy(() => import('@/pages/Teammates'))
 const Clubs = lazy(() => import('@/pages/Clubs'))
 const ClubJoin = lazy(() => import('@/pages/Clubs').then(m => ({ default: m.ClubJoin })))
 const ClubPage = lazy(() => import('@/pages/ClubPage'))
+const Tools = lazy(() => import('@/pages/Tools'))
+const Formats = lazy(() => import('@/pages/Formats'))
+const Reference = lazy(() => import('@/pages/Reference'))
+const News = lazy(() => import('@/pages/News'))
+const NewsArticle = lazy(() => import('@/pages/News').then(m => ({ default: m.NewsArticle })))
 const Safety = lazy(() => import('@/pages/Safety'))
 const SafetyReports = lazy(() => import('@/pages/cabinet/SafetyReports'))
 
@@ -69,6 +74,11 @@ export default function App() {
                 <Route path="clubs" element={<Clubs />} />
                 <Route path="clubs/join/:code" element={<ClubJoin />} />
                 <Route path="clubs/:id" element={<ClubPage />} />
+                <Route path="tools" element={<Tools />} />
+                <Route path="formats" element={<Formats />} />
+                <Route path="reference" element={<Reference />} />
+                <Route path="news" element={<News />} />
+                <Route path="news/:id" element={<NewsArticle />} />
                 <Route path="safety" element={<Safety />} />
                 <Route path="verify/:code" element={<VerifyCertificate />} />
                 <Route path="checkin/:tournamentId" element={<RequireAuth><CheckIn /></RequireAuth>} />

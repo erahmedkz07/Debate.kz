@@ -107,7 +107,7 @@ If you really want to reset to demo data: npm run db:seed:force`)
     prisma.round.deleteMany(), prisma.speaker.deleteMany(), prisma.team.deleteMany(), prisma.judge.deleteMany(),
     prisma.teamRegistration.deleteMany(), prisma.scheduleItem.deleteMany(), prisma.scoringConfig.deleteMany(),
     prisma.tournamentOrganizer.deleteMany(), prisma.tournament.deleteMany(), prisma.institution.deleteMany(),
-    prisma.adminAction.deleteMany(), prisma.club.deleteMany(), prisma.user.deleteMany(), prisma.testimonial.deleteMany(),
+    prisma.adminAction.deleteMany(), prisma.club.deleteMany(), prisma.news.deleteMany(), prisma.user.deleteMany(), prisma.testimonial.deleteMany(),
   ])
 
   // ---------- users (demo password: demo1234) ----------
@@ -132,6 +132,26 @@ If you really want to reset to demo data: npm run db:seed:force`)
       instId.set(name, i.id)
     }
   }
+
+  // ---------- news (demo posts by the admin) ----------
+  await prisma.news.createMany({
+    data: [
+      {
+        title: 'На Debate.kz появились дебатные клубы', summary: 'Укажите свой клуб и команду в профиле — это нужно для заявок на турниры и нового рейтинга клубов.',
+        body: 'Теперь у каждого клуба есть своя страница: состав, команды и журнал изменений.\n\nВступить в клуб можно по ссылке, которую пришлёт любой его член. Все члены клуба равны: каждый может создавать команды и распределять состав.\n\nВ рейтинге появилась вкладка «Клубы», а жеребьёвка в первых раундах больше не сводит команды одного клуба.',
+        published: true, publishedAt: day('2026-09-26'), authorId: admin.id,
+      },
+      {
+        title: 'Как подготовиться к первому турниру WSDC', summary: 'Короткий чек-лист для команд, которые едут на турнир впервые.',
+        body: 'Прочитайте описание формата в разделе «Форматы»: сколько длится речь, когда можно задавать вопросы, кто говорит ответную речь.\n\nПотренируйтесь с таймером речей — он есть в разделе «Материалы».\n\nПосмотрите банк тем: темы прошлых турниров хорошо показывают, к каким вопросам готовиться.',
+        published: true, publishedAt: day('2026-09-20'), authorId: admin.id,
+      },
+      {
+        title: 'Черновик: итоги осеннего сезона', summary: 'Эта новость ещё не опубликована — её видят только администраторы.',
+        body: 'Итоги сезона появятся после завершения осенних турниров.', published: false, authorId: admin.id,
+      },
+    ],
+  })
 
   await prisma.testimonial.createMany({
     data: [

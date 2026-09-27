@@ -386,3 +386,16 @@ export interface ClubDetails {
   joinCode?: string // members only
   log?: { id: string; userName: string; action: string; detail: string; createdAt: string }[]
 }
+
+// ---------- news ----------
+export interface NewsItem {
+  id: string
+  title: string
+  summary: string
+  body?: string // only on the article page
+  coverUrl?: string
+  published: boolean
+  publishedAt?: string
+  updatedAt: string
+  author?: string
+}

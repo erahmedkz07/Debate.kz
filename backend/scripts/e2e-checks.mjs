@@ -947,4 +947,23 @@ const same = r.data.debates.filter(d => inst2.get(d.propositionTeamId) === inst2
 ok(r.status === 201 && same === 2 && r.data.report.sameClub === 2, 'when a clean draw is impossible, the fewest clubmate meetings are made and reported')
 ok(new Set(r.data.debates.flatMap(d => [d.propositionTeamId, d.oppositionTeamId])).size === 8, 'every team still debates exactly once')
 
+
+// ---------- 31. news (admins write, everyone reads) ----------
+r = await client()('GET', '/news')
+ok(r.status === 200 && r.data.items.length >= 2 && r.data.items.every(n => n.published && !n.body), 'everyone sees published news (list without the full text)')
+ok(!(await client()('GET', '/news?drafts=1')).data.items.some(n => !n.published), 'guests never see drafts, even when asking')
+const drafts = (await admin('GET', '/news?drafts=1')).data.items.filter(n => !n.published)
+ok(drafts.length >= 1, 'admins see drafts')
+ok((await client()('GET', `/news/${drafts[0].id}`)).status === 404, 'a draft is not readable by others')
+ok((await student('POST', '/news', { title: 'Хочу написать новость', summary: 'Пусть все прочитают это', body: 'Длинный текст новости для проверки' })).status === 403, 'participants cannot write news')
+r = await admin('POST', '/news', { title: 'Новость из e2e', summary: 'Проверяем, как пишутся новости', body: 'Первый абзац новости.\n\nВторой абзац новости.', coverUrl: 'http://insecure.example/x.jpg' })
+ok(r.status === 400, 'a cover must be an https link')
+r = await admin('POST', '/news', { title: 'Новость из e2e', summary: 'Проверяем, как пишутся новости', body: 'Первый абзац новости.\n\nВторой абзац новости.' })
+const newsId = r.data.id
+ok(r.status === 201 && (await client()('GET', `/news/${newsId}`)).status === 404, 'a new post starts as a draft')
+r = await admin('PATCH', `/news/${newsId}`, { published: true })
+const pubNews = (await client()('GET', `/news/${newsId}`)).data
+ok(r.status === 200 && pubNews.published && pubNews.publishedAt && pubNews.body.includes('Второй абзац'), 'after publishing everyone can read it')
+ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'news.publish' && a.targetId === newsId), 'publishing is in the audit log')
+ok((await admin('DELETE', `/news/${newsId}`)).status === 204 && (await client()('GET', `/news/${newsId}`)).status === 404, 'an admin deletes a post')
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

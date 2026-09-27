@@ -2,7 +2,7 @@
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
   Certificate, MotionItem, MotionTopic, SpeakerProgress,
-  AdminPayment, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref,
+  AdminPayment, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem,
   MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
@@ -291,3 +291,12 @@ export const createClubTeam = (id: string, name: string, join = false) => http<R
 export const renameClubTeam = (teamId: string, name: string) => http<{ ok: true }>('PATCH', `/club-teams/${teamId}`, { name })
 export const deleteClubTeam = (teamId: string) => http<void>('DELETE', `/club-teams/${teamId}`)
 export const setMemberTeam = (clubId: string, userId: string, teamId: string | null) => http<{ ok: true }>('PUT', `/clubs/${clubId}/members/${userId}/team`, { teamId })
+
+// ---------- news ----------
+export const getNews = (page = 1, drafts = false) =>
+  http<{ items: NewsItem[]; total: number; page: number; pages: number }>('GET', `/news${qs({ page, drafts: drafts ? '1' : undefined })}`)
+export const getNewsItem = (id: string) => or404(http<NewsItem>('GET', `/news/${id}`))
+export type NewsInput = { title: string; summary: string; body: string; coverUrl?: string; published?: boolean }
+export const createNews = (d: NewsInput) => http<{ id: string }>('POST', '/news', d)
+export const updateNews = (id: string, d: Partial<NewsInput>) => http<{ ok: true }>('PATCH', `/news/${id}`, d)
+export const deleteNews = (id: string) => http<void>('DELETE', `/news/${id}`)

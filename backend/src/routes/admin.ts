@@ -14,7 +14,7 @@ export const adminRouter = Router()
 adminRouter.use('/admin', requireAuth('admin'))
 
 // every admin decision is written to the audit log
-export function logAction(admin: User, action: string, target: { type: 'tournament' | 'user'; id: string; label: string }, note?: string | null) {
+export function logAction(admin: User, action: string, target: { type: 'tournament' | 'user' | 'news'; id: string; label: string }, note?: string | null) {
   return prisma.adminAction.create({
     data: { adminId: admin.id, adminName: admin.name, action, targetType: target.type, targetId: target.id, targetLabel: target.label, note: note ?? null },
   })
