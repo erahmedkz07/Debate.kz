@@ -82,6 +82,15 @@ enum Plan {
   pro
 }
 
+// Pro payment by Kaspi QR: the organizer pays by the platform's QR with the reference in the comment,
+// presses "I have paid" (pending), an admin checks the Kaspi statement and confirms or rejects
+enum PaymentStatus {
+  awaiting // reference issued, not paid yet
+  pending // the organizer says it is paid; waits for an admin
+  confirmed
+  rejected
+}
+
 // ---------- people ----------
 
 model User {
@@ -117,6 +126,8 @@ model User {
   createdInvites       TournamentInvite[]    @relation("InviteCreatedBy")
   usedInvites          TournamentInvite[]    @relation("InviteUsedBy")
   adminActions         AdminAction[]
+  payments             Payment[]             @relation("PaymentPayer")
+  handledPayments      Payment[]             @relation("PaymentHandler")
   notifications        Notification[]
   teammatePosts        TeammatePost[]
   teammateReplies      TeammateReply[]
@@ -193,6 +204,7 @@ model Tournament {
   registrations TeamRegistration[]
   invites       TournamentInvite[]
   certificates  Certificate[]
+  payments      Payment[]
 
   @@index([status, startDate])
   @@index([moderation])
@@ -520,4 +532,41 @@ model Testimonial {
   order Int    @default(0)
 
   @@map("testimonials")
+}
+
+// ---------- payments ----------
+
+model Payment {
+  id           String        @id @default(cuid())
+  tournamentId String        @map("tournament_id")
+  userId       String?       @map("user_id") // who pays (the organizer)
+  amount       Int // tenge, fixed when the reference is issued
+  reference    String        @unique // e.g. DKZ-7K2QF9: written in the Kaspi comment so the admin can match the transfer
+  status       PaymentStatus @default(awaiting)
+  payerNote    String?       @map("payer_note") // payer name / last digits / time, to find the transfer
+  adminNote    String?       @map("admin_note") // reason of a rejection
+  paidAt       DateTime?     @map("paid_at") // when the organizer pressed "I have paid"
+  handledById  String?       @map("handled_by_id")
+  handledAt    DateTime?     @map("handled_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User?         @relation("PaymentPayer", fields: [userId], references: [id], onDelete: SetNull)
+  handledBy    User?         @relation("PaymentHandler", fields: [handledById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([tournamentId])
+  @@map("payments")
+}
+
+// platform-wide settings edited by admins (a single row, id = "main")
+model PlatformSetting {
+  id             String   @id @default("main")
+  proPrice       Int      @default(20000) @map("pro_price") // tenge per tournament above the free team limit
+  kaspiRecipient String?  @map("kaspi_recipient") // name shown under the QR, e.g. "Ермек А."
+  kaspiPhone     String?  @map("kaspi_phone") // for a transfer by phone number
+  kaspiQrUrl     String?  @map("kaspi_qr_url") // uploaded QR image, /uploads/platform/<file>
+  paymentNote    String?  @map("payment_note") // extra instructions
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
 }

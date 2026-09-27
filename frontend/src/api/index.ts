@@ -2,6 +2,7 @@
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
   Certificate, MotionItem, MotionTopic, SpeakerProgress,
+  AdminPayment, PlatformSettings, TournamentPayment,
   MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
@@ -249,3 +250,19 @@ export const getPlatformNotifications = (before?: string) =>
 
 export const getAdminActions = () => http<AdminAction[]>('GET', '/admin/actions')
 export const updateUser = (id: string, data: Partial<{ role: Role; blocked: boolean; safeguardingOfficer: boolean }>) => http<User>('PATCH', `/admin/users/${id}`, data)
+
+// ---------- plans & Kaspi QR payments ----------
+export const getPlans = () => http<{ freeTeamLimit: number; proPrice: number }>('GET', '/plans')
+export const getTournamentPayment = (id: string) => http<TournamentPayment>('GET', `/tournaments/${id}/payment`)
+export const claimPayment = (id: string, payerNote: string) => http<{ ok: true }>('POST', `/tournaments/${id}/payment/claim`, { payerNote })
+export const getAdminPayments = () => http<AdminPayment[]>('GET', '/admin/payments')
+export const handlePayment = (id: string, status: 'confirmed' | 'rejected', adminNote?: string) =>
+  http<{ ok: true }>('PATCH', `/admin/payments/${id}`, { status, adminNote })
+export const getPlatformSettings = () => http<PlatformSettings>('GET', '/admin/settings')
+export const updatePlatformSettings = (d: { proPrice?: number; recipient?: string; phone?: string; note?: string }) =>
+  http<PlatformSettings>('PATCH', '/admin/settings', d)
+export function uploadKaspiQr(file: File) {
+  const form = new FormData()
+  form.append('qr', file)
+  return upload<PlatformSettings>('/admin/settings/kaspi-qr', form)
+}

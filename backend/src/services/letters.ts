@@ -49,3 +49,17 @@ export const googleUnlinkedLetter = (u: User, googleEmail: string) => sendMail({
   subject: 'Debate.kz — вход через Google отключён',
   text: `Здравствуйте, ${u.name}!\n\nВход через Google (${googleEmail}) отключён от вашего аккаунта ${when()} (время Астаны). Входите по email и паролю.\n\n${notYou}`,
 })
+
+export const paymentConfirmedLetter = (u: User, tournament: string, reference: string) => sendMail({
+  to: u.email,
+  subject: 'Debate.kz — оплата Pro подтверждена',
+  text: `Здравствуйте, ${u.name}!\n\nОплата тарифа Pro для турнира «${tournament}» подтверждена (код платежа ${reference}). Ограничение по числу команд снято — все функции панели доступны.\n\nСпасибо, что проводите турниры на Debate.kz!`,
+  action: { label: 'Открыть мои турниры', url: site('/dashboard') },
+})
+
+export const paymentRejectedLetter = (u: User, tournament: string, reason: string, tournamentId: string) => sendMail({
+  to: u.email,
+  subject: 'Debate.kz — оплата Pro не подтверждена',
+  text: `Здравствуйте, ${u.name}!\n\nМы не нашли оплату тарифа Pro для турнира «${tournament}».\n\nПричина: ${reason}\n\nПроверьте перевод в Kaspi и нажмите «Я оплатил» ещё раз, указав имя плательщика и время перевода. Если что-то непонятно — напишите на hello@debate.kz.`,
+  action: { label: 'Открыть оплату турнира', url: site(`/dashboard/tournaments/${tournamentId}/settings`) },
+})

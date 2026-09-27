@@ -308,3 +308,32 @@ export interface SafetyReport extends MySafetyReport {
   reporter?: { name: string; email: string }
   handledBy?: string
 }
+
+// ---------- plans & Kaspi QR payments ----------
+export type PaymentStatus = 'awaiting' | 'pending' | 'confirmed' | 'rejected'
+export interface KaspiInfo { recipient?: string; phone?: string; qrUrl?: string; note?: string }
+export interface TournamentPayment {
+  required: boolean
+  paid: boolean
+  freeTeamLimit: number
+  amount?: number
+  reference?: string
+  status?: PaymentStatus
+  payerNote?: string
+  adminNote?: string
+  kaspi?: KaspiInfo
+}
+export interface AdminPayment {
+  id: string
+  amount: number
+  reference: string
+  status: PaymentStatus
+  payerNote?: string
+  adminNote?: string
+  paidAt?: string
+  handledAt?: string
+  handledBy?: string
+  tournament: { id: string; name: string; maxTeams: number }
+  payer?: { name: string; email: string }
+}
+export interface PlatformSettings extends KaspiInfo { proPrice: number; freeTeamLimit: number }

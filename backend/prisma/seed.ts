@@ -147,7 +147,7 @@ If you really want to reset to demo data: npm run db:seed:force`)
   for (const [ti, t] of tournaments.entries()) {
     console.log(`Tournament ${t.key}: ${t.name}`)
     const offset = (ti + 1) * 3
-    const pro = t.maxTeams > 12
+    const pro = t.maxTeams > 20 // FREE_TEAM_LIMIT
     const tour = await prisma.tournament.create({
       data: {
         name: t.name, city: t.city, startDate: day(t.startDate), endDate: day(t.endDate), level: t.level, status: t.status,

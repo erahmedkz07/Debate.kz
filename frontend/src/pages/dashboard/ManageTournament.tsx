@@ -27,6 +27,8 @@ import { InviteButton } from '@/components/tournament/InviteDialog'
 import { ModerationBanner } from '@/components/tournament/ModerationBadge'
 import { DatePicker } from '@/components/ui/date-picker'
 import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
+import { PaymentCard } from '@/components/payments/PaymentCard'
+import { FREE_TEAM_LIMIT } from '@/lib/plans'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -669,7 +671,7 @@ function DetailsCard({ data, reload }: SectionProps) {
           <Input id="d-max" type="number" min={minTeams} max={128} value={f.maxTeams} aria-invalid={limitBad} onChange={e => setF({ ...f, maxTeams: Number(e.target.value) })} />
           {limitBad
             ? <p className="mt-1 text-xs text-danger">{t('dashboard.details.limitHint', { min: minTeams })}</p>
-            : f.maxTeams > 12 && data.plan !== 'pro' && <p className="mt-1 text-xs font-semibold text-accent-foreground dark:text-accent">{t('dashboard.details.becomesPro')}</p>}
+            : f.maxTeams > FREE_TEAM_LIMIT && data.plan !== 'pro' && <p className="mt-1 text-xs font-semibold text-accent-foreground dark:text-accent">{t('dashboard.details.becomesPro')}</p>}
         </div>
         <div>
           <Label htmlFor="d-start">{t('wizard.startDate')}</Label>
@@ -810,13 +812,16 @@ function SettingsSection({ data, reload }: SectionProps) {
           <div className="flex justify-end"><Button disabled={busy === 'save' || form.name.trim().length < 3} onClick={save}>{t('common.save')}</Button></div>
         </Card>
         {data.status !== 'finished' && <RoomsCard data={data} reload={reload} />}
-        <Card className="flex items-center justify-between gap-4 p-6">
-          <div>
-            <h3 className="font-bold">{t('dashboard.settings.plan')}</h3>
-            <p className="text-sm text-muted-foreground">{data.maxTeams > 12 ? t('dashboard.settings.planPro') : t('dashboard.settings.planFree')}</p>
-          </div>
-          <Button asChild variant="outline"><Link to="/pricing">{t('nav.pricing')}</Link></Button>
-        </Card>
+        {/* Pro (more than 20 teams): Kaspi QR payment; otherwise a short note about the free plan */}
+        {data.plan === 'pro' ? <PaymentCard tournamentId={data.id} /> : (
+          <Card className="flex items-center justify-between gap-4 p-6">
+            <div>
+              <h3 className="font-bold">{t('dashboard.settings.plan')}</h3>
+              <p className="text-sm text-muted-foreground">{t('dashboard.settings.planFree')}</p>
+            </div>
+            <Button asChild variant="outline"><Link to="/pricing">{t('nav.pricing')}</Link></Button>
+          </Card>
+        )}
         {isOwner && (
           <Card className="flex flex-wrap items-center justify-between gap-4 p-6">
             <div>

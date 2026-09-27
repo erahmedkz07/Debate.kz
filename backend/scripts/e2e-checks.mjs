@@ -312,12 +312,12 @@ r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { city: 'Алматы'
 let po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
 ok(r.status === 200 && po.city === 'Алматы' && po.startDate === '2026-12-20' && po.registrationDeadline === '2026-12-15', 'city, dates and deadline updated')
 ok(po.rounds.every(x => x.date === '2026-12-20' || x.date === '2026-12-21'), 'unreleased rounds moved to the new dates')
-r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 16 })
+r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 24 })
 po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
-ok(r.status === 200 && po.plan === 'pro' && po.paid === false, 'raising the limit above 12 switches to unpaid Pro')
+ok(r.status === 200 && po.plan === 'pro' && po.paid === false, 'raising the limit above 20 switches to unpaid Pro')
 r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 8 })
 po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
-ok(po.plan === 'free' && po.paid === true, 'lowering back to 12 or less returns to Free')
+ok(po.plan === 'free' && po.paid === true, 'lowering back to 20 or less returns to Free')
 for (const n of ['Альфа', 'Бета']) await fresh('POST', `/tournaments/${pendingOwn.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
 r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { maxTeams: 4 })
 ok(r.status === 200, 'limit can equal the minimum')
@@ -735,5 +735,57 @@ ok((await del('DELETE', '/me', { email: `del.${uniq}@gmail.com` })).status === 2
 r = await sabina('POST', '/me/password', { currentPassword: 'demo1234', newPassword: 'sabina-new-1' })
 ok(r.status === 200 && (await mails('sabina@mail.kz')).some(m => m.subject.includes('пароль изменён')), 'a password change sends a "password changed" letter')
 await sabina('POST', '/me/password', { currentPassword: 'sabina-new-1', newPassword: 'demo1234' })
+
+
+// ---------- 26. Pro tournaments (> 20 teams) paid by Kaspi QR, confirmed by an admin ----------
+r = await client()('GET', '/plans')
+ok(r.status === 200 && r.data.freeTeamLimit === 20 && r.data.proPrice > 0, 'the public plan info says: free up to 20 teams, with the Pro price')
+await admin('PATCH', '/admin/settings', { proPrice: 25000, recipient: 'Ермек А.', phone: '+7 777 000 00 00', note: 'Укажите код платежа в комментарии' })
+ok((await client()('PATCH', '/admin/settings', { proPrice: 1 })).status === 401 && (await student('PATCH', '/admin/settings', { proPrice: 1 })).status === 403, 'only admins change the price and the Kaspi details')
+const payer = client()
+r = await payer('POST', '/auth/register', { name: 'Плательщик Тестов', email: `payer.${uniq}@mail.kz`, phone: '+7 707 222 11 00', password: 'secret123', consent: true })
+await payer('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+const small = (await payer('POST', '/tournaments', { ...tBody(20), name: `Малый ${uniq}`, maxTeams: 20 })).data
+const smallD = (await payer('GET', `/tournaments/${small.id}`)).data
+ok(smallD.plan === 'free' && smallD.paid === true, 'a tournament of 20 teams is free')
+ok((await payer('GET', `/tournaments/${small.id}/payment`)).data.required === false, 'a free tournament needs no payment')
+const big = (await payer('POST', '/tournaments', { ...tBody(21), name: `Большой ${uniq}`, maxTeams: 24 })).data
+const bigD = (await payer('GET', `/tournaments/${big.id}`)).data
+ok(bigD.plan === 'pro' && bigD.paid === false, 'more than 20 teams is Pro and waits for payment')
+let pay = (await payer('GET', `/tournaments/${big.id}/payment`)).data
+ok(pay.required && !pay.paid && pay.amount === 25000 && /^DKZ-[A-Z2-9]{6}$/.test(pay.reference) && pay.status === 'awaiting' && pay.kaspi.recipient === 'Ермек А.',
+  'the organizer gets the amount, a payment reference and the Kaspi details')
+ok((await payer('GET', `/tournaments/${big.id}/payment`)).data.reference === pay.reference, 'the reference stays the same on every visit')
+ok((await student('GET', `/tournaments/${big.id}/payment`)).status === 403, 'strangers cannot see the payment')
+for (let i = 1; i <= 20; i++) await payer('POST', `/tournaments/${big.id}/teams`, { name: `Команда ${i}`, institution: `Школа ${i}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+r = await payer('POST', `/tournaments/${big.id}/teams`, { name: 'Команда 21', institution: 'Школа 21', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+ok(r.status === 402 && r.data.error === 'payment_required', 'an unpaid Pro tournament stops at 20 teams')
+ok((await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: '' })).status === 400, '"I have paid" needs the payer name or time')
+r = await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'Плательщик Т., 14:05' })
+ok(r.status === 200 && (await payer('GET', `/tournaments/${big.id}/payment`)).data.status === 'pending', '"I have paid" puts the payment in the admin queue')
+ok((await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'ещё раз' })).data?.error === 'payment_already_claimed', 'it cannot be claimed twice while waiting')
+await new Promise(res => setTimeout(res, 300))
+ok((await admin('GET', '/me/notifications')).data.items.some(n => n.type === 'admin.paymentClaimed' && n.data.reference === pay.reference), 'admins are notified with the reference')
+let queue = (await admin('GET', '/admin/payments')).data
+const payRow = queue.find(x => x.reference === pay.reference)
+ok(payRow?.status === 'pending' && payRow.payerNote === 'Плательщик Т., 14:05' && payRow.tournament.id === big.id, 'the admin sees the claim with the payer note')
+ok((await student('GET', '/admin/payments')).status === 403, 'only admins see payments')
+ok((await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'rejected' })).data?.error === 'reason_required', 'a rejection needs a reason')
+r = await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'rejected', adminNote: 'Перевод не найден' })
+pay = (await payer('GET', `/tournaments/${big.id}/payment`)).data
+ok(r.status === 200 && pay.status === 'rejected' && pay.adminNote === 'Перевод не найден' && !pay.paid, 'the admin rejects; the organizer sees why')
+ok((await mails(`payer.${uniq}@mail.kz`)).some(m => m.subject.includes('не подтверждена')), 'the organizer gets a "not confirmed" letter')
+await payer('POST', `/tournaments/${big.id}/payment/claim`, { payerNote: 'Плательщик Т., перевод 15:20' })
+r = await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'confirmed' })
+pay = (await payer('GET', `/tournaments/${big.id}/payment`)).data
+ok(r.status === 200 && pay.paid && pay.status === 'confirmed', 'after the second claim the admin confirms; the tournament is paid')
+ok((await payer('POST', `/tournaments/${big.id}/teams`, { name: 'Команда 21', institution: 'Школа 21', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })).status === 201, 'the 21st team is accepted after payment')
+ok((await admin('PATCH', `/admin/payments/${payRow.id}`, { status: 'confirmed' })).data?.error === 'payment_not_pending', 'a handled payment cannot be handled again')
+ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'tournament.paid' && a.targetId === big.id && a.note.includes(pay.reference)), 'the confirmation is in the audit log with the reference')
+ok((await mails(`payer.${uniq}@mail.kz`)).some(m => m.subject.includes('подтверждена') && !m.subject.includes('не ')), 'the organizer gets a "payment confirmed" letter')
+await payer('PATCH', `/tournaments/${big.id}`, { maxTeams: 20 })
+await payer('PATCH', `/tournaments/${big.id}`, { maxTeams: 24 })
+ok((await payer('GET', `/tournaments/${big.id}`)).data.paid === true, 'a confirmed payment stays valid when the limit changes')
+await admin('PATCH', '/admin/settings', { proPrice: 20000 })
 
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
