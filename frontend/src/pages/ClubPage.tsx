@@ -51,7 +51,7 @@ export default function ClubPage() {
               {data.isMember && <AddTeam club={data} onDone={reload} />}
             </div>
             {data.teams.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('club.noTeams')} text={data.isMember ? t('club.noTeamsMember') : undefined} /> : (
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 xl:grid-cols-2">
                 {data.teams.map(team => <TeamCard key={team.id} club={data} team={team} onDone={reload} />)}
               </div>
             )}
@@ -129,7 +129,7 @@ function MemberRow({ club, m, onDone, compact }: { club: ClubDetails; m: ClubMem
       <span className="min-w-0 flex-1 truncate text-sm font-semibold">{m.name}{me && <span className="font-normal text-muted-foreground"> · {t('club.you')}</span>}</span>
       {club.isMember && (
         <>
-          <Select size="sm" className="w-36" aria-label={t('club.moveTo', { name: m.name })} value={m.teamId ?? 'none'}
+          <Select size="sm" className={compact ? "w-32 shrink-0" : "w-40 shrink-0"} aria-label={t('club.moveTo', { name: m.name })} value={m.teamId ?? 'none'}
             // moving yourself changes the team shown in your profile too
             onValueChange={v => act(() => setMemberTeam(club.id, m.id, v === 'none' ? null : v)).then(async ok => { if (ok && me) { const u = await getMe(); if (u) signIn(u) } })}
             options={[{ value: 'none', label: t('club.noTeam') }, ...club.teams.map(x => ({ value: x.id, label: x.name }))]} />

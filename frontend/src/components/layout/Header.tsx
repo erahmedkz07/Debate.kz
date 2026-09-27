@@ -17,7 +17,6 @@ const links = [
   { to: '/rating', key: 'rating' },
   { to: '/clubs', key: 'clubs' },
   { to: '/motions', key: 'motions' },
-  { to: '/about', key: 'about' },
   { to: '/pricing', key: 'pricing' },
 ] as const
 

@@ -245,6 +245,34 @@ function SecurityCard({ canDelete }: { canDelete: boolean }) {
   )
 }
 
+// club and team: required before applying to tournaments; managed on the club page
+function ClubCard() {
+  const { t } = useTranslation()
+  const { user } = useAuth()
+  if (!user || user.role === 'admin') return null
+  return (
+    <Card id="club-card" className={cn('scroll-mt-24 p-6', !user.clubTeam && 'ring-2 ring-accent')}>
+      <h3 className="flex items-center gap-2 font-bold"><Users className="size-4 text-primary" />{t('club.cardTitle')}</h3>
+      {user.club ? (
+        <div className="mt-3 space-y-2 text-sm">
+          <p className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{t('club.club')}</span><Link to={`/clubs/${user.club.id}`} className="font-semibold text-primary hover:underline">{user.club.name}</Link></p>
+          <p className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{t('club.team')}</span>
+            {user.clubTeam ? <b>{user.clubTeam.name}</b> : <Link to={`/clubs/${user.club.id}`} className="font-semibold text-danger hover:underline">{t('club.chooseTeam')}</Link>}
+          </p>
+          <Button asChild variant="outline" size="sm" className="mt-2"><Link to={`/clubs/${user.club.id}`}>{t('club.openClub')}</Link></Button>
+        </div>
+      ) : (
+        <>
+          <p className="mt-1 text-sm text-muted-foreground">{t('club.cardText')}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button asChild size="sm"><Link to="/clubs">{t('club.findOrCreate')}</Link></Button>
+          </div>
+        </>
+      )}
+    </Card>
+  )
+}
+
 // small counter inside a section tab
 const Count = ({ n }: { n?: number }) => (n ? <span className="ml-auto pl-2 text-xs tabular-nums opacity-70">{n}</span> : null)
 
@@ -257,11 +285,12 @@ export default function Profile() {
   const debates = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyDebates()), [user?.id])
   const [form, setForm] = useState({ name: user!.name, phone: user!.phone ?? '', institution: user!.institution ?? '', city: user!.city ?? '' })
   const [params, setParams] = useSearchParams()
-  const [tab, setTab] = useState(isAdmin || params.has('welcome') || params.has('google') || params.has('google_error') ? 'settings' : 'registrations')
+  const [tab, setTab] = useState(isAdmin || params.has('welcome') || params.has('google') || params.has('google_error') || params.has('club') ? 'settings' : 'registrations')
   // the server sends people back here after Google: ?welcome=1 (new account), ?google=linked, ?google_error=…
   useEffect(() => {
     const welcome = params.get('welcome'), linked = params.get('google'), failed = params.get('google_error')
-    if (!welcome && !linked && !failed) return
+    if (params.has('club')) setTimeout(() => document.getElementById('club-card')?.scrollIntoView({ behavior: 'smooth' }), 300)
+    if (!welcome && !linked && !failed) { if (params.has('club')) setParams({}, { replace: true }); return }
     if (welcome) toast.success(t('google.welcome', { name: user?.name.split(' ')[0] }), { description: t('google.welcomeText'), duration: 8000 })
     if (linked) { toast.success(t('google.linked')); void getMe().then(me => me && signIn(me)) }
     if (failed) toast.error(t(`google.errors.${failed}`, { defaultValue: t('google.errors.google_failed') }))
@@ -269,7 +298,7 @@ export default function Profile() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   if (!user) return null
   // what a participant still has to add (a Google sign-up brings only the name, email and photo)
-  const missing = isAdmin ? [] : ([['phone', user.phone], ['institution', user.institution], ['city', user.city]] as const).filter(([, v]) => !v).map(([k]) => k)
+  const missing = isAdmin ? [] : ([['club', user.clubTeam], ['phone', user.phone], ['institution', user.institution], ['city', user.city]] as const).filter(([, v]) => !v).map(([k]) => k)
 
   const played = debates.data?.filter(d => d.result) ?? []
   const wins = played.filter(d => d.result === 'win').length
@@ -302,6 +331,7 @@ export default function Profile() {
                   {user.phoneVerified && <BadgeCheck className="size-4 text-success" aria-label={t('telegram.phoneOk')} />}
                 </span>
               )}
+              {user.club && <Link to={`/clubs/${user.club.id}`} className="flex items-center gap-1.5 hover:text-primary"><Users className="size-4 text-primary" />{user.club.name}{user.clubTeam && ` · ${user.clubTeam.name}`}</Link>}
               {user.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{user.institution}</span>}
               {user.city && <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{user.city}</span>}
             </div>
@@ -329,7 +359,7 @@ export default function Profile() {
         <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-accent bg-accent-soft p-4 text-sm">
           <AlertCircle className="size-5 shrink-0 text-navy dark:text-accent" />
           <p className="min-w-0 flex-1"><b>{t('google.completeTitle')}</b> {t('google.completeText', { fields: missing.map(k => t(`google.fields.${k}`)).join(', ') })}</p>
-          <Button size="sm" onClick={() => { setTab('settings'); setTimeout(() => document.getElementById(missing[0] === 'phone' ? 'p-phone' : missing[0] === 'city' ? 'p-city' : 'p-inst')?.focus(), 50) }}>{t('google.completeButton')}</Button>
+          <Button size="sm" onClick={() => { setTab('settings'); setTimeout(() => missing[0] === 'club' ? document.getElementById('club-card')?.scrollIntoView({ behavior: 'smooth' }) : document.getElementById(missing[0] === 'phone' ? 'p-phone' : missing[0] === 'city' ? 'p-city' : 'p-inst')?.focus(), 50) }}>{t('google.completeButton')}</Button>
         </div>
       )}
 
@@ -433,6 +463,7 @@ export default function Profile() {
             </form>
           </Card>
           <div className="space-y-5">
+            <ClubCard />
             <TelegramCard />
             {/* admins are demoted by another admin before they can leave */}
             <SecurityCard canDelete={!isAdmin} />
