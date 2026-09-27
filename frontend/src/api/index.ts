@@ -84,12 +84,24 @@ export const getMe = () => http<{ user: User | null }>('GET', '/auth/me').then(r
 
 export const changePassword = (currentPassword: string, newPassword: string) =>
   http<{ user: User }>('POST', '/me/password', { currentPassword, newPassword }).then(r => r.user)
+// accounts created with Google: a "set a password" link is emailed to the account address
+export const requestPasswordSetup = () => http<{ ok: true }>('POST', '/me/password/setup')
+
+// ---------- Sign in with Google ----------
+// asked once per page load: whether the server has a Google client configured
+let googleConfig: Promise<{ enabled: boolean }> | null = null
+export const getGoogleConfig = () => (googleConfig ??= http<{ enabled: boolean }>('GET', '/auth/google/config').catch(() => ({ enabled: false })))
+// a full-page navigation (not fetch): the server redirects to Google and back
+export const googleSignInUrl = (mode: 'login' | 'link', next?: string | null) =>
+  `${import.meta.env.VITE_API_URL ?? '/api'}/auth/google/start${qs({ mode, next: next ?? undefined })}`
+export const unlinkGoogle = () => http<{ user: User }>('DELETE', '/auth/google').then(r => r.user)
 // ---------- Telegram bot ----------
 export const getTelegramConfig = () => http<{ enabled: boolean; username?: string }>('GET', '/telegram/config')
 export const createTelegramLink = () => http<{ url: string; expiresInMinutes: number }>('POST', '/me/telegram/link')
 export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATCH', '/me/telegram', { notify }).then(r => r.user)
 export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
-export const deleteAccount = (password: string) => http<void>('DELETE', '/me', { password })
+// confirmed by the password, or by typing the email for accounts without a password
+export const deleteAccount = (confirm: { password: string } | { email: string }) => http<void>('DELETE', '/me', confirm)
 export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
 

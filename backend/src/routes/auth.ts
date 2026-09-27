@@ -6,7 +6,7 @@ import type { User } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { env, isProd } from '../lib/env.js'
 import { badRequest, conflict, HttpError, unauthorized } from '../lib/errors.js'
-import { sendMail } from '../lib/mail.js'
+import { passwordChangedLetter, resetPasswordLetter, verifyEmailLetter } from '../services/letters.js'
 import { hashToken, newToken } from '../lib/tokens.js'
 import { body } from '../middleware/validate.js'
 import { clearSession, requireAuth, sessionUser, setSession } from '../middleware/auth.js'
@@ -25,12 +25,7 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
 async function sendVerification(user: User) {
   const { token, hash } = newToken()
   await prisma.emailToken.create({ data: { userId: user.id, purpose: 'verify_email', tokenHash: hash, expiresAt: new Date(Date.now() + VERIFY_TTL_MS) } })
-  const link = `${env.CLIENT_ORIGIN}/verify-email?token=${token}`
-  await sendMail({
-    to: user.email,
-    subject: 'Debate.kz — подтвердите email',
-    text: `Здравствуйте, ${user.name}!\n\nПодтвердите адрес, чтобы создавать турниры и регистрировать команды:\n${link}\n\nСсылка действует 24 часа. Если вы не регистрировались на Debate.kz, просто проигнорируйте письмо.`,
-  })
+  await verifyEmailLetter(user, token)
   return env.NODE_ENV === 'development' || env.NODE_ENV === 'test' ? token : undefined
 }
 
@@ -61,7 +56,8 @@ authRouter.post('/login', limiter, async (req, res) => {
   const { email, password } = body(req, loginSchema)
   const user = await prisma.user.findUnique({ where: { email } })
   // same error for unknown email and wrong password (no user enumeration)
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) throw unauthorized('invalid')
+  // accounts created with Google have no password: the same error, the login page suggests the Google button
+  if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) throw unauthorized('invalid')
   if (user.blocked) throw new HttpError(403, 'blocked')
   setSession(res, user.id)
   res.json({ user: await sessionUser(user) })
@@ -106,11 +102,8 @@ authRouter.post('/forgot-password', mailLimiter, async (req, res) => {
   if (user && !user.blocked) {
     const { token, hash } = newToken()
     await prisma.emailToken.create({ data: { userId: user.id, purpose: 'reset_password', tokenHash: hash, expiresAt: new Date(Date.now() + RESET_TTL_MS) } })
-    await sendMail({
-      to: user.email,
-      subject: 'Debate.kz — восстановление пароля',
-      text: `Здравствуйте, ${user.name}!\n\nЧтобы задать новый пароль, перейдите по ссылке:\n${env.CLIENT_ORIGIN}/reset-password?token=${token}\n\nСсылка действует 1 час и работает один раз. Если вы не запрашивали восстановление, просто проигнорируйте письмо — ваш пароль не изменится.`,
-    })
+    // a Google-only account gets a "set a password" letter through the same flow
+    await resetPasswordLetter(user, token)
     if (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') devToken = token
   }
   res.json({ ok: true, ...(devToken && { devResetToken: devToken }) })
@@ -135,6 +128,7 @@ authRouter.post('/reset-password', limiter, async (req, res) => {
     }),
     prisma.emailToken.updateMany({ where: { userId: row.userId, purpose: 'reset_password', usedAt: null }, data: { usedAt: now } }),
   ])
+  await passwordChangedLetter(user, !row.user.passwordHash)
   setSession(res, user.id)
   res.json({ user: await sessionUser(user) })
 })

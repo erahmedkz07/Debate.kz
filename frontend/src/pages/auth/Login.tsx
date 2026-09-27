@@ -12,6 +12,7 @@ import { images } from '@/mocks/images'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
+import { GoogleButton, OrDivider } from '@/components/auth/GoogleButton'
 
 
 // only allow in-app redirects (no open redirect to other sites)
@@ -23,8 +24,11 @@ export default function Login() {
   const [params] = useSearchParams()
   const { user, signIn } = useAuth()
   const [show, setShow] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
   const next = safeNext(params.get('next'))
+  // an error the server sent back from the Google flow (?google_error=…)
+  const googleError = params.get('google_error')
+  const [formError, setFormError] = useState<string | null>(googleError ? t(`google.errors.${googleError}`, { defaultValue: t('google.errors.google_failed') }) : null)
+  const [invalid, setInvalid] = useState(false)
 
   const schema = z.object({
     email: z.string().trim().min(1, t('auth.errors.required')).email(t('auth.errors.email')),
@@ -38,6 +42,7 @@ export default function Login() {
 
   const onSubmit = async (v: Form) => {
     setFormError(null)
+    setInvalid(false)
     try {
       const u = await login(v.email, v.password)
       signIn(u)
@@ -45,18 +50,23 @@ export default function Login() {
       navigate(next ?? roleHome[u.role], { replace: true })
     } catch (e) {
       setFormError(e instanceof AuthError ? t(`auth.errors.${e.code}`) : t('common.error'))
+      setInvalid(e instanceof AuthError && e.code === 'invalid')
     }
   }
 
 
   return (
     <AuthLayout title={t('auth.loginTitle')} subtitle={next ? t('authGate.loginToContinue') : t('auth.loginSubtitle')} image={images.presentation}>
+      {formError && (
+        <div role="alert" className="mb-5 flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm font-medium text-danger">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          {/* accounts created with Google have no password: say so instead of leaving people guessing */}
+          <span>{formError}{invalid && <span className="mt-1 block font-normal">{t('google.passwordHint')}</span>}</span>
+        </div>
+      )}
+      <GoogleButton next={next} label={t('google.signIn')} />
+      <OrDivider />
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
-        {formError && (
-          <p role="alert" className="flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm font-medium text-danger">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" />{formError}
-          </p>
-        )}
         <div>
           <Label htmlFor="email">{t('auth.email')}</Label>
           <Input id="email" type="email" autoComplete="email" placeholder="name@mail.kz" aria-invalid={!!errors.email} {...register('email')} />

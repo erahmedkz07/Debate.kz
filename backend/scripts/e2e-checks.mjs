@@ -621,4 +621,119 @@ ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'user.safe
 await admin('PATCH', `/admin/users/${sabinaUser.id}`, { safeguardingOfficer: false })
 ok((await sabina('GET', '/safety-reports')).status === 403, 'removing the role removes access')
 
+
+// ---------- 25. sign in with Google (Google is played by the runner's fake token endpoint) ----------
+const G = process.env.FAKE_GOOGLE
+const cookieOf = (res, name) => (res.headers.getSetCookie?.() ?? []).map(c => c.split(';')[0]).find(c => c.startsWith(`${name}=`))
+function cookieClient(cookie) {
+  return async (method, path, body) => {
+    const res = await fetch(A + path, { method, headers: { ...(body && { 'Content-Type': 'application/json' }), Cookie: cookie }, body: body && JSON.stringify(body) })
+    return { status: res.status, data: res.status === 204 ? null : await res.json().catch(() => null) }
+  }
+}
+const sessionOf = async email => cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'demo1234' }) }), 'dkz_token')
+// runs start → (Google) → callback like a browser; `session` is an existing dkz_token cookie (for linking)
+async function google(claims, { mode = 'login', next = '/tournaments', session = '', tamper } = {}) {
+  const start = await fetch(`${A}/auth/google/start?mode=${mode}&next=${encodeURIComponent(next)}`, { redirect: 'manual', headers: session ? { Cookie: session } : {} })
+  const to = new URL(start.headers.get('location'))
+  const flow = cookieOf(start, 'dkz_google')
+  const p = to.searchParams
+  const full = { iss: 'https://accounts.google.com', aud: process.env.GOOGLE_CLIENT_ID, exp: Math.floor(Date.now() / 1000) + 600, nonce: p.get('nonce'), email_verified: true, ...claims }
+  let code = Buffer.from(JSON.stringify({ claims: full, challenge: p.get('code_challenge') })).toString('base64url')
+  let state = p.get('state')
+  let cookies = [flow, session].filter(Boolean)
+  if (tamper === 'state') state = 'forged'
+  if (tamper === 'cookie') cookies = [session].filter(Boolean)
+  if (tamper === 'pkce') code = Buffer.from(JSON.stringify({ claims: full, challenge: 'other' })).toString('base64url')
+  const cb = await fetch(`${A}/auth/google/callback?state=${state}&code=${code}`, { redirect: 'manual', headers: { Cookie: cookies.join('; ') } })
+  const loc = new URL(cb.headers.get('location'))
+  const sess = cookieOf(cb, 'dkz_token')
+  return { start: to, loc, session: sess, as: sess ? cookieClient(sess) : null }
+}
+const mails = async to => (await (await fetch(`${A}/test/mail?to=${encodeURIComponent(to)}`)).json())
+
+ok((await client()('GET', '/auth/google/config')).data.enabled === true, 'Google sign-in is enabled when the client id and secret are set')
+let g = await google({ sub: `g-new-${uniq}`, email: `Ali.${uniq}@gmail.com`, name: 'Али Серикбаев', picture: `${G}/photo.png` })
+const gp = g.start.searchParams
+ok(g.start.origin + g.start.pathname === `${G}/auth` && gp.get('scope') === 'openid email profile' && gp.get('code_challenge_method') === 'S256' && !!gp.get('state') && !!gp.get('nonce'),
+  'start sends the browser to Google with state, nonce and a PKCE challenge')
+ok(g.loc.pathname === '/me' && g.loc.searchParams.get('welcome') === '1' && !!g.session, 'a new Google user is signed in and sent to the profile to complete it')
+const gme = (await g.as('GET', '/auth/me')).data.user
+ok(gme.email === `ali.${uniq}@gmail.com` && gme.name === 'Али Серикбаев' && gme.emailVerified && gme.googleLinked && gme.googleEmail === gme.email && !gme.hasPassword,
+  'the profile gets the name and email from Google, the email is confirmed, no password')
+ok(!!gme.avatarUrl?.startsWith('/uploads/avatars/') && (await fetch(`${A.replace(/\/api$/, '')}${gme.avatarUrl}`)).ok, 'the Google photo becomes the avatar (re-encoded, served locally)')
+ok((await mails(gme.email)).some(m => m.subject.includes('Добро пожаловать')), 'a welcome letter goes to the Google address')
+ok((await client()('POST', '/auth/login', { email: gme.email, password: 'anything123' })).status === 401, 'a Google-only account cannot sign in with a password')
+g = await google({ sub: `g-new-${uniq}`, email: `ali.${uniq}@gmail.com`, name: 'Другое Имя' })
+ok(g.loc.pathname === '/tournaments' && (await g.as('GET', '/auth/me')).data.user.id === gme.id, 'the next Google sign-in finds the same account and returns to "next"')
+
+g = await google({ sub: `g-x-${uniq}`, email: `x.${uniq}@gmail.com` }, { tamper: 'state' })
+ok(g.loc.searchParams.get('google_error') === 'google_expired' && !g.session, 'a forged state is refused (CSRF)')
+g = await google({ sub: `g-x-${uniq}`, email: `x.${uniq}@gmail.com` }, { tamper: 'cookie' })
+ok(g.loc.searchParams.get('google_error') === 'google_expired' && !g.session, 'a callback without the flow cookie is refused')
+g = await google({ sub: `g-x-${uniq}`, email: `x.${uniq}@gmail.com` }, { tamper: 'pkce' })
+ok(g.loc.searchParams.get('google_error') === 'google_failed' && !g.session, 'a wrong PKCE verifier is refused by the token endpoint')
+g = await google({ sub: `g-x-${uniq}`, email: `x.${uniq}@gmail.com`, nonce: 'replayed' })
+ok(g.loc.searchParams.get('google_error') === 'google_failed' && !g.session, 'an ID token with another nonce is refused (replay)')
+g = await google({ sub: `g-x-${uniq}`, email: `x.${uniq}@gmail.com`, aud: 'someone-else.apps.googleusercontent.com' })
+ok(g.loc.searchParams.get('google_error') === 'google_failed' && !g.session, 'an ID token issued to another app is refused')
+g = await google({ sub: `g-x-${uniq}`, email: `x.${uniq}@gmail.com`, email_verified: false })
+ok(g.loc.searchParams.get('google_error') === 'google_email_unverified' && !g.session, 'an unconfirmed Google email is refused')
+g = await google({ sub: `g-y-${uniq}`, email: `y.${uniq}@gmail.com` }, { next: '//evil.example/steal' })
+ok(g.loc.hostname !== 'evil.example' && g.loc.pathname === '/me', 'next cannot redirect to another site')
+
+// an existing confirmed account: Google is linked, the password keeps working
+g = await google({ sub: `g-student-${uniq}`, email: 'student@debate.kz' })
+const stMe = (await student('GET', '/auth/me')).data.user
+ok((await g.as('GET', '/auth/me')).data.user.id === stMe.id && stMe.googleLinked && stMe.hasPassword, 'Google with the email of an existing account links to it')
+ok((await client()('POST', '/auth/login', { email: 'student@debate.kz', password: 'demo1234' })).status === 200, 'the password of that account still works')
+ok((await mails('student@debate.kz')).some(m => m.subject.includes('Google подключён')), 'the owner gets a letter that Google was linked')
+g = await google({ sub: `g-student-other-${uniq}`, email: 'student@debate.kz' })
+ok(g.loc.searchParams.get('google_error') === 'google_mismatch' && !g.session, 'another Google account with the same email cannot take over a linked account')
+
+// account pre-hijacking: someone registered a victim's address with their own password and never confirmed it
+const victim = `victim.${uniq}@gmail.com`
+const squatter = client()
+await squatter('POST', '/auth/register', { name: 'Чужой Человек', email: victim, phone: '+7 707 111 22 33', password: 'squatter123', consent: true })
+g = await google({ sub: `g-victim-${uniq}`, email: victim, name: 'Настоящий Владелец' })
+ok(!!g.session && (await client()('POST', '/auth/login', { email: victim, password: 'squatter123' })).status === 401, "the owner's Google sign-in drops the squatter's password")
+ok((await squatter('GET', '/auth/me')).data.user === null, "the squatter's session ends")
+ok((await g.as('GET', '/auth/me')).data.user.emailVerified, 'the address is now confirmed by Google')
+
+// link / unlink from the profile
+g = await google({ sub: `g-timur-${uniq}`, email: `timur.${uniq}@gmail.com` }, { mode: 'link', session: await sessionOf('timur@mail.kz') })
+const tMe = (await timur('GET', '/auth/me')).data.user
+ok(g.loc.searchParams.get('google') === 'linked' && tMe.googleLinked && tMe.googleEmail === `timur.${uniq}@gmail.com` && tMe.email === 'timur@mail.kz', 'a signed-in user links a Google account with another address')
+g = await google({ sub: `g-timur-${uniq}`, email: `timur.${uniq}@gmail.com` }, { mode: 'link', session: await sessionOf('sabina@mail.kz') })
+ok(g.loc.searchParams.get('google_error') === 'google_taken', 'a Google account linked to someone else cannot be linked again')
+r = await timur('DELETE', '/auth/google')
+ok(r.status === 200 && !r.data.user.googleLinked && (await mails('timur@mail.kz')).some(m => m.subject.includes('Google отключён')), 'unlinking Google works and the owner is told by email')
+g = await google({ sub: `g-z-${uniq}`, email: `z.${uniq}@gmail.com` }, { mode: 'link' })
+ok(g.start.pathname === '/login' && g.start.searchParams.get('google_error') === 'login_required', 'linking needs a signed-in user')
+
+// a Google-only account: unlink needs a password first; the password is set through a link sent by email
+const ali = cookieClient((await google({ sub: `g-new-${uniq}`, email: `ali.${uniq}@gmail.com` })).session)
+ok((await ali('DELETE', '/auth/google')).data?.error === 'set_password_first', 'a Google-only account cannot unlink Google before it has a password')
+ok((await ali('POST', '/me/password', { currentPassword: 'x', newPassword: 'newpass123' })).data?.error === 'no_password', 'there is no "current password" to change yet')
+r = await ali('POST', '/me/password/setup')
+ok(r.status === 200 && (await mails(`ali.${uniq}@gmail.com`)).some(m => m.subject.includes('задайте пароль') && m.action?.url.includes('/reset-password?token=')), 'a "set a password" link goes to the Google email')
+r = await client()('POST', '/auth/reset-password', { token: r.data.devResetToken, password: 'alipass123' })
+ok(r.status === 200 && r.data.user.hasPassword && (await client()('POST', '/auth/login', { email: `ali.${uniq}@gmail.com`, password: 'alipass123' })).status === 200, 'the link sets the password; email + password now works too')
+ok((await mails(`ali.${uniq}@gmail.com`)).some(m => m.subject.includes('пароль задан')), 'a "password set" letter confirms it')
+
+// blocked users stay out; deleting a Google-only account is confirmed by typing the email
+const blockedG = await google({ sub: `g-block-${uniq}`, email: `block.${uniq}@gmail.com` })
+const blockedId = (await blockedG.as('GET', '/auth/me')).data.user.id
+await admin('PATCH', `/admin/users/${blockedId}`, { blocked: true })
+g = await google({ sub: `g-block-${uniq}`, email: `block.${uniq}@gmail.com` })
+ok(g.loc.searchParams.get('google_error') === 'blocked' && !g.session, 'a blocked user cannot sign in with Google')
+const del = (await google({ sub: `g-del-${uniq}`, email: `del.${uniq}@gmail.com` })).as
+ok((await del('DELETE', '/me', { email: 'wrong@gmail.com' })).data?.error === 'wrong_email', 'deleting a Google-only account needs its email typed')
+ok((await del('DELETE', '/me', { email: `del.${uniq}@gmail.com` })).status === 204, 'with the right email the account is deleted')
+
+// ordinary accounts: changing the password sends a security letter
+r = await sabina('POST', '/me/password', { currentPassword: 'demo1234', newPassword: 'sabina-new-1' })
+ok(r.status === 200 && (await mails('sabina@mail.kz')).some(m => m.subject.includes('пароль изменён')), 'a password change sends a "password changed" letter')
+await sabina('POST', '/me/password', { currentPassword: 'sabina-new-1', newPassword: 'demo1234' })
+
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

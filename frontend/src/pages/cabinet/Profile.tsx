@@ -1,15 +1,16 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Award, BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
-import { changePassword, createTelegramLink, deleteAccount, getMe, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
+import { AlertCircle, Award, BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
+import { changePassword, createTelegramLink, deleteAccount, getGoogleConfig, getMe, requestPasswordSetup, unlinkGoogle, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange } from '@/lib/utils'
 import { AvatarEditor } from '@/components/auth/AvatarEditor'
+import { GoogleButton, GoogleIcon } from '@/components/auth/GoogleButton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -141,10 +142,12 @@ function PasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
 // personal data law: a user can delete their account; confirmed with the password
 function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { t } = useTranslation()
-  const { signOut } = useAuth()
+  const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
+  // an account created with Google has no password: typing the email confirms instead
+  const byEmail = !user?.hasPassword
   return (
     <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) setPassword('') }}>
       <DialogContent heading={t('profile.deleteAccount.confirmTitle')} description={t('profile.deleteAccount.confirmText')}>
@@ -154,7 +157,7 @@ function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           if (!password) return
           setBusy(true)
           try {
-            await deleteAccount(password)
+            await deleteAccount(byEmail ? { email: password.trim() } : { password })
             await signOut()
             toast(t('profile.deleteAccount.deleted'))
             navigate('/', { replace: true })
@@ -164,8 +167,8 @@ function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           }
         }}>
           <div>
-            <Label htmlFor="del-pw">{t('profile.deleteAccount.password')}</Label>
-            <Input id="del-pw" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} />
+            <Label htmlFor="del-pw">{byEmail ? t('google.deleteByEmail', { email: user?.email }) : t('profile.deleteAccount.password')}</Label>
+            <Input id="del-pw" type={byEmail ? 'email' : 'password'} autoComplete={byEmail ? 'off' : 'current-password'} value={password} onChange={e => setPassword(e.target.value)} />
           </div>
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
@@ -180,17 +183,55 @@ function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 // password and account removal live here as compact rows; the forms open in dialogs
 function SecurityCard({ canDelete }: { canDelete: boolean }) {
   const { t } = useTranslation()
+  const { user, signIn } = useAuth()
+  const google = useAsync(getGoogleConfig)
   const [pwOpen, setPwOpen] = useState(false)
   const [delOpen, setDelOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [setupSent, setSetupSent] = useState(false)
+  if (!user) return null
+  const act = async (fn: () => Promise<void>) => {
+    setBusy(true)
+    try { await fn() } catch (e) { toast.error(errorMessage(e, t)) } finally { setBusy(false) }
+  }
   return (
     <Card className="p-6">
       <h3 className="flex items-center gap-2 font-bold"><ShieldCheck className="size-4 text-primary" />{t('profile.security.title')}</h3>
-      <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-border p-3">
+      {/* Google: shown when the server supports it, or when an account is already linked */}
+      {(google.data?.enabled || user.googleLinked) && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <GoogleIcon />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">Google</p>
+              <p className="truncate text-xs text-muted-foreground">{user.googleLinked ? user.googleEmail : t('google.notLinked')}</p>
+            </div>
+          </div>
+          {user.googleLinked ? (
+            <Button size="sm" variant="ghost" className="text-danger" disabled={busy}
+              title={user.hasPassword ? undefined : t('apiErrors.set_password_first')}
+              onClick={() => act(async () => {
+                if (!user.hasPassword) return void toast.info(t('apiErrors.set_password_first'))
+                signIn(await unlinkGoogle())
+                toast(t('google.unlinked'))
+              })}>
+              <Unlink className="size-4" />{t('google.unlink')}
+            </Button>
+          ) : <GoogleButton mode="link" label={t('google.link')} className="h-9 w-auto rounded-lg px-3" />}
+        </div>
+      )}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold">{t('profile.security.password')}</p>
-          <p className="text-xs tracking-widest text-muted-foreground">••••••••</p>
+          {user.hasPassword
+            ? <p className="text-xs tracking-widest text-muted-foreground">••••••••</p>
+            : <p className="text-xs text-muted-foreground">{setupSent ? t('google.setupSent', { email: user.email }) : t('google.noPassword')}</p>}
         </div>
-        <Button size="sm" variant="outline" onClick={() => setPwOpen(true)}><KeyRound className="size-4" />{t('profile.security.change')}</Button>
+        {user.hasPassword
+          ? <Button size="sm" variant="outline" onClick={() => setPwOpen(true)}><KeyRound className="size-4" />{t('profile.security.change')}</Button>
+          : <Button size="sm" variant="outline" disabled={busy || setupSent} onClick={() => act(async () => { await requestPasswordSetup(); setSetupSent(true); toast.success(t('google.setupSent', { email: user.email })) })}>
+              <Mail className="size-4" />{t('google.setPassword')}
+            </Button>}
       </div>
       {canDelete && (
         <div className="mt-3 flex items-center justify-between gap-3 px-1">
@@ -215,7 +256,20 @@ export default function Profile() {
   const regs = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyRegistrations()), [user?.id])
   const debates = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyDebates()), [user?.id])
   const [form, setForm] = useState({ name: user!.name, phone: user!.phone ?? '', institution: user!.institution ?? '', city: user!.city ?? '' })
+  const [params, setParams] = useSearchParams()
+  const [tab, setTab] = useState(isAdmin || params.has('welcome') || params.has('google') || params.has('google_error') ? 'settings' : 'registrations')
+  // the server sends people back here after Google: ?welcome=1 (new account), ?google=linked, ?google_error=…
+  useEffect(() => {
+    const welcome = params.get('welcome'), linked = params.get('google'), failed = params.get('google_error')
+    if (!welcome && !linked && !failed) return
+    if (welcome) toast.success(t('google.welcome', { name: user?.name.split(' ')[0] }), { description: t('google.welcomeText'), duration: 8000 })
+    if (linked) { toast.success(t('google.linked')); void getMe().then(me => me && signIn(me)) }
+    if (failed) toast.error(t(`google.errors.${failed}`, { defaultValue: t('google.errors.google_failed') }))
+    setParams({}, { replace: true })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   if (!user) return null
+  // what a participant still has to add (a Google sign-up brings only the name, email and photo)
+  const missing = isAdmin ? [] : ([['phone', user.phone], ['institution', user.institution], ['city', user.city]] as const).filter(([, v]) => !v).map(([k]) => k)
 
   const played = debates.data?.filter(d => d.result) ?? []
   const wins = played.filter(d => d.result === 'win').length
@@ -239,7 +293,10 @@ export default function Profile() {
               {user.role === 'admin' && <Badge variant="danger">{t('roles.admin')}</Badge>}
             </div>
             <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground sm:justify-start">
-              <span className="flex items-center gap-1.5"><Mail className="size-4 text-primary" />{user.email}</span>
+              <span className="flex items-center gap-1.5"><Mail className="size-4 text-primary" />{user.email}
+                {user.emailVerified && <BadgeCheck className="size-4 text-success" aria-label={t('google.emailVerified')} />}
+              </span>
+              {user.googleLinked && <span className="flex items-center gap-1.5" title={user.googleEmail}><GoogleIcon className="size-4" />{t('google.linkedShort')}</span>}
               {user.phone && (
                 <span className="flex items-center gap-1.5"><Phone className="size-4 text-primary" />{user.phone}
                   {user.phoneVerified && <BadgeCheck className="size-4 text-success" aria-label={t('telegram.phoneOk')} />}
@@ -268,7 +325,15 @@ export default function Profile() {
         ))}
       </div>}
 
-      <Tabs defaultValue={isAdmin ? 'settings' : 'registrations'} className="mt-8">
+      {missing.length > 0 && (
+        <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-accent bg-accent-soft p-4 text-sm">
+          <AlertCircle className="size-5 shrink-0 text-navy dark:text-accent" />
+          <p className="min-w-0 flex-1"><b>{t('google.completeTitle')}</b> {t('google.completeText', { fields: missing.map(k => t(`google.fields.${k}`)).join(', ') })}</p>
+          <Button size="sm" onClick={() => { setTab('settings'); setTimeout(() => document.getElementById(missing[0] === 'phone' ? 'p-phone' : missing[0] === 'city' ? 'p-city' : 'p-inst')?.focus(), 50) }}>{t('google.completeButton')}</Button>
+        </div>
+      )}
+
+      <Tabs value={tab} onValueChange={setTab} className="mt-8">
         {/* laptops: sections in a sticky sidebar, content on the right; phones: tabs on top */}
         <div className={cn('grid gap-6', !isAdmin && 'lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start')}>
         {!isAdmin && (

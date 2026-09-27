@@ -6,6 +6,9 @@
 import { spawn, execSync } from 'node:child_process'
 import path from 'node:path'
 import pg from 'pg'
+import http from 'node:http'
+import { createHash } from 'node:crypto'
+import sharp from 'sharp'
 
 const root = path.resolve(import.meta.dirname, '..')
 const devUrl = new URL(process.env.DATABASE_URL ?? '')
@@ -15,7 +18,39 @@ const testDb = `${devUrl.pathname.slice(1)}`.replace(/_dev$/, '') + '_test'
 const testUrl = new URL(devUrl)
 testUrl.pathname = `/${testDb}`
 const PORT = 4100
-const env = { ...process.env, DATABASE_URL: testUrl.toString(), PORT: String(PORT), NODE_ENV: 'test' }
+const GOOGLE_PORT = 4199
+const env = {
+  ...process.env, DATABASE_URL: testUrl.toString(), PORT: String(PORT), NODE_ENV: 'test',
+  // tests never send real letters, even when SMTP is configured in .env
+  SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '',
+  // "Google" is played locally by fakeGoogle below
+  GOOGLE_CLIENT_ID: 'e2e-client.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'e2e-secret-0123456789',
+  GOOGLE_AUTH_URL: `http://localhost:${GOOGLE_PORT}/auth`, GOOGLE_TOKEN_URL: `http://localhost:${GOOGLE_PORT}/token`,
+}
+
+// A stand-in for Google's token endpoint. The checks build the "authorization code" themselves:
+// base64url JSON { claims, challenge } — the claims of the ID token to return and the PKCE challenge
+// taken from the authorization URL. Like Google, it rejects a wrong client secret, redirect URI or PKCE verifier.
+const photo = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#009bc9' } }).png().toBuffer()
+const fakeGoogle = http.createServer(async (req, res) => {
+  if (req.url === '/photo.png') return res.writeHead(200, { 'Content-Type': 'image/png' }).end(photo)
+  if (req.method !== 'POST' || req.url !== '/token') return res.writeHead(404).end()
+  let raw = ''
+  for await (const chunk of req) raw += chunk
+  const f = new URLSearchParams(raw)
+  const reject = () => res.writeHead(400, { 'Content-Type': 'application/json' }).end('{"error":"invalid_grant"}')
+  let code
+  try { code = JSON.parse(Buffer.from(f.get('code') ?? '', 'base64url').toString()) } catch { return reject() }
+  const challenge = createHash('sha256').update(f.get('code_verifier') ?? '').digest('base64url')
+  if (f.get('client_id') !== env.GOOGLE_CLIENT_ID || f.get('client_secret') !== env.GOOGLE_CLIENT_SECRET
+    || f.get('grant_type') !== 'authorization_code' || !f.get('redirect_uri')?.endsWith('/api/auth/google/callback')
+    || challenge !== code.challenge) return reject()
+  const part = o => Buffer.from(JSON.stringify(o)).toString('base64url')
+  const idToken = `${part({ alg: 'RS256' })}.${part(code.claims)}.signature`
+  res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ id_token: idToken, access_token: 'x', token_type: 'Bearer' }))
+})
+await new Promise(r => fakeGoogle.listen(GOOGLE_PORT, r))
+fakeGoogle.unref() // never keeps the runner alive on an early failure
 
 // create the test database once (debate_app has CREATEDB)
 const admin = new pg.Client({ connectionString: Object.assign(new URL(devUrl), { pathname: '/postgres' }).toString() })
@@ -42,7 +77,10 @@ try {
     await new Promise(r => setTimeout(r, 250))
   }
   process.env.API_URL = base
+  process.env.GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID
+  process.env.FAKE_GOOGLE = `http://localhost:${GOOGLE_PORT}`
   await import('./e2e-checks.mjs')
 } finally {
   api.kill()
+  fakeGoogle.close()
 }

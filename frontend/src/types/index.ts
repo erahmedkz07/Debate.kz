@@ -168,6 +168,9 @@ export interface User {
   blocked?: boolean
   emailVerified?: boolean
   phoneVerified?: boolean // confirmed through the Telegram bot
+  googleLinked?: boolean // Sign in with Google is connected
+  googleEmail?: string // the linked Google address (may differ from email)
+  hasPassword?: boolean // false for accounts created with Google until a password is set
   telegramLinked?: boolean
   telegramUsername?: string
   telegramNotify?: boolean
