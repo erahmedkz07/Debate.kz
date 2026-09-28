@@ -31,6 +31,7 @@ import { CoverCard } from '@/components/tournament/CoverCard'
 const CLUB_PROTECTED_ROUNDS = 2
 import { ModerationBanner } from '@/components/tournament/ModerationBadge'
 import { DatePicker } from '@/components/ui/date-picker'
+import { TimePicker } from '@/components/ui/time-picker'
 import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
 import { PaymentCard } from '@/components/payments/PaymentCard'
 import { FREE_TEAM_LIMIT } from '@/lib/plans'
@@ -503,15 +504,16 @@ function Schedule({ data, reload }: SectionProps) {
             <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-primary">{dayLabel(day)}</h3>
             <div className="space-y-2">
               {items.map((x, i) => x.day === day && (
-                <div key={i} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-                  <Input type="time" value={x.time} onChange={e => set(i, { time: e.target.value })} className="w-32 shrink-0" aria-label={t('dashboard.schedule.time')} />
+                // phone: time, day and delete on one line, the title below across the width; wider: one line
+                <div key={i} className="flex flex-wrap items-center gap-2 border-b border-border/60 pb-2 last:border-0 last:pb-0 sm:flex-nowrap sm:border-0 sm:pb-0">
+                  <TimePicker value={x.time} onChange={v => set(i, { time: v })} className="w-28 shrink-0" aria-label={t('dashboard.schedule.time')} />
                   <Input value={x.title} maxLength={120} onChange={e => set(i, { title: e.target.value })} placeholder={t('dashboard.schedule.titlePlaceholder')}
-                    aria-label={t('dashboard.schedule.title')} aria-invalid={x.title.length > 0 && x.title.trim().length < 2} className="min-w-0 flex-1" />
+                    aria-label={t('dashboard.schedule.title')} aria-invalid={x.title.length > 0 && x.title.trim().length < 2} className="order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1" />
                   {days > 1 && (
-                    <Select size="sm" className="w-28 shrink-0" value={String(x.day)} onValueChange={v => set(i, { day: Number(v) })} aria-label={t('dashboard.schedule.moveDay')}
+                    <Select className="w-32 shrink-0" value={String(x.day)} onValueChange={v => set(i, { day: Number(v) })} aria-label={t('dashboard.schedule.moveDay')}
                       options={Array.from({ length: days }, (_, k) => ({ value: String(k + 1), label: t('tournament.day', { n: k + 1 }) }))} />
                   )}
-                  <Button variant="ghost" size="icon" onClick={() => setItems(list => list.filter((_, j) => j !== i))} aria-label={t('common.delete')}><Trash2 className="size-4" /></Button>
+                  <Button variant="ghost" size="icon" className="ml-auto shrink-0 text-muted-foreground hover:text-danger sm:ml-0" onClick={() => setItems(list => list.filter((_, j) => j !== i))} aria-label={t('common.delete')}><Trash2 className="size-4" /></Button>
                 </div>
               ))}
               {!items.some(x => x.day === day) && <p className="text-sm text-muted-foreground">{t('dashboard.schedule.emptyDay')}</p>}
