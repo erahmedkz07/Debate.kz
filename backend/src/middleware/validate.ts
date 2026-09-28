@@ -9,7 +9,8 @@ export function parse<T extends z.ZodType>(schema: T, data: unknown): z.infer<T>
   return r.data
 }
 
-export const body = <T extends z.ZodType>(req: Request, schema: T) => parse(schema, req.body)
+// a request without a JSON body (e.g. an empty POST) is validated as {}
+export const body = <T extends z.ZodType>(req: Request, schema: T) => parse(schema, req.body ?? {})
 export const query = <T extends z.ZodType>(req: Request, schema: T) => parse(schema, req.query)
 
 // Express 5 types params as string | string[]; route params here are always single strings

@@ -20,6 +20,9 @@ telegramRouter.get('/telegram/config', (_req, res) => {
 // one-time deep link: t.me/<bot>?start=<token> (only the hash is stored, 15 minutes, single use)
 telegramRouter.post('/me/telegram/link', requireAuth(), async (req, res) => {
   if (!telegramEnabled()) throw new HttpError(503, 'telegram_disabled')
+  // the bot will speak the language the person uses on the site right now
+  const { language } = body(req, z.object({ language: z.enum(['ru', 'kz']).optional() }))
+  if (language && language !== req.user!.language) await prisma.user.update({ where: { id: req.user!.id }, data: { language } })
   const { token, hash } = newToken()
   await prisma.emailToken.create({ data: { userId: req.user!.id, purpose: 'telegram_link', tokenHash: hash, expiresAt: new Date(Date.now() + LINK_TTL_MS) } })
   res.status(201).json({ url: `https://t.me/${botUsername()}?start=${token}`, expiresInMinutes: LINK_TTL_MS / 60000 })
@@ -29,6 +32,12 @@ telegramRouter.patch('/me/telegram', requireAuth(), async (req, res) => {
   const { notify } = body(req, z.object({ notify: z.boolean() }))
   if (!req.user!.telegramChatId) throw notFound('telegram_not_linked')
   res.json({ user: await sessionUser(await prisma.user.update({ where: { id: req.user!.id }, data: { telegramNotify: notify } })) })
+})
+
+// the person's language (the site's switch): the bot and notifications use it
+telegramRouter.put('/me/language', requireAuth(), async (req, res) => {
+  const { language } = body(req, z.object({ language: z.enum(['ru', 'kz']) }))
+  res.json({ user: await sessionUser(await prisma.user.update({ where: { id: req.user!.id }, data: { language } })) })
 })
 
 // unlinking keeps the verified phone: it was proven once and still prevents duplicate accounts

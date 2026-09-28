@@ -1102,4 +1102,54 @@ ok(r.data?.error === 'not_enough_judges' && r.data.details?.need === 2 && r.data
 await qp('POST', `/tournaments/${jd.id}/judges`, { name: 'Второй Судья', rating: 5 })
 ok((await qp('POST', `/rounds/${jr.id}/draw`)).status === 201, 'with a second judge the draw works')
 
+
+// ---------- 35. the bot: two languages, menus, /next, /tournaments, safe texts ----------
+const tgTap = (chatId, data, text = '') => bot('POST', '/telegram/test/update', {
+  update_id: ++upd, callback_query: { id: `cb${upd}`, from: { id: chatId }, data, message: { message_id: 1, chat: { id: chatId, type: 'private' }, text } },
+})
+const sentTo = async chatId => (await inbox(String(chatId))).filter(m => m.method === 'sendMessage')
+r = await judge('PUT', '/me/language', { language: 'kz' })
+ok(r.status === 200 && r.data.user.language === 'kz', 'the site saves the language of the account')
+ok((await judge('PUT', '/me/language', { language: 'en' })).status === 400, 'only Russian and Kazakh are accepted')
+await tgSend(333, { text: '/help' })
+ok(/турнирлеріңіз/.test(await lastText(333)), 'after the switch the bot answers in Kazakh')
+await tgSend(333, { text: '/next' })
+ok(/аудиториясында сіз/.test(await lastText(333)), '/next shows the judge their room and role (in Kazakh)')
+await tgSend(333, { text: '/next@DebateKzTestBot' })
+ok(/аудиториясында сіз/.test(await lastText(333)), 'a command with the bot name works the same')
+await tgTap(333, 'lang:ru')
+ok((await judge('GET', '/auth/me')).data.user.language === 'ru' && (await bot('GET', '/telegram/test/outbox')).data.some(m => m.method === 'answerCallbackQuery'),
+  'a tap on a language button switches the language and answers the tap')
+await tgSend(333, { text: '/me' })
+const meMsg = (await sentTo(333)).filter(m => /Язык:/.test(m.text)).at(-1)
+ok(/Язык: русский/.test(meMsg?.text) && meMsg.reply_markup?.inline_keyboard?.flat().some(b => b.callback_data === 'lang:kz') && meMsg.reply_markup.inline_keyboard.flat().some(b => b.callback_data === 'notify:off'),
+  '/me shows the account with language and notification buttons')
+// Telegram gives the bot its message back as plain text, without the HTML tags
+const meShown = meMsg.text.replace(/<[^>]+>/g, '')
+await tgTap(333, 'notify:off', meShown)
+ok((await judge('GET', '/auth/me')).data.user.telegramNotify === false && (await inbox('333')).some(m => m.method === 'editMessageText'), 'notifications are muted with a button and the menu redraws itself')
+await tgTap(333, 'notify:on', meShown)
+ok((await judge('GET', '/auth/me')).data.user.telegramNotify === true, 'and turned back on')
+await tgSend(333, { text: '/tournaments' })
+ok(/Мои турниры/.test(await lastText(333)) && /судья/.test(await lastText(333)), '/tournaments lists active tournaments with the role')
+ok((await sentTo(333)).some(m => /Подтвердите номер/.test(m.text) && m.reply_markup?.keyboard), '/me also asks an unverified judge for the phone')
+await tgSend(333, { text: '/foo' })
+ok(/Не понял/.test(await lastText(333)), 'an unknown command gets the list of commands')
+await bot('POST', '/telegram/test/update', { update_id: ++upd, message: { message_id: upd, from: { id: 778, language_code: 'kk' }, chat: { id: 778, type: 'private' }, text: 'сәлем' } })
+ok(/қосылмаған/.test(await lastText(778)), 'an unknown chat with Telegram in Kazakh gets instructions in Kazakh')
+// the link from the site carries the language the person is using there
+r = await timur('POST', '/me/telegram/link', { language: 'kz' })
+ok(r.status === 201 && (await timur('GET', '/auth/me')).data.user.language === 'kz', 'connecting Telegram from the Kazakh site sets Kazakh')
+await timur('PUT', '/me/language', { language: 'ru' })
+
+// notifications follow each person's language, and names cannot break the message
+await fresh('PUT', '/me/language', { language: 'kz' })
+const odd = (await fresh('POST', '/tournaments', { ...tBody(60), name: `Кубок <Алтын> & ${uniq}` })).data
+await admin('PATCH', `/admin/tournaments/${odd.id}`, { moderation: 'rejected', moderationNote: '<b>дубль</b> & тест' })
+ok(await waitFor(444, /қабылданбады/), 'the owner gets the decision in Kazakh')
+const oddMsg = (await sentTo(444)).filter(m => m.text.includes('Алтын')).at(-1)?.text ?? ''
+ok(oddMsg.includes('«Кубок &lt;Алтын&gt; &amp;') && oddMsg.includes('&lt;b&gt;дубль&lt;/b&gt; &amp; тест') && !oddMsg.includes('<Алтын>'),
+  'names and reasons are escaped in Telegram texts')
+ok((await fresh('GET', '/me/notifications')).data.items.some(n => n.type === 'organizer.rejected' && n.data.tournament.includes('<Алтын>')), 'the site notification keeps the original text')
+await fresh('PUT', '/me/language', { language: 'ru' })
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

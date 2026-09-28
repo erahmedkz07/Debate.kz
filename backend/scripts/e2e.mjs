@@ -4,6 +4,7 @@
 // 3. starts its own API on port 4100 against that DB, runs e2e-checks.mjs, stops the API
 // Usage: npm run test:e2e   (the dev server on :4000 may keep running)
 import { spawn, execSync } from 'node:child_process'
+import { rmSync } from 'node:fs'
 import path from 'node:path'
 import pg from 'pg'
 import http from 'node:http'
@@ -68,6 +69,8 @@ run('npx prisma migrate deploy')
 run('npx prisma db seed -- --force')
 
 // own API instance for the tests
+// the test server keeps its files in test-storage (see src/lib/uploads.ts): every run starts empty
+rmSync(path.join(root, 'test-storage'), { recursive: true, force: true })
 const api = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], { cwd: root, env, stdio: ['ignore', 'ignore', 'inherit'] })
 const base = `http://localhost:${PORT}/api`
 try {

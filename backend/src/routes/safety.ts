@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js'
 import { forbidden, HttpError, notFound, unauthorized } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { background, inbox, notifyUsers, withLink } from '../services/notify.js'
+import { background, notify } from '../services/notify.js'
 
 // Behaviour reports (safeguarding): anyone signed in can report bullying, harassment and the like.
 // Admins and the safeguarding officers they appoint see and handle the reports.
@@ -34,8 +34,7 @@ safetyRouter.post('/safety-reports', requireAuth(), async (req, res) => {
   const r = await prisma.safetyReport.create({ data: { ...d, about: d.about || null, place: d.place || null, reporterId: req.user!.id } })
   // no details in the Telegram text: the report is read on the site only
   const to = await handlers()
-  background(inbox(to, 'admin.safetyReport', { category: d.category }, '/safety/reports'))
-  background(notifyUsers(to, () => withLink('🛡 Новое сообщение о поведении. Подробности — только на сайте.', 'Открыть обращения', '/safety/reports')))
+  background(notify(to, 'admin.safetyReport', { category: d.category }, '/safety/reports'))
   res.status(201).json({ id: r.id })
 })
 
@@ -65,6 +64,6 @@ safetyRouter.patch('/safety-reports/:id', handlerOnly, async (req, res) => {
   if (!r) throw notFound('report_not_found')
   await prisma.safetyReport.update({ where: { id: r.id }, data: { status: d.status, resolutionNote: d.resolutionNote || r.resolutionNote, handledById: req.user!.id } })
   // the reporter learns the status (not who handled it)
-  if (r.reporterId && d.status !== r.status) background(inbox([r.reporterId], 'participant.safetyUpdate', { status: d.status }, '/safety'))
+  if (r.reporterId && d.status !== r.status) background(notify([r.reporterId], 'participant.safetyUpdate', { status: d.status }, '/safety'))
   res.json({ ok: true })
 })

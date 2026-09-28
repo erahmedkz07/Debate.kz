@@ -112,6 +112,7 @@ model User {
   telegramChatId      String?   @unique @map("telegram_chat_id") // private chat with the bot (= Telegram user id)
   telegramUsername    String?   @map("telegram_username")
   telegramNotify      Boolean   @default(true) @map("telegram_notify")
+  language            String    @default("ru") // ru | kz: the bot speaks it (set on the site or with /lang)
   verifiedPhone       String?   @unique @map("verified_phone") // shared via the bot's "share contact": one phone, one account
   phoneVerifiedAt     DateTime? @map("phone_verified_at")
   safeguardingOfficer Boolean   @default(false) @map("safeguarding_officer") // receives and handles behaviour reports (set by an admin)
