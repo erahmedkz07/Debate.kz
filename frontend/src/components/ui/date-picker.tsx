@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import * as P from '@radix-ui/react-popover'
 import { useTranslation } from 'react-i18next'
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatDateObj } from '@/lib/utils'
 
 // Brand-styled date picker (the browser's native calendar popup cannot be styled).
 // Works with ISO "YYYY-MM-DD" strings, like the API.
@@ -27,18 +27,19 @@ interface Props {
 
 export function DatePicker({ value, onChange, min, max, id, invalid, placeholder, className }: Props) {
   const { t, i18n } = useTranslation()
-  const locale = i18n.language === 'kz' ? 'kk-KZ' : 'ru-RU'
+  // Kazakh names come from our own list (browsers often lack them); the language keys the memo below
+  const locale = i18n.language
   const [open, setOpen] = useState(false)
   const todayIso = toIso(new Date())
   // month shown in the popup: the selected date, else the min date, else today
   const [view, setView] = useState(() => fromIso(value || min || todayIso))
 
-  const rawMonth = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(view)
+  const rawMonth = formatDateObj(view, { month: 'long', year: 'numeric' })
   // only the first letter is upper-cased (CSS capitalize would also turn 'г.' into 'Г.')
   const monthLabel = rawMonth.charAt(0).toUpperCase() + rawMonth.slice(1)
   // weekday names starting from Monday (2024-01-01 was a Monday)
   const weekdays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(new Date(2024, 0, 1 + i))),
+    () => Array.from({ length: 7 }, (_, i) => formatDateObj(new Date(2024, 0, 1 + i), { weekday: 'short' })),
     [locale],
   )
 
@@ -57,7 +58,7 @@ export function DatePicker({ value, onChange, min, max, id, invalid, placeholder
   }
   const shift = (months: number) => setView(v => new Date(v.getFullYear(), v.getMonth() + months, 1))
   const label = value
-    ? new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).format(fromIso(value))
+    ? formatDateObj(fromIso(value), { day: 'numeric', month: 'long', year: 'numeric' })
     : placeholder ?? t('datePicker.placeholder')
 
   return (
@@ -102,7 +103,7 @@ export function DatePicker({ value, onChange, min, max, id, invalid, placeholder
               const off = disabled(iso)
               return (
                 <button key={iso} type="button" disabled={off} onClick={() => pick(iso)} aria-pressed={selected}
-                  aria-label={new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).format(d)}
+                  aria-label={formatDateObj(d, { day: 'numeric', month: 'long', year: 'numeric' })}
                   className={cn(
                     'grid h-9 cursor-pointer place-items-center rounded-xl text-sm tabular-nums transition-colors',
                     selected ? 'bg-primary font-bold text-primary-foreground shadow-md shadow-primary/25'
