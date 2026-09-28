@@ -8,7 +8,7 @@ import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { ensureCertificates } from '../services/certificates.js'
-import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased } from '../services/notify.js'
+import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
 export const organizerRouter = Router()
@@ -159,7 +159,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     return tx.tournament.update({ where: { id: cur.id }, data, include: summaryInclude })
   })
   // the results are final: certificates exist at once (profiles, printing and the public QR check all see them)
-  if (d.status === 'finished' && cur.status !== 'finished') background(ensureCertificates(cur.id).then(() => undefined))
+  // and everyone who took part learns the result and where the certificate is
+  if (d.status === 'finished' && cur.status !== 'finished') background(ensureCertificates(cur.id).then(() => notifyTournamentFinished(cur.id)))
   res.json(toSummary(t))
 })
 
@@ -241,26 +242,8 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
 
 // ---------- judges ----------
 
-organizerRouter.post('/tournaments/:id/judges', org, async (req, res) => {
-  await assertCanManage(req.user, param(req, 'id'))
-  const d = body(req, z.object({
-    name: z.string().trim().min(3).max(100),
-    institution: z.string().trim().max(150).optional(),
-    email: z.string().trim().toLowerCase().email().optional(), // links the judge to an existing account
-  }))
-  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') } })
-  const user = d.email ? await prisma.user.findUnique({ where: { email: d.email } }) : null
-  if (user && (await participationIn(user.id, t.id)).competitor) throw forbidden('conflict_of_interest')
-  const j = await prisma.judge.create({
-    data: {
-      // organizers do not rate judges (tournament rules); the stored rating keeps its neutral default
-      tournamentId: t.id, name: d.name, userId: user?.id,
-      institutionId: d.institution ? await institutionId(d.institution, 'university') : undefined,
-    },
-    include: { institution: true },
-  })
-  res.status(201).json({ id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating })
-})
+// Judges join only through an invite (a link or an email) and judge from their own account: a ballot is theirs alone.
+// A judge added earlier without an account is linked to one by an email invite (see routes/invites.ts).
 
 organizerRouter.delete('/judges/:judgeId', org, async (req, res) => {
   const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })

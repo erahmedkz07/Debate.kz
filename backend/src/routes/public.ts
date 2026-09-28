@@ -110,9 +110,9 @@ publicRouter.get('/rating', async (_req, res) => {
   type Level = 'school' | 'university'
   type Ref = { id: string; name: string } | undefined
   // teams: the same club team is one row across tournaments even if it entered under different names
-  const teamAgg = new Map<string, { name: string; institution: string; club: Ref; city: string; level: Level; tournaments: Set<string>; wins: number; points: number }>()
+  const teamAgg = new Map<string, { name: string; institution: string; club: Ref; logoUrl?: string; city: string; level: Level; tournaments: Set<string>; wins: number; points: number }>()
   const speakerAgg = new Map<string, { name: string; team: string; club: Ref; city: string; level: Level; tournaments: Set<string>; total: number; n: number }>()
-  const clubAgg = new Map<string, { club: { id: string; name: string }; city: string; levels: Set<Level>; tournaments: Set<string>; teams: Set<string>; wins: number; debates: number; points: number; speakerAvg: number[] }>()
+  const clubAgg = new Map<string, { club: { id: string; name: string; logoUrl?: string }; city: string; levels: Set<Level>; tournaments: Set<string>; teams: Set<string>; wins: number; debates: number; points: number; speakerAvg: number[] }>()
 
   for (const t of tournaments) {
     const s = await getStandings(t.id)
@@ -120,7 +120,7 @@ publicRouter.get('/rating', async (_req, res) => {
       if (row.wins + row.losses === 0) continue
       const tm = row.team
       const key = tm.clubTeam ? `ct:${tm.clubTeam.id}` : `${tm.name}|${tm.institution}`
-      const a = teamAgg.get(key) ?? { name: tm.clubTeam?.name ?? tm.name, institution: tm.institution, club: tm.club, city: tm.city || t.city, level: t.level, tournaments: new Set(), wins: 0, points: 0 }
+      const a = teamAgg.get(key) ?? { name: tm.clubTeam?.name ?? tm.name, institution: tm.institution, club: tm.club, logoUrl: tm.logoUrl, city: tm.city || t.city, level: t.level, tournaments: new Set(), wins: 0, points: 0 }
       a.tournaments.add(t.id); a.wins += row.wins; a.points += row.speakerPoints
       teamAgg.set(key, a)
       if (tm.club) {
@@ -142,13 +142,13 @@ publicRouter.get('/rating', async (_req, res) => {
 
   const r1 = (n: number) => Math.round(n * 10) / 10
   const teams = [...teamAgg.values()].sort((a, b) => b.points - a.points).slice(0, 50)
-    .map((a, i) => ({ rank: i + 1, name: a.name, institution: a.institution, club: a.club, city: a.city, level: a.level, tournaments: a.tournaments.size, wins: a.wins, points: Math.round(a.points) }))
+    .map((a, i) => ({ rank: i + 1, name: a.name, institution: a.institution, club: a.club, logoUrl: a.logoUrl, city: a.city, level: a.level, tournaments: a.tournaments.size, wins: a.wins, points: Math.round(a.points) }))
   const speakers = [...speakerAgg.values()].map(a => ({ ...a, average: a.total / a.n })).sort((a, b) => b.average - a.average).slice(0, 50)
     .map((a, i) => ({ rank: i + 1, name: a.name, team: a.team, club: a.club, city: a.city, level: a.level, tournaments: a.tournaments.size, average: r1(a.average) }))
   // clubs: by wins, then speaker points; a club that plays both school and university events is "mixed"
   const clubs = [...clubAgg.values()].sort((a, b) => b.wins - a.wins || b.points - a.points).slice(0, 50)
     .map((c, i) => ({
-      rank: i + 1, id: c.club.id, name: c.club.name, city: c.city, level: c.levels.size > 1 ? 'mixed' : [...c.levels][0],
+      rank: i + 1, id: c.club.id, name: c.club.name, logoUrl: c.club.logoUrl, city: c.city, level: c.levels.size > 1 ? 'mixed' : [...c.levels][0],
       tournaments: c.tournaments.size, teams: c.teams.size, wins: c.wins, debates: c.debates,
       winRate: c.debates ? Math.round((c.wins / c.debates) * 100) : 0, points: Math.round(c.points),
       speakerAverage: c.speakerAvg.length ? r1(c.speakerAvg.reduce((x, y) => x + y, 0) / c.speakerAvg.length) : 0,

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Building2, Check, Copy, Eye, History, Link2, LogOut, MapPin, Pencil, Plus, RefreshCw, Trash2, UserMinus, UserPlus, Users } from 'lucide-react'
 import {
-  answerClubRequest, createClubTeam, deleteClubTeam, getClub, getClubRequests, getMe, leaveClub, removeClubMember, renameClubTeam, resetClubCode, setMemberTeam, updateClub,
+  answerClubRequest, createClubTeam, deleteClubLogo, deleteClubTeamLogo, uploadClubLogo, uploadClubTeamLogo, deleteClubTeam, getClub, getClubRequests, getMe, leaveClub, removeClubMember, renameClubTeam, resetClubCode, setMemberTeam, updateClub,
 } from '@/api'
 import type { ClubDetails, ClubMemberInfo } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -12,6 +12,8 @@ import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
 import { Avatar } from '@/components/auth/UserMenu'
+import { EntityLogo } from '@/components/ui/entity-logo'
+import { LogoPicker } from './LogoPicker'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
@@ -34,6 +36,9 @@ export function ManageClub({ clubId, onLeft }: { clubId: string; onLeft: () => v
       {/* one header card: who the club is, what a member can do, and the join link */}
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-start justify-between gap-4 p-6">
+          <div className="flex min-w-0 items-center gap-4">
+          <LogoPicker src={data.logoUrl} name={data.name} size="xl" onDone={reload}
+            onUpload={f => uploadClubLogo(data.id, f)} onRemove={() => deleteClubLogo(data.id)} />
           <div className="min-w-0">
             <h2 className="text-2xl font-extrabold tracking-tight">{data.name}</h2>
             <p className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
@@ -41,6 +46,7 @@ export function ManageClub({ clubId, onLeft }: { clubId: string; onLeft: () => v
               {data.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{data.institution}</span>}
               <span className="flex items-center gap-1.5"><Users className="size-4 text-primary" />{t('club.membersCount', { count: data.members.length })} · {t('club.teamsCount', { count: data.teams.length })}</span>
             </p>
+          </div>
           </div>
           <MemberTools club={data} onDone={reload} onLeft={onLeft} />
         </div>
@@ -131,7 +137,14 @@ function TeamCard({ club, team, onDone }: { club: ClubDetails; team: ClubDetails
             <Input autoFocus value={name} maxLength={80} onChange={e => setName(e.target.value)} aria-label={t('club.teamName')} />
             <Button type="submit" size="sm" disabled={name.trim().length < 2}><Check className="size-4" /></Button>
           </form>
-        ) : <h3 className="text-lg font-bold">{team.name}</h3>}
+        ) : (
+          <div className="flex min-w-0 items-center gap-3">
+            {club.isMember
+              ? <LogoPicker src={team.logoUrl} name={team.name} onDone={onDone} onUpload={f => uploadClubTeamLogo(team.id, f)} onRemove={() => deleteClubTeamLogo(team.id)} />
+              : <EntityLogo src={team.logoUrl} name={team.name} />}
+            <h3 className="truncate text-lg font-bold">{team.name}</h3>
+          </div>
+        )}
         {club.isMember && !editing && (
           <div className="flex gap-1">
             <button type="button" onClick={() => setEditing(true)} title={t('club.rename')} aria-label={t('club.rename')} className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted-foreground hover:bg-muted"><Pencil className="size-4" /></button>

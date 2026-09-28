@@ -18,6 +18,7 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/input'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import NotFound from './NotFound'
+import { EntityLogo } from '@/components/ui/entity-logo'
 
 // Public club page: who the club is, its teams and members. Anyone can ask to join the club
 // (only the club: its members then decide the team). The club is managed in the profile ("My club").
@@ -68,7 +69,8 @@ export default function ClubPage() {
 
   return (
     <>
-      <PageHeader title={data.name} subtitle={data.description || t('club.noDescription')} back={<BackButton fallback="/clubs" />}>
+      <PageHeader title={data.name} subtitle={data.description || t('club.noDescription')} back={<BackButton fallback="/clubs" />}
+        media={<EntityLogo src={data.logoUrl} name={data.name} size="xl" className="shadow-md sm:size-24" />}>
         <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
           <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{data.city}</span>
           {data.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{data.institution}</span>}
@@ -83,7 +85,7 @@ export default function ClubPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {data.teams.map(team => (
                 <Card key={team.id} className="p-5">
-                  <h3 className="text-lg font-bold">{team.name}</h3>
+                  <h3 className="flex items-center gap-3 text-lg font-bold"><EntityLogo src={team.logoUrl} name={team.name} size="sm" />{team.name}</h3>
                   {team.members.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">{t('club.emptyTeam')}</p> : (
                     <ul className="mt-3 space-y-2">
                       {team.members.map(m => (

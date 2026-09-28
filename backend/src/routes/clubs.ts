@@ -1,5 +1,10 @@
 import { Router, type Request } from 'express'
-import { randomInt } from 'node:crypto'
+import multer from 'multer'
+import sharp from 'sharp'
+import path from 'node:path'
+import { randomBytes, randomInt } from 'node:crypto'
+import { unlink, writeFile } from 'node:fs/promises'
+import { LOGOS_DIR } from '../lib/uploads.js'
 import { z } from 'zod'
 import type { Prisma, User } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
@@ -44,7 +49,7 @@ clubsRouter.get('/clubs', async (req, res) => {
     orderBy: { name: 'asc' },
     take: 100,
   })
-  res.json(clubs.map(c => ({ id: c.id, name: c.name, city: c.city, institution: c.institution ?? undefined, members: c._count.members, teams: c._count.teams })))
+  res.json(clubs.map(c => ({ id: c.id, name: c.name, city: c.city, institution: c.institution ?? undefined, logoUrl: c.logoUrl ?? undefined, members: c._count.members, teams: c._count.teams })))
 })
 
 // the club page: public part for everyone, the join link and the log only for members
@@ -61,7 +66,8 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
   const member = (m: typeof c.members[number]) => ({ id: m.user.id, name: m.user.name, avatarUrl: m.user.avatarUrl ?? undefined, teamId: m.teamId ?? undefined })
   res.json({
     id: c.id, name: c.name, city: c.city, institution: c.institution ?? undefined, description: c.description, createdAt: c.createdAt.toISOString().slice(0, 10),
-    teams: c.teams.map(t => ({ id: t.id, name: t.name, members: c.members.filter(m => m.teamId === t.id).map(member) })),
+    logoUrl: c.logoUrl ?? undefined,
+    teams: c.teams.map(t => ({ id: t.id, name: t.name, logoUrl: t.logoUrl ?? undefined, members: c.members.filter(m => m.teamId === t.id).map(member) })),
     members: c.members.map(member),
     isMember,
     myRequest: req.user && !isMember
@@ -80,14 +86,14 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
 clubsRouter.get('/clubs/code/:code', async (req, res) => {
   const c = await prisma.club.findUnique({ where: { joinCode: param(req, 'code').toUpperCase() }, include: { _count: { select: { members: true, teams: true } } } })
   if (!c) throw notFound('club_not_found')
-  res.json({ id: c.id, name: c.name, city: c.city, institution: c.institution ?? undefined, members: c._count.members, teams: c._count.teams })
+  res.json({ id: c.id, name: c.name, city: c.city, institution: c.institution ?? undefined, logoUrl: c.logoUrl ?? undefined, members: c._count.members, teams: c._count.teams })
 })
 
 // ---------- my club ----------
 
 clubsRouter.get('/me/club', requireAuth(), async (req, res) => {
   const m = await prisma.clubMember.findUnique({ where: { userId: req.user!.id }, include: { club: true, team: true } })
-  res.json(m ? { club: { id: m.club.id, name: m.club.name, city: m.club.city }, team: m.team ? { id: m.team.id, name: m.team.name } : undefined } : { club: undefined, team: undefined })
+  res.json(m ? { club: { id: m.club.id, name: m.club.name, city: m.club.city, logoUrl: m.club.logoUrl ?? undefined }, team: m.team ? { id: m.team.id, name: m.team.name, logoUrl: m.team.logoUrl ?? undefined } : undefined } : { club: undefined, team: undefined })
 })
 
 clubsRouter.post('/clubs', requireAuth(), requireVerified, async (req, res) => {
@@ -210,6 +216,81 @@ clubsRouter.delete('/club-teams/:teamId', requireAuth(), async (req, res) => {
     await tx.clubTeam.delete({ where: { id: t.id } })
     await log(tx, t.clubId, req.user!, 'team.deleted', t.name)
   })
+  await removeLogo(t.logoUrl)
+  res.status(204).end()
+})
+
+// ---------- logos: any member sets the club's picture and its teams' pictures; shown wherever the club or team appears ----------
+
+const logoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => cb(null, ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)),
+})
+
+// never stored as sent: decoded (anything that is not a real image is refused), metadata stripped, a square 256x256 WebP;
+// "contain" keeps a whole emblem visible on a white square instead of cutting its edges
+async function saveLogo(owner: string, file?: Express.Multer.File) {
+  if (!file) throw badRequest('invalid_image')
+  let webp: Buffer
+  try {
+    webp = await sharp(file.buffer, { limitInputPixels: 40_000_000 }).rotate()
+      .resize(256, 256, { fit: 'contain', background: '#ffffff' }).flatten({ background: '#ffffff' }).webp({ quality: 85 }).toBuffer()
+  } catch {
+    throw badRequest('invalid_image')
+  }
+  const name = `${owner}-${randomBytes(6).toString('hex')}.webp` // a new name each time: no stale browser cache
+  await writeFile(path.join(LOGOS_DIR, name), webp)
+  return `/uploads/logos/${name}`
+}
+async function removeLogo(url: string | null) {
+  if (!url?.startsWith('/uploads/logos/')) return
+  await unlink(path.join(LOGOS_DIR, path.basename(url))).catch(() => undefined)
+}
+
+clubsRouter.post('/clubs/:id/logo', requireAuth(), logoUpload.single('logo'), async (req, res) => {
+  const id = param(req, 'id')
+  await memberOf(req, id)
+  const club = await prisma.club.findUniqueOrThrow({ where: { id } })
+  const logoUrl = await saveLogo(`club-${id}`, req.file)
+  await prisma.$transaction(async tx => {
+    await tx.club.update({ where: { id }, data: { logoUrl } })
+    await log(tx, id, req.user!, 'logo.changed')
+  })
+  await removeLogo(club.logoUrl)
+  res.json({ logoUrl })
+})
+
+clubsRouter.delete('/clubs/:id/logo', requireAuth(), async (req, res) => {
+  const id = param(req, 'id')
+  await memberOf(req, id)
+  const club = await prisma.club.findUniqueOrThrow({ where: { id } })
+  await prisma.$transaction(async tx => {
+    await tx.club.update({ where: { id }, data: { logoUrl: null } })
+    await log(tx, id, req.user!, 'logo.removed')
+  })
+  await removeLogo(club.logoUrl)
+  res.status(204).end()
+})
+
+clubsRouter.post('/club-teams/:teamId/logo', requireAuth(), logoUpload.single('logo'), async (req, res) => {
+  const t = await teamOf(req)
+  const logoUrl = await saveLogo(`team-${t.id}`, req.file)
+  await prisma.$transaction(async tx => {
+    await tx.clubTeam.update({ where: { id: t.id }, data: { logoUrl } })
+    await log(tx, t.clubId, req.user!, 'team.logo', t.name)
+  })
+  await removeLogo(t.logoUrl)
+  res.json({ logoUrl })
+})
+
+clubsRouter.delete('/club-teams/:teamId/logo', requireAuth(), async (req, res) => {
+  const t = await teamOf(req)
+  await prisma.$transaction(async tx => {
+    await tx.clubTeam.update({ where: { id: t.id }, data: { logoUrl: null } })
+    await log(tx, t.clubId, req.user!, 'team.logo', t.name)
+  })
+  await removeLogo(t.logoUrl)
   res.status(204).end()
 })
 

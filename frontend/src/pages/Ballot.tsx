@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Minus, Plus, Timer, Trophy } from 'lucide-react'
+import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Minus, Plus, Timer, Trophy, X } from 'lucide-react'
 import { getBallot, NotFoundError, submitBallot } from '@/api'
 import type { Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
@@ -19,6 +19,9 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/input'
+import { BackButton } from '@/components/layout/BackButton'
+import { BallotReview } from '@/components/ballot/BallotReview'
+import { SpeechTimer } from '@/components/tools/SpeechTimer'
 import NotFound from './NotFound'
 
 type Side = 'proposition' | 'opposition'
@@ -96,6 +99,15 @@ export default function Ballot() {
   const [sending, setSending] = useState(false)
   const [done, setDone] = useState<false | 'sent' | 'queued'>(false)
   const [queued, setQueued] = useState(() => queuedBallot(debateId, uid))
+  // the speech timer opens as a side panel on the ballot: nothing typed is lost, and it keeps running when hidden
+  const [timer, setTimer] = useState<'closed' | 'open' | 'hidden'>('closed')
+  const navigate = useNavigate()
+  // back to where the judge came from (their cabinet, a notification…); opened from a link, to the judge's cabinet
+  const goBack = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0
+    if (idx > 0) navigate(-1)
+    else navigate('/judge')
+  }
 
   useEffect(() => {
     const touched = Object.values(scores).some(Boolean) || Object.values(feedback).some(Boolean) || !!reply.proposition || !!reply.opposition || !!winner
@@ -122,6 +134,9 @@ export default function Ballot() {
   if (loading || !data) {
     return <div className="container-page max-w-3xl space-y-4 py-10"><Skeleton className="h-32" /><Skeleton className="h-72" /><Skeleton className="h-72" /></div>
   }
+
+  // organizers and admins read the ballots; only the judges of the debate fill them in
+  if (data.canSubmit === false) return <BallotReview data={data} />
 
   const allSpeakers = [...data.proposition.speakers, ...data.opposition.speakers]
   const complete = allSpeakers.every(s => inRange(scores[s.id] ?? '', SPEAKER)) && inRange(reply.proposition, REPLY) && inRange(reply.opposition, REPLY)
@@ -189,7 +204,10 @@ export default function Ballot() {
               <p className="mt-2 text-muted-foreground">{t('ballot.doneText')}</p>
             </>
           )}
-          <Button asChild size="lg" className="mt-8"><Link to={`/tournaments/${data.tournament.id}`}>{t('ballot.backToTournament')}</Link></Button>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <Button size="lg" onClick={goBack}><ArrowLeft className="size-4" />{t('ballot.goBack')}</Button>
+            <Button asChild size="lg" variant="outline"><Link to={`/tournaments/${data.tournament.id}`}>{t('ballot.backToTournament')}</Link></Button>
+          </div>
         </motion.div>
       </div>
     )
@@ -237,9 +255,11 @@ export default function Ballot() {
   return (
     <div className="container-page max-w-3xl py-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link to={`/tournaments/${data.tournament.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{data.tournament.name}</Link>
-        {/* the timekeeper's timer opens in a new tab so the ballot keeps its entered scores */}
-        <a href="/timer" target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"><Timer className="size-4" />{t('timer.title')}</a>
+        <BackButton fallback="/judge" label={data.tournament.name} className="-ml-1" />
+        <button type="button" onClick={() => setTimer(v => (v === 'open' ? 'hidden' : 'open'))} aria-pressed={timer === 'open'}
+          className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-primary hover:bg-primary-soft">
+          <Timer className="size-4" />{t('timer.title')}
+        </button>
       </div>
       {loaded?.cached && (
         <p role="status" className="mt-4 flex items-start gap-2 rounded-2xl bg-accent-soft p-4 text-sm"><CloudOff className="mt-0.5 size-4 shrink-0" />{t('offline.cachedSheet')}</p>
@@ -291,6 +311,20 @@ export default function Ballot() {
         <Button size="lg" className="w-full" onClick={onSubmit}>{t('ballot.submit')}</Button>
         <p className="mt-2 text-center text-xs text-muted-foreground">{t('offline.draftHint')}</p>
       </div>
+
+      {/* the timer panel: mounted on first open, then only hidden, so a running speech keeps its time */}
+      {timer !== 'closed' && (
+        <aside aria-label={t('timer.title')}
+          className={cn('fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] overflow-y-auto rounded-t-3xl border border-border bg-background p-4 shadow-2xl sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:max-h-none sm:w-[26rem] sm:rounded-none sm:rounded-l-3xl sm:p-5',
+            timer === 'hidden' && 'hidden')}>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="flex items-center gap-2 font-bold"><Timer className="size-4 text-primary" />{t('timer.title')}</p>
+            <button type="button" onClick={() => setTimer('hidden')} aria-label={t('common.close')}
+              className="grid size-9 cursor-pointer place-items-center rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button>
+          </div>
+          <SpeechTimer formatId="wsdc" compact active={timer === 'open'} />
+        </aside>
+      )}
 
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent heading={t('ballot.confirmTitle')} description={t('ballot.confirmText')}>

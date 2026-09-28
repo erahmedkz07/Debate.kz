@@ -40,7 +40,8 @@ judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {
   })))
 })
 
-// who may open a ballot: a judge of this debate, the tournament's organizer, or an admin
+// Who may open a ballot: a judge of this debate (to fill it in), the tournament's organizers or an admin (to read it).
+// Only the judges themselves submit ballots: organizers see the scores and who has voted, and cannot change them.
 async function loadBallotContext(debateId: string, user: User) {
   const d = await prisma.debate.findUnique({
     where: { id: debateId },
@@ -49,6 +50,7 @@ async function loadBallotContext(debateId: string, user: User) {
       proposition: { include: teamInclude },
       opposition: { include: teamInclude },
       judges: { include: { judge: true }, orderBy: { isChair: 'desc' } },
+      ballots: { include: { scores: true } },
     },
   })
   if (!d) throw notFound('debate_not_found')
@@ -59,8 +61,23 @@ async function loadBallotContext(debateId: string, user: User) {
 }
 
 judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
-  const { d } = await loadBallotContext(param(req, 'debateId'), req.user!)
+  const { d, myJudge } = await loadBallotContext(param(req, 'debateId'), req.user!)
+  // organizers read every judge's ballot as it was sent; a judge sees only the form
+  const speakerName = new Map([...d.proposition.speakers, ...d.opposition.speakers].map(s => [s.id, s.name]))
+  const panel = myJudge ? undefined : d.judges.map(j => {
+    const b = d.ballots.find(x => x.judgeId === j.judgeId)
+    const total = (side: 'proposition' | 'opposition') => b ? b.scores.filter(s => s.side === side).reduce((sum, s) => sum + Number(s.score), 0) : 0
+    return {
+      judgeId: j.judgeId, name: j.judge.name, isChair: j.isChair, hasAccount: !!j.judge.userId,
+      submittedAt: b?.submittedAt.toISOString(), winner: b?.winner,
+      totals: b ? { proposition: total('proposition'), opposition: total('opposition') } : undefined,
+      scores: b?.scores.sort((x, y) => x.side.localeCompare(y.side) || x.position - y.position)
+        .map(s => ({ side: s.side, position: s.position, speaker: speakerName.get(s.speakerId) ?? '', score: Number(s.score), feedback: s.feedback ?? undefined })),
+    }
+  })
   res.json({
+    canSubmit: !!myJudge,
+    ...(panel && { panel }),
     tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
     round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
     debate: { id: d.id, roundId: d.roundId, room: d.room, propositionTeamId: d.propositionTeamId, oppositionTeamId: d.oppositionTeamId, judgeIds: d.judges.map(j => j.judgeId), winner: d.winner ?? undefined, ballotStatus: d.ballotStatus },
@@ -80,13 +97,13 @@ const ballotSchema = z.object({
 })
 
 judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
-  const data = body(req, ballotSchema)
   const { d, myJudge } = await loadBallotContext(param(req, 'debateId'), req.user!)
+  // tournament rules: a ballot is the judge's own decision; organizers and admins only read it (checked before the form)
+  if (!myJudge) throw forbidden('judges_only')
+  const data = body(req, ballotSchema)
   if (d.round.status === 'draft') throw badRequest('round_not_released')
   if (d.round.status === 'completed' || d.ballotStatus === 'confirmed') throw forbidden('ballot_locked')
-  // organizers/admins submit on behalf of the chair when they are not on the panel themselves
-  const judgeId = myJudge?.id ?? d.judges[0]?.judgeId
-  if (!judgeId) throw badRequest('no_panel')
+  const judgeId = myJudge.id
 
   // ---- server-side WSDC validation (never trust the client) ----
   const cfg = d.round.tournament.scoringConfig
@@ -124,12 +141,6 @@ judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
     // re-submitting replaces this judge's previous ballot
     await tx.ballot.deleteMany({ where: { debateId: d.id, judgeId } })
     await tx.ballot.create({ data: { debateId: d.id, judgeId, winner: data.winner, scores: { create: rows } } })
-
-    // an organizer typing in the panel's (paper) ballot decides the debate right away
-    if (!myJudge) {
-      await tx.debate.update({ where: { id: d.id }, data: { ballotStatus: 'submitted', winner: data.winner } })
-      return
-    }
 
     // judges vote individually: when the whole panel has voted, the majority decides
     const ballots = await tx.ballot.findMany({ where: { debateId: d.id }, select: { winner: true, judgeId: true } })

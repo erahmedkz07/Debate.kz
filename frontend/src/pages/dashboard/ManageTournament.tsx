@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, CalendarClock, ChevronRight, Circle, DoorOpen, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  Award, CalendarClock, ChevronRight, Circle, DoorOpen, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addJudge, addTeam, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -35,6 +35,7 @@ import { TimePicker } from '@/components/ui/time-picker'
 import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
 import { PaymentCard } from '@/components/payments/PaymentCard'
 import { FREE_TEAM_LIMIT } from '@/lib/plans'
+import { EntityLogo } from '@/components/ui/entity-logo'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -293,7 +294,7 @@ function Teams({ data, reload }: SectionProps) {
                 <tr key={team.id} className="hover:bg-muted/40">
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
-                      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary-soft text-xs font-bold text-primary">{initials(team.name)}</span>
+                      <EntityLogo src={team.logoUrl} name={team.name} size="sm" />
                       <div>
                         <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}{team.swing && <Badge variant="outline">{t('dashboard.checkin.swing')}</Badge>}</p>
                         <p className="text-xs text-muted-foreground">{team.institution}</p>
@@ -338,27 +339,33 @@ function Teams({ data, reload }: SectionProps) {
 function Judges({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', institution: '' })
+  // judges join only by invite; a judge added earlier by name gets an email invite that links their account
+  const [linkFor, setLinkFor] = useState<Judge | null>(null)
+  const [email, setEmail] = useState('')
   const [toDelete, setToDelete] = useState<Judge | null>(null)
   const remove = async () => {
     if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
   }
-  const submit = async () => {
-    if (form.name.trim().length < 3) return
-    const ok = await run('add', () => addJudge(data.id, { name: form.name, institution: form.institution || undefined }), t('dashboard.teams.saved'))
-    if (ok) { setForm({ name: '', institution: '' }); setOpen(false); reload() }
+  const sendLink = async () => {
+    if (!linkFor || !email.trim()) return
+    const ok = await run('link', () => inviteByEmail(data.id, email.trim(), 'judge', linkFor.id), t('dashboard.judges.linkSent', { email: email.trim() }))
+    if (ok) { setEmail(''); setLinkFor(null) }
   }
+  const withoutAccount = data.judges.filter(j => j.hasAccount === false).length
   return (
     <>
       <SectionTitle title={`${t('dashboard.nav.judges')} · ${data.judges.length}`}
         action={
           <div className="flex flex-wrap gap-2">
             <InviteButton tournamentId={data.id} kind="judge" variant="primary" />
-            <Button variant="outline" onClick={() => setOpen(true)}><Plus className="size-4" />{t('dashboard.judges.add')}</Button>
           </div>
         } />
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
+      {withoutAccount > 0 && (
+        <p className="mb-5 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">
+          <UserX className="mt-0.5 size-4 shrink-0" />{t('dashboard.judges.withoutAccount', { count: withoutAccount })}
+        </p>
+      )}
       {data.status !== 'finished' && <div className="mb-5"><EmailInvites tournamentId={data.id} kind="judge" /></div>}
       {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -367,22 +374,26 @@ function Judges({ data, reload }: SectionProps) {
             <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
             <div className="min-w-0 flex-1">
               <p className="truncate font-bold">{j.name}</p>
-              <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>
+              {j.hasAccount === false
+                ? <button type="button" onClick={() => setLinkFor(j)} className="inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-danger hover:underline"><UserX className="size-3.5" />{t('dashboard.judges.noAccount')}</button>
+                : <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>}
             </div>
+            {j.hasAccount === false && (
+              <Button variant="outline" size="sm" className="shrink-0" onClick={() => setLinkFor(j)}><Mail className="size-4" />{t('dashboard.judges.linkInvite')}</Button>
+            )}
             <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(j)}>
               <Trash2 className="size-4" />
             </Button>
           </Card>
         ))}
       </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent heading={t('dashboard.judges.addTitle')}>
-          <form className="space-y-4" onSubmit={e => { e.preventDefault(); submit() }}>
-            <div><Label htmlFor="jn">{t('auth.name')}</Label><Input id="jn" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
-            <div><Label htmlFor="ji">{t('common.institution')}</Label><Input id="ji" value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} /></div>
+      <Dialog open={!!linkFor} onOpenChange={o => !o && setLinkFor(null)}>
+        <DialogContent heading={t('dashboard.judges.linkTitle', { name: linkFor?.name })} description={t('dashboard.judges.linkText')}>
+          <form className="space-y-4" onSubmit={e => { e.preventDefault(); void sendLink() }}>
+            <div><Label htmlFor="jl">{t('auth.email')}</Label><Input id="jl" type="email" autoFocus value={email} onChange={e => setEmail(e.target.value)} placeholder="judge@mail.kz" /></div>
             <div className="flex justify-end gap-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
-              <Button type="submit" disabled={busy === 'add' || form.name.trim().length < 3}>{t('common.save')}</Button>
+              <Button type="submit" disabled={busy === 'link' || !/^\S+@\S+\.\S+$/.test(email.trim())}>{busy === 'link' ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}{t('dashboard.judges.linkSend')}</Button>
             </div>
           </form>
         </DialogContent>
@@ -998,7 +1009,10 @@ export default function ManageTournament() {
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-6 sm:px-6 sm:py-8">
-      <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{t('dashboard.myTournaments')}</Link>
+      {/* the sections change the address, so "back" is a fixed place: the organizer's list, or the admin panel for an admin */}
+      {data.myRole === 'admin'
+        ? <Link to="/admin" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{t('cabinet.admin')}</Link>
+        : <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{t('dashboard.myTournaments')}</Link>}
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">{data.name}</h1>
         <Badge variant="glass" className="border border-border"><StatusDot status={data.status} />{t(`status.${data.status}`)}</Badge>

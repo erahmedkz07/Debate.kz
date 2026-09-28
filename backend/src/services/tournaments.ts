@@ -19,7 +19,7 @@ export const toSummary = (t: SummaryRow) => ({
 
 export const teamInclude = {
   institution: true, speakers: { orderBy: { position: 'asc' } },
-  club: { select: { id: true, name: true } }, clubTeam: { select: { id: true, name: true } },
+  club: { select: { id: true, name: true, logoUrl: true } }, clubTeam: { select: { id: true, name: true, logoUrl: true } },
 } satisfies Prisma.TeamInclude
 type TeamRow = Prisma.TeamGetPayload<{ include: typeof teamInclude }>
 
@@ -27,7 +27,10 @@ export const toTeam = (t: TeamRow) => ({
   id: t.id, tournamentId: t.tournamentId, name: t.name, institution: t.institution?.name ?? '', city: t.city ?? '',
   speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id })),
   checkedIn: !!t.checkedInAt, swing: t.swing,
-  club: t.club ?? undefined, clubTeam: t.clubTeam ?? undefined, // where the team comes from
+  club: t.club ? { id: t.club.id, name: t.club.name, logoUrl: t.club.logoUrl ?? undefined } : undefined, // where the team comes from
+  clubTeam: t.clubTeam ? { id: t.clubTeam.id, name: t.clubTeam.name } : undefined,
+  // the picture shown next to the team: its own club-team logo, else its club's
+  logoUrl: t.clubTeam?.logoUrl ?? t.club?.logoUrl ?? undefined,
 })
 
 const debateInclude = { judges: { orderBy: { isChair: 'desc' } } } satisfies Prisma.DebateInclude
@@ -123,6 +126,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     teams: t.teams.map(toTeam),
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
+      hasAccount: !!j.userId, // only judges with an account can send ballots
     })),
   }
 }

@@ -12,6 +12,8 @@ export const STORAGE_DIR = process.env.STORAGE_DIR
 export const UPLOADS_DIR = path.join(STORAGE_DIR, 'uploads')
 export const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars')
 mkdirSync(AVATARS_DIR, { recursive: true })
+export const LOGOS_DIR = path.join(UPLOADS_DIR, 'logos') // club and club-team logos
+mkdirSync(LOGOS_DIR, { recursive: true })
 
 // private files (payment receipts): outside UPLOADS_DIR, served only through checked routes
 export const PRIVATE_DIR = path.join(STORAGE_DIR, 'private')
