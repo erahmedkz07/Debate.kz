@@ -7,6 +7,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
+import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
@@ -157,6 +158,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     }
     return tx.tournament.update({ where: { id: cur.id }, data, include: summaryInclude })
   })
+  // the results are final: certificates exist at once (profiles, printing and the public QR check all see them)
+  if (d.status === 'finished' && cur.status !== 'finished') background(ensureCertificates(cur.id).then(() => undefined))
   res.json(toSummary(t))
 })
 

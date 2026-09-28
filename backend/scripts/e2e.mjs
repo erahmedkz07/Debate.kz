@@ -80,6 +80,7 @@ try {
     await new Promise(r => setTimeout(r, 250))
   }
   process.env.API_URL = base
+  process.env.E2E_DATABASE_URL = testUrl.toString() // a few checks look at the test DB directly
   process.env.GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID
   process.env.FAKE_GOOGLE = `http://localhost:${GOOGLE_PORT}`
   await import('./e2e-checks.mjs')

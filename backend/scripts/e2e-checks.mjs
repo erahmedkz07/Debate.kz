@@ -284,6 +284,16 @@ ok(r.status === 200, 'can go back to registration while no round is released')
 await fresh('PATCH', `/tournaments/${own1.id}`, { status: 'ongoing' })
 r = await fresh('PATCH', `/tournaments/${own1.id}`, { status: 'finished' })
 ok(r.status === 200 && r.data.status === 'finished', 'owner finishes the tournament')
+{
+  // certificates exist right after finishing, before anyone opens a profile or prints them
+  const { default: pgc } = await import('pg')
+  const dbc = new pgc.Client({ connectionString: process.env.E2E_DATABASE_URL })
+  await dbc.connect()
+  let n = 0
+  for (let i = 0; i < 20 && !n; i++) { n = Number((await dbc.query('select count(*) from certificates where tournament_id = $1', [own1.id])).rows[0].count); if (!n) await new Promise(res => setTimeout(res, 100)) }
+  await dbc.end()
+  ok(n > 0, 'certificates are issued as soon as the tournament is finished')
+}
 r = await fresh('PATCH', `/tournaments/${own1.id}`, { status: 'ongoing' })
 ok(r.status === 400 && r.data.error === 'invalid_status_transition', 'a finished tournament cannot be reopened')
 const pendingOwn = (await fresh('GET', '/organizer/tournaments')).data.find(t => t.moderation === 'pending')
