@@ -1152,4 +1152,24 @@ ok(oddMsg.includes('«Кубок &lt;Алтын&gt; &amp;') && oddMsg.includes('
   'names and reasons are escaped in Telegram texts')
 ok((await fresh('GET', '/me/notifications')).data.items.some(n => n.type === 'organizer.rejected' && n.data.tournament.includes('<Алтын>')), 'the site notification keeps the original text')
 await fresh('PUT', '/me/language', { language: 'ru' })
+
+// ---------- 36. letters in Kazakh and Russian ----------
+const kzUser = client()
+r = await kzUser('POST', '/auth/register', { name: 'Айгерім Сейтқали', email: `kz.${uniq}@mail.kz`, phone: '+7 707 555 66 77', password: 'secret123', consent: true, language: 'kz' })
+ok(r.status === 201 && r.data.user.language === 'kz', 'registering from the Kazakh site sets Kazakh on the account')
+const kzVerify = (await mails(`kz.${uniq}@mail.kz`)).at(-1)
+ok(/растаңыз/.test(kzVerify?.subject) && /Сәлеметсіз бе/.test(kzVerify.text) && kzVerify.action?.label === 'Email-ді растау' && kzVerify.lang === 'kz',
+  'the confirmation letter comes in Kazakh')
+const ruUser = client()
+await ruUser('POST', '/auth/register', { name: 'Олег Петров', email: `ru.${uniq}@mail.kz`, phone: '+7 707 555 66 78', password: 'secret123', consent: true })
+ok(/подтвердите email/.test((await mails(`ru.${uniq}@mail.kz`)).at(-1)?.subject), 'without a language the letters stay Russian')
+await kzUser('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
+const kzT = (await kzUser('POST', '/tournaments', { ...tBody(70), name: `Шақыру ${uniq}` })).data
+await kzUser('POST', `/tournaments/${kzT.id}/invites/email`, { email: `nobody.${uniq}@mail.kz`, kind: 'judge' })
+const both = (await mails(`nobody.${uniq}@mail.kz`)).at(-1)
+ok(both?.lang === 'both' && /Сәлеметсіз бе/.test(both.text) && /Здравствуйте/.test(both.text) && both.action?.label === 'Шақыруды ашу / Открыть приглашение',
+  'an invite to an email without an account is written in both languages')
+await kzUser('POST', `/tournaments/${kzT.id}/invites/email`, { email: 'timur@mail.kz', kind: 'judge' })
+ok(/Здравствуйте/.test((await mails('timur@mail.kz')).at(-1)?.text) && !/Сәлеметсіз/.test((await mails('timur@mail.kz')).at(-1)?.text),
+  'a registered person gets the invite in the language of their account')
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

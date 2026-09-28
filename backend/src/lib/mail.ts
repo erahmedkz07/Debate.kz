@@ -4,8 +4,10 @@ import { env } from './env.js'
 // Mail transport. With SMTP_* set (e.g. Gmail with an app password) letters really go out;
 // without it every letter is printed to the server console, and in test mode it is also kept in `mailOutbox`.
 // Every letter has a plain-text part and a simple HTML part with one action button.
+export type MailLang = 'ru' | 'kz' | 'both'
 export interface Mail {
   to: string
+  lang?: MailLang // the frame of the letter (footer, "copy the link") follows it; default Russian
   subject: string
   text: string // paragraphs separated by blank lines
   action?: { label: string; url: string } // main button; the link is also written into the text part
@@ -28,18 +30,29 @@ export const mailEnabled = () => !!smtp()
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+// the words around the letter itself
+const FRAME: Record<MailLang, { copy: string; footer: string; htmlLang: string }> = {
+  ru: { copy: 'Если кнопка не открывается, скопируйте ссылку:', footer: 'Письмо отправлено автоматически, отвечать на него не нужно.', htmlLang: 'ru' },
+  kz: { copy: 'Батырма ашылмаса, сілтемені көшіріңіз:', footer: 'Хат автоматты түрде жіберілді, оған жауап берудің қажеті жоқ.', htmlLang: 'kk' },
+  both: {
+    copy: 'Батырма ашылмаса, сілтемені көшіріңіз / Если кнопка не открывается, скопируйте ссылку:',
+    footer: 'Хат автоматты түрде жіберілді / Письмо отправлено автоматически.', htmlLang: 'kk',
+  },
+}
+
 function html(mail: Mail) {
+  const frame = FRAME[mail.lang ?? 'ru']
   const paragraphs = mail.text.split(/\n{2,}/).map(p => `<p style="margin:0 0 14px;line-height:1.55">${esc(p).replace(/\n/g, '<br>')}</p>`).join('')
   const button = mail.action
     ? `<p style="margin:22px 0"><a href="${esc(mail.action.url)}" style="display:inline-block;background:#009bc9;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:12px">${esc(mail.action.label)}</a></p>
-       <p style="margin:0 0 14px;font-size:12px;color:#5b6b75;word-break:break-all">Если кнопка не открывается, скопируйте ссылку: ${esc(mail.action.url)}</p>`
+       <p style="margin:0 0 14px;font-size:12px;color:#5b6b75;word-break:break-all">${frame.copy} ${esc(mail.action.url)}</p>`
     : ''
-  return `<!doctype html><html lang="ru"><body style="margin:0;background:#f7fbfd;font-family:Arial,Helvetica,sans-serif;color:#0b2230">
+  return `<!doctype html><html lang="${frame.htmlLang}"><body style="margin:0;background:#f7fbfd;font-family:Arial,Helvetica,sans-serif;color:#0b2230">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7fbfd;padding:24px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e3eef3">
 <tr><td style="background:#009bc9;padding:18px 24px;color:#ffffff;font-size:20px;font-weight:800">Debate.kz</td></tr>
 <tr><td style="padding:24px;font-size:15px">${paragraphs}${button}</td></tr>
-<tr><td style="padding:14px 24px;background:#f7fbfd;font-size:12px;color:#5b6b75">Письмо отправлено автоматически, отвечать на него не нужно. © Debate.kz</td></tr>
+<tr><td style="padding:14px 24px;background:#f7fbfd;font-size:12px;color:#5b6b75">${frame.footer} © Debate.kz</td></tr>
 </table></td></tr></table></body></html>`
 }
 

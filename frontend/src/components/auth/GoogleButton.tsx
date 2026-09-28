@@ -18,11 +18,11 @@ export function GoogleIcon({ className }: { className?: string }) {
 // "Continue with Google": a plain link, the server redirects to Google and back.
 // Hidden while the server has no Google client configured.
 export function GoogleButton({ mode = 'login', next, label, className }: { mode?: 'login' | 'link'; next?: string | null; label?: string; className?: string }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data } = useAsync(getGoogleConfig)
   if (!data?.enabled) return null
   return (
-    <a href={googleSignInUrl(mode, next)}
+    <a href={googleSignInUrl(mode, next, i18n.language === 'kz' ? 'kz' : 'ru')}
       className={cn('flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#747775] bg-white px-4 text-sm font-semibold text-[#1f1f1f] transition-colors hover:bg-[#f2f2f2] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 dark:border-[#8e918f] dark:bg-[#131314] dark:text-[#e3e3e3] dark:hover:bg-[#1f1f20]', className)}>
       <GoogleIcon />{label ?? t('google.continue')}
     </a>

@@ -8,6 +8,7 @@ import type {
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
   Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem } from '@/types'
 import { ApiError, http, qs, upload } from './http'
+import i18n from '@/lib/i18n'
 
 export { ApiError }
 
@@ -68,7 +69,8 @@ export const login = (email: string, password: string) => authCall(http('POST', 
 
 // no role: everyone starts as a plain user; consent to personal data processing is required
 export const register = (data: { name: string; email: string; phone: string; password: string; consent: true }) =>
-  authCall(http('POST', '/auth/register', data))
+  // the account starts in the language the site is shown in: letters and the bot use it
+  authCall(http('POST', '/auth/register', { ...data, language: i18n.language === 'kz' ? 'kz' : 'ru' }))
 
 export const verifyEmail = (token: string) => http<{ user: User }>('POST', '/auth/verify-email', { token }).then(r => r.user)
 export const resendVerification = () => http<{ ok: true }>('POST', '/auth/resend-verification')
@@ -92,8 +94,9 @@ export const requestPasswordSetup = () => http<{ ok: true }>('POST', '/me/passwo
 let googleConfig: Promise<{ enabled: boolean }> | null = null
 export const getGoogleConfig = () => (googleConfig ??= http<{ enabled: boolean }>('GET', '/auth/google/config').catch(() => ({ enabled: false })))
 // a full-page navigation (not fetch): the server redirects to Google and back
-export const googleSignInUrl = (mode: 'login' | 'link', next?: string | null) =>
-  `${import.meta.env.VITE_API_URL ?? '/api'}/auth/google/start${qs({ mode, next: next ?? undefined })}`
+// the site's language goes along, so a new account gets letters and the bot in it
+export const googleSignInUrl = (mode: 'login' | 'link', next?: string | null, lang?: 'ru' | 'kz') =>
+  `${import.meta.env.VITE_API_URL ?? '/api'}/auth/google/start${qs({ mode, next: next ?? undefined, lang })}`
 export const unlinkGoogle = () => http<{ user: User }>('DELETE', '/auth/google').then(r => r.user)
 // ---------- Telegram bot ----------
 export const getTelegramConfig = () => http<{ enabled: boolean; username?: string }>('GET', '/telegram/config')
