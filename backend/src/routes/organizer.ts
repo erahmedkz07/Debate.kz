@@ -5,7 +5,7 @@ import { fromDay, toDay } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toSummary, toTeam } from '../services/tournaments.js'
+import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
@@ -244,7 +244,7 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
   const team = await prisma.team.findUnique({ where: { id: param(req, 'teamId') } })
   if (!team) throw notFound('team_not_found')
   await assertCanManage(req.user, team.tournamentId)
-  const played = await prisma.debate.count({ where: { OR: [{ propositionTeamId: team.id }, { oppositionTeamId: team.id }] } })
+  const played = await prisma.debate.count({ where: { OR: [{ propositionTeamId: team.id }, { oppositionTeamId: team.id }, { closingPropositionTeamId: team.id }, { closingOppositionTeamId: team.id }] } })
   if (played) throw forbidden('team_in_draw')
   await prisma.team.delete({ where: { id: team.id } })
   res.status(204).end()
@@ -307,10 +307,7 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
   // the report tells the organizer which wishes could not be met (same-club meetings, rematches)
   res.status(201).json({
-    debates: debates.map(x => ({
-      id: x.id, roundId: x.roundId, room: x.room, propositionTeamId: x.propositionTeamId, oppositionTeamId: x.oppositionTeamId,
-      judgeIds: x.judges.map(j => j.judgeId), winner: x.winner ?? undefined, ballotStatus: x.ballotStatus,
-    })),
+    debates: debates.map(toDebate),
     report,
   })
 })
@@ -330,7 +327,14 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
     if (d.room) await tx.debate.update({ where: { id: debate.id }, data: { room: d.room } })
     if (d.swapSides) {
       if (await tx.ballot.count({ where: { debateId: debate.id } })) throw forbidden('ballots_already_submitted')
-      await tx.debate.update({ where: { id: debate.id }, data: { propositionTeamId: debate.oppositionTeamId, oppositionTeamId: debate.propositionTeamId } })
+      // BP: government and opposition swap in both halves of the room
+      await tx.debate.update({
+        where: { id: debate.id },
+        data: {
+          propositionTeamId: debate.oppositionTeamId, oppositionTeamId: debate.propositionTeamId,
+          closingPropositionTeamId: debate.closingOppositionTeamId, closingOppositionTeamId: debate.closingPropositionTeamId,
+        },
+      })
     }
     if (d.chairJudgeId) {
       const judge = await tx.judge.findUnique({ where: { id: d.chairJudgeId } })
@@ -358,10 +362,7 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
     }
   })
   const x = await prisma.debate.findUniqueOrThrow({ where: { id: debate.id }, include: { judges: { orderBy: { isChair: 'desc' } } } })
-  res.json({
-    id: x.id, roundId: x.roundId, room: x.room, propositionTeamId: x.propositionTeamId, oppositionTeamId: x.oppositionTeamId,
-    judgeIds: x.judges.map(j => j.judgeId), winner: x.winner ?? undefined, ballotStatus: x.ballotStatus,
-  })
+  res.json(toDebate(x))
 })
 
 // ---------- registrations ----------

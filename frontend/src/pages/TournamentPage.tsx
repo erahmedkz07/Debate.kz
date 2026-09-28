@@ -12,7 +12,7 @@ import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
-import type { Debate, Round, TournamentDetails } from '@/types'
+import type { Debate, Round, Side, TournamentDetails } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { breakForecast } from '@/lib/breakForecast'
 import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
@@ -26,7 +26,7 @@ import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import NotFound from './NotFound'
 import { EntityLogo } from '@/components/ui/entity-logo'
 import { BackButton } from '@/components/layout/BackButton'
-import { useFormatName, useSides } from '@/lib/formats'
+import { isBP, placeOf, sidesOf, teamIdOn, useFormatName, useSides } from '@/lib/formats'
 import { formatOfTournament } from '@/content/formats'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
@@ -224,6 +224,13 @@ function DrawTab({ data }: { data: TournamentDetails }) {
   const debates = data.debates.filter(d => d.roundId === round.id)
   const team = (id: string) => data.teams.find(x => x.id === id)!
   const judges = (d: Debate) => d.judgeIds.map(id => data.judges.find(j => j.id === id)!).filter(Boolean)
+  // BP: four teams per room, each shown with its place once decided
+  const sideList = sidesOf(data.format)
+  const bp = sideList.length === 4
+  const cell = (d: Debate, side: Side, center?: boolean) => {
+    const tm = team(teamIdOn(d, side)!)
+    return <TeamCell name={tm.name} logo={tm.logoUrl} win={!bp && d.winner === side} place={placeOf(d, side)} center={center} />
+  }
 
   return (
     <div>
@@ -243,8 +250,7 @@ function DrawTab({ data }: { data: TournamentDetails }) {
           <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-5 py-3">{t('tournament.room')}</th>
-              <th className="px-5 py-3">{sides.proposition}</th>
-              <th className="px-5 py-3">{sides.opposition}</th>
+              {sideList.map(side => <th key={side} className={cn(bp ? 'px-3' : 'px-5', 'py-3')}>{sides[side]}</th>)}
               <th className="px-5 py-3">{t('tournament.judges')}</th>
             </tr>
           </thead>
@@ -252,8 +258,7 @@ function DrawTab({ data }: { data: TournamentDetails }) {
             {debates.map(d => (
               <tr key={d.id} className="hover:bg-muted/40">
                 <td className="px-5 py-4 font-semibold">{d.room}</td>
-                <td className="px-5 py-4"><TeamCell name={team(d.propositionTeamId).name} logo={team(d.propositionTeamId).logoUrl} win={d.winner === 'proposition'} /></td>
-                <td className="px-5 py-4"><TeamCell name={team(d.oppositionTeamId).name} logo={team(d.oppositionTeamId).logoUrl} win={d.winner === 'opposition'} /></td>
+                {sideList.map(side => <td key={side} className={cn(bp ? 'px-3' : 'px-5', 'py-4')}>{cell(d, side)}</td>)}
                 <td className="px-5 py-4 text-muted-foreground">
                   {judges(d).map((j, i) => <span key={j.id}>{i > 0 && ', '}{j.name}{i === 0 && <Star className="ml-1 inline size-3 -translate-y-px text-primary" fill="currentColor" aria-label={t('tournament.chair')} />}</span>)}
                 </td>
@@ -267,11 +272,19 @@ function DrawTab({ data }: { data: TournamentDetails }) {
         {debates.map(d => (
           <Card key={d.id} className="p-4">
             <p className="flex items-center gap-1.5 text-xs font-bold text-primary"><DoorOpen className="size-3.5" />{d.room}</p>
+            {bp ? (
+              <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+                {sideList.map(side => (
+                  <div key={side} className="rounded-xl bg-muted/50 p-2"><p className="text-[10px] font-semibold uppercase text-muted-foreground">{sides[side]}</p>{cell(d, side, true)}</div>
+                ))}
+              </div>
+            ) : (
             <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center">
-              <div><p className="text-[10px] font-semibold uppercase text-muted-foreground">{sides.proposition}</p><TeamCell name={team(d.propositionTeamId).name} logo={team(d.propositionTeamId).logoUrl} win={d.winner === 'proposition'} center /></div>
+              <div><p className="text-[10px] font-semibold uppercase text-muted-foreground">{sides.proposition}</p>{cell(d, 'proposition', true)}</div>
               <span className="text-xs font-extrabold text-muted-foreground">VS</span>
-              <div><p className="text-[10px] font-semibold uppercase text-muted-foreground">{sides.opposition}</p><TeamCell name={team(d.oppositionTeamId).name} logo={team(d.oppositionTeamId).logoUrl} win={d.winner === 'opposition'} center /></div>
+              <div><p className="text-[10px] font-semibold uppercase text-muted-foreground">{sides.opposition}</p>{cell(d, 'opposition', true)}</div>
             </div>
+            )}
             <p className="mt-3 flex items-start gap-1.5 border-t border-border pt-3 text-xs text-muted-foreground"><Gavel className="mt-0.5 size-3.5 shrink-0" />{judges(d).map(j => j.name).join(', ')}</p>
           </Card>
         ))}
@@ -280,11 +293,13 @@ function DrawTab({ data }: { data: TournamentDetails }) {
   )
 }
 
-function TeamCell({ name, logo, win, center }: { name: string; logo?: string; win: boolean; center?: boolean }) {
+function TeamCell({ name, logo, win, place, center }: { name: string; logo?: string; win: boolean; place?: number; center?: boolean }) {
   const { t } = useTranslation()
   return (
-    <span className={cn('inline-flex flex-wrap items-center gap-1.5 font-semibold', center && 'justify-center', win && 'text-success')}>
-      <EntityLogo src={logo} name={name} size="xs" />{name}{win && <Badge variant="success" className="px-1.5 py-0.5 text-[10px]"><Trophy className="size-3" />{t('tournament.winner')}</Badge>}
+    <span className={cn('inline-flex flex-wrap items-center gap-1.5 font-semibold', center && 'justify-center', (win || place === 1) && 'text-success')}>
+      <EntityLogo src={logo} name={name} size="xs" />{name}
+      {win && <Badge variant="success" className="px-1.5 py-0.5 text-[10px]"><Trophy className="size-3" />{t('tournament.winner')}</Badge>}
+      {place !== undefined && <Badge variant={place === 1 ? 'success' : 'muted'} className="px-1.5 py-0.5 text-[10px]">{t('ballot.placeN', { n: place })}</Badge>}
     </span>
   )
 }
@@ -302,7 +317,7 @@ function RoundBanner({ round }: { round: Round }) {
   )
 }
 
-export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds'> }) {
+export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format'> }) {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getStandings(id), [id])
   if (error) return <ErrorState onRetry={reload} />
@@ -316,19 +331,21 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
 
   if (kind === 'teams') {
     const breakSize = tournament?.breakSize ?? 0
+    // BP ranks by team points (3/2/1/0 per round); two-team formats by wins
+    const bp = isBP(tournament?.format)
     // prelim rounds that still can change the table
     const done = tournament?.rounds.filter(r => r.status === 'completed' && r.number <= tournament.preliminaryRounds).length ?? 0
     const remaining = tournament ? Math.max(0, tournament.preliminaryRounds - done) : 0
     const forecast = tournament && tournament.status === 'ongoing' && breakSize > 0 && done > 0 && remaining > 0
-      ? breakForecast(data.teams, breakSize, remaining) : null
+      ? breakForecast(data.teams, breakSize, remaining, bp ? 3 : 1) : null
     const look = { safe: 'success', live: 'accent', out: 'muted' } as const
     return (
       <>
       {forecast && (
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
           <p><b>{t('tournament.break.title', { count: breakSize })}</b> · {t('tournament.break.remaining', { count: remaining })}</p>
-          <p className="text-muted-foreground">{t('tournament.break.line', { count: forecast.line })}</p>
-          <p className="w-full text-xs text-muted-foreground">{t('tournament.break.hint')}</p>
+          <p className="text-muted-foreground">{t(bp ? 'tournament.break.linePoints' : 'tournament.break.line', { count: forecast.line })}</p>
+          <p className="w-full text-xs text-muted-foreground">{t(bp ? 'tournament.break.hintPoints' : 'tournament.break.hint')}</p>
         </div>
       )}
       <Card className="overflow-x-auto">
@@ -337,7 +354,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
             <tr>
               <th className="w-16 px-4 py-3">#</th>
               <th className="px-4 py-3">{t('common.team')}</th>
-              <th className="px-4 py-3 text-center">{t('tournament.wins')}</th>
+              <th className="px-4 py-3 text-center">{t(bp ? 'tournament.teamPoints' : 'tournament.wins')}</th>
               <th className="px-4 py-3 text-right">{t('tournament.speakerPoints')}</th>
               {forecast && <th className="px-4 py-3 text-right">{t('tournament.break.column')}</th>}
             </tr>
@@ -352,7 +369,9 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
                     <div className="min-w-0"><p className="font-bold">{r.team.name}</p><p className="text-xs text-muted-foreground">{r.team.institution}</p></div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-center"><span className="font-bold text-success">{r.wins}</span><span className="text-muted-foreground"> – {r.losses}</span></td>
+                <td className="px-4 py-3 text-center">
+                  {bp ? <span className="font-bold text-success">{r.points}</span> : <><span className="font-bold text-success">{r.wins}</span><span className="text-muted-foreground"> – {r.losses}</span></>}
+                </td>
                 <td className="px-4 py-3 text-right font-semibold tabular-nums">{r.speakerPoints.toFixed(1)}</td>
                 {forecast && (
                   <td className="px-4 py-3 text-right">

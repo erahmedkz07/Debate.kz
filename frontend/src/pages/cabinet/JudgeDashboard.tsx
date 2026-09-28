@@ -5,6 +5,7 @@ import { CheckCircle2, ClipboardList, ClipboardPen, DoorOpen, Gavel, History, Ti
 import { getJudgeAssignments } from '@/api'
 import type { JudgeAssignment } from '@/types'
 import { useAuth } from '@/lib/auth'
+import { sidesOf, useSides } from '@/lib/formats'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -18,7 +19,12 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
   const { t } = useTranslation()
   const pending = a.debate.ballotStatus === 'pending'
   const done = a.debate.ballotStatus === 'confirmed'
-  const winner = a.debate.winner === 'proposition' ? a.proposition : a.debate.winner === 'opposition' ? a.opposition : null
+  const names = useSides(a.tournament.format)
+  // BP: four teams; the chair sends the agreed ballot and the wings read it
+  const sideList = sidesOf(a.tournament.format).filter(side => a[side])
+  const bp = sideList.length === 4
+  const winner = a.debate.winner ? a[a.debate.winner] ?? null : null
+  const canSend = !bp || a.isChair
   return (
     <Card className={cn('overflow-hidden', pending && 'ring-2 ring-accent')}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/50 px-5 py-3">
@@ -33,16 +39,18 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
       </div>
       <div className="p-5">
         <p className="text-sm italic text-muted-foreground">«{a.round.motion}»</p>
-        <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-center">
-          <div className={cn('rounded-xl bg-primary-soft p-3', winner?.id === a.proposition.id && 'ring-2 ring-success')}>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-primary">{t('tournament.proposition')}</p>
-            <p className="font-bold">{a.proposition.name}</p>
-          </div>
-          <span className="text-xs font-extrabold text-muted-foreground">VS</span>
-          <div className={cn('rounded-xl bg-muted p-3', winner?.id === a.opposition.id && 'ring-2 ring-success')}>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{t('tournament.opposition')}</p>
-            <p className="font-bold">{a.opposition.name}</p>
-          </div>
+        <div className={cn('mt-4 grid items-center gap-3 text-center', bp ? 'grid-cols-2' : 'grid-cols-[1fr_auto_1fr]')}>
+          {sideList.map((side, i) => {
+            const team = a[side]!
+            const gov = side === 'proposition' || side === 'closingProposition'
+            return [
+              !bp && i === 1 && <span key="vs" className="text-xs font-extrabold text-muted-foreground">VS</span>,
+              <div key={side} className={cn('rounded-xl p-3', gov ? 'bg-primary-soft' : 'bg-muted', winner?.id === team.id && 'ring-2 ring-success')}>
+                <p className={cn('text-[10px] font-bold uppercase tracking-wider', gov ? 'text-primary' : 'text-muted-foreground')}>{names[side]}</p>
+                <p className="font-bold">{team.name}</p>
+              </div>,
+            ]
+          })}
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <span className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -53,7 +61,7 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
             ? <span className="flex items-center gap-1.5 text-sm font-semibold text-success"><Trophy className="size-4" />{winner?.name}</span>
             : (
               <Button asChild size="sm" variant={pending ? 'accent' : 'outline'}>
-                <Link to={`/ballot/${a.debate.id}`}><ClipboardPen className="size-4" />{pending ? t('judge.fillBallot') : t('judge.editBallot')}</Link>
+                <Link to={`/ballot/${a.debate.id}`}><ClipboardPen className="size-4" />{!canSend ? t('judge.viewBallot') : pending ? t('judge.fillBallot') : t('judge.editBallot')}</Link>
               </Button>
             )}
         </div>

@@ -3,6 +3,7 @@ import { toDay } from '../lib/dates.js'
 import { forbidden, notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { coverOf } from './covers.js'
+import { BP_POINTS, teamOnSide } from './formats.js'
 
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
@@ -38,6 +39,9 @@ type DebateRow = Prisma.DebateGetPayload<{ include: typeof debateInclude }>
 
 export const toDebate = (d: DebateRow) => ({
   id: d.id, roundId: d.roundId, room: d.room, propositionTeamId: d.propositionTeamId, oppositionTeamId: d.oppositionTeamId,
+  // British Parliamentary: the closing half and the places 1st–4th
+  ...(d.closingPropositionTeamId && { closingPropositionTeamId: d.closingPropositionTeamId, closingOppositionTeamId: d.closingOppositionTeamId ?? undefined }),
+  ...(d.ranking.length && { ranking: d.ranking }),
   judgeIds: d.judges.map(j => j.judgeId), winner: d.winner ?? undefined, ballotStatus: d.ballotStatus,
 })
 
@@ -143,14 +147,25 @@ export async function getStandings(tournamentId: string) {
     }),
   ])
 
-  const wins = new Map<string, number>(), losses = new Map<string, number>()
+  const wins = new Map<string, number>(), losses = new Map<string, number>(), points = new Map<string, number>()
   const speakerSum = new Map<string, number>(), speakerRounds = new Map<string, number>()
+  const add = (m: Map<string, number>, id: string, n = 1) => m.set(id, (m.get(id) ?? 0) + n)
 
   for (const d of debates) {
-    const winnerId = d.winner === 'proposition' ? d.propositionTeamId : d.oppositionTeamId
-    const loserId = d.winner === 'proposition' ? d.oppositionTeamId : d.propositionTeamId
-    wins.set(winnerId, (wins.get(winnerId) ?? 0) + 1)
-    losses.set(loserId, (losses.get(loserId) ?? 0) + 1)
+    if (d.ranking.length) {
+      // British Parliamentary: 3/2/1/0 team points by place; 1st place counts as a win
+      d.ranking.forEach((side, place) => {
+        const id = teamOnSide(d, side)
+        if (!id) return
+        add(points, id, BP_POINTS[place])
+        add(place === 0 ? wins : losses, id)
+      })
+    } else {
+      const winnerId = d.winner === 'proposition' ? d.propositionTeamId : d.oppositionTeamId
+      const loserId = d.winner === 'proposition' ? d.oppositionTeamId : d.propositionTeamId
+      add(wins, winnerId); add(points, winnerId)
+      add(losses, loserId)
+    }
 
     // a speaker's score in a debate = average over the panel's ballots (substantive speeches only)
     const perSpeaker = new Map<string, number[]>()
@@ -168,8 +183,9 @@ export async function getStandings(tournamentId: string) {
   const teamRows = teams.map(team => {
     const sp = team.speakers.reduce((s, x) => s + (speakerSum.get(x.id) ?? 0), 0)
     const w = wins.get(team.id) ?? 0, l = losses.get(team.id) ?? 0
-    return { team: toTeam(team), wins: w, losses: l, speakerPoints: round1(sp), margins: 0 }
-  }).sort((a, b) => b.wins - a.wins || b.speakerPoints - a.speakerPoints)
+    // points: wins in two-team formats, team points (3/2/1/0) in BP
+    return { team: toTeam(team), wins: w, losses: l, points: points.get(team.id) ?? 0, speakerPoints: round1(sp), margins: 0 }
+  }).sort((a, b) => b.points - a.points || b.speakerPoints - a.speakerPoints)
 
   const speakerRows = teams.flatMap(team => team.speakers.map(s => {
     const total = speakerSum.get(s.id) ?? 0, n = speakerRounds.get(s.id) ?? 0

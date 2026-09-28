@@ -4,6 +4,7 @@ import { env } from '../lib/env.js'
 import { linkable, sendMessage, telegramEnabled, TelegramError, type InlineButton, type SendOptions } from '../lib/telegram.js'
 import { asLang, buttonLabel, renderNotification } from './botTexts.js'
 import { getStandings } from './tournaments.js'
+import { campNames, resultOf, sideLabel, sidesInDebate } from './formats.js'
 
 // Notifications. Every event lands in the in-app notification centre (type + data, rendered in RU/KZ on the site)
 // and, for people who linked the bot themselves, is also sent to Telegram — the same type rendered by botTexts.ts
@@ -78,6 +79,8 @@ export async function notifyRoundReleased(roundId: string) {
         include: {
           proposition: { include: { speakers: { select: { userId: true } } } },
           opposition: { include: { speakers: { select: { userId: true } } } },
+          closingProposition: { include: { speakers: { select: { userId: true } } } },
+          closingOpposition: { include: { speakers: { select: { userId: true } } } },
           judges: { include: { judge: { select: { userId: true } } } },
         },
       },
@@ -86,13 +89,18 @@ export async function notifyRoundReleased(roundId: string) {
   if (!round) return
   const t = round.tournament
   for (const d of round.debates) {
-    for (const [side, team, other] of [['proposition', d.proposition, d.opposition], ['opposition', d.opposition, d.proposition]] as const) {
-      await notify(team.speakers.map(s => s.userId), 'participant.drawReleased',
-        { tournament: t.name, round: round.name, room: d.room, side, opponent: other.name, motion: round.motion }, `/tournaments/${t.id}?tab=draw`)
+    const teams = { proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition }
+    const inRoom = sidesInDebate(d)
+    const bp = inRoom.length === 4
+    for (const { side } of inRoom) {
+      // BP: the three other teams of the room
+      const opponent = inRoom.filter(x => x.side !== side).map(x => teams[x.side]!.name).join(', ')
+      await notify(teams[side]!.speakers.map(s => s.userId), 'participant.drawReleased',
+        { tournament: t.name, round: round.name, room: d.room, side: sideLabel(side, bp), opponent, motion: round.motion }, `/tournaments/${t.id}?tab=draw`)
     }
     for (const j of d.judges) {
       await notify([j.judge.userId], 'judge.assigned',
-        { tournament: t.name, round: round.name, room: d.room, chair: j.isChair, proposition: d.proposition.name, opposition: d.opposition.name, motion: round.motion }, `/ballot/${d.id}`)
+        { tournament: t.name, round: round.name, room: d.room, chair: j.isChair, ...campNames(d), motion: round.motion }, `/ballot/${d.id}`)
     }
   }
 }
@@ -103,14 +111,21 @@ export async function notifyRoundCompleted(roundId: string) {
     where: { id: roundId },
     include: {
       tournament: { select: { id: true, name: true } },
-      debates: { include: { proposition: { include: { speakers: { select: { userId: true } } } }, opposition: { include: { speakers: { select: { userId: true } } } } } },
+      debates: {
+        include: {
+          proposition: { include: { speakers: { select: { userId: true } } } }, opposition: { include: { speakers: { select: { userId: true } } } },
+          closingProposition: { include: { speakers: { select: { userId: true } } } }, closingOpposition: { include: { speakers: { select: { userId: true } } } },
+        },
+      },
     },
   })
   if (!round) return
   for (const d of round.debates) {
-    for (const [side, team] of [['proposition', d.proposition], ['opposition', d.opposition]] as const) {
-      await notify(team.speakers.map(s => s.userId), 'participant.roundResult',
-        { tournament: round.tournament.name, round: round.name, result: d.winner === side ? 'win' : 'loss' }, `/tournaments/${round.tournament.id}?tab=results`)
+    const teams = { proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition }
+    for (const { side } of sidesInDebate(d)) {
+      // result: win / loss, or the place in BP (place1 … place4)
+      await notify(teams[side]!.speakers.map(s => s.userId), 'participant.roundResult',
+        { tournament: round.tournament.name, round: round.name, result: resultOf(d, side) }, `/tournaments/${round.tournament.id}?tab=results`)
     }
   }
 }

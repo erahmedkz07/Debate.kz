@@ -1,8 +1,8 @@
 import { badRequest, forbidden } from '../lib/errors.js'
-import { rulesOf } from './formats.js'
+import { BP_SIDES, isBP, rulesOf } from './formats.js'
 import { prisma } from '../lib/prisma.js'
 import { getStandings } from './tournaments.js'
-import { pairTeams, shuffle, type DrawMethod } from './pairing.js'
+import { assignPositions, groupRooms, pairTeams, shuffle, type DrawMethod } from './pairing.js'
 
 const ROOMS = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
 export const DEFAULT_ROOMS = ROOMS
@@ -16,7 +16,9 @@ export const roomName = (i: number, rooms: string[] = ROOMS) => rooms[i] ?? `А�
 // 3) side goes to the team that has been Proposition less often
 // 4) one judge per room: best-rated judges chair, spare judges become wings,
 //    a judge never sits on a debate with a team from their own institution
-// presentOnly: only teams that checked in; addSwing: an odd number of teams gets the stand-in "swing" team
+// British Parliamentary: rooms of four (services/pairing.ts groupRooms), positions OG/OO/CG/CO balanced per team.
+// presentOnly: only teams that checked in; addSwing: stand-in "swing" teams fill the last debate
+// (one for an odd number in two-team formats, up to three in BP)
 export interface DrawOptions { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean }
 export const CLUB_PROTECTED_ROUNDS = 2 // by default the first two rounds keep clubmates apart
 
@@ -34,13 +36,22 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
       select: { id: true, institutionId: true, clubId: true },
     }),
     prisma.judge.findMany({ where: { tournamentId: tId }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
-    prisma.debate.findMany({ where: { round: { tournamentId: tId, number: { lt: round.number } } }, select: { propositionTeamId: true, oppositionTeamId: true } }),
+    prisma.debate.findMany({
+      where: { round: { tournamentId: tId, number: { lt: round.number } } },
+      select: { propositionTeamId: true, oppositionTeamId: true, closingPropositionTeamId: true, closingOppositionTeamId: true },
+    }),
   ])
-  if (teams.length % 2 && opts.addSwing && teams.length >= 1) teams.push(await swingTeam(tId))
-  if (teams.length < 2) throw badRequest('not_enough_teams')
-  if (teams.length % 2) throw badRequest('odd_number_of_teams')
+  const perRoom = isBP(round.tournament.format) ? 4 : 2
+  if (teams.length % perRoom && opts.addSwing && teams.length >= 1) {
+    const missing = perRoom - (teams.length % perRoom)
+    for (let i = 0; i < missing; i++) teams.push(await swingTeam(tId, i))
+  }
+  if (teams.length < perRoom) throw badRequest('not_enough_teams')
+  if (perRoom === 2 && teams.length % 2) throw badRequest('odd_number_of_teams')
+  if (perRoom === 4 && teams.length % 4) throw badRequest('bp_teams_multiple_of_four', { teams: teams.length })
   // one judge per room: the error says how many are needed and how many there are
-  if (judges.length < teams.length / 2) throw badRequest('not_enough_judges', { need: teams.length / 2, have: judges.length, teams: teams.length })
+  const roomsNeeded = teams.length / perRoom
+  if (judges.length < roomsNeeded) throw badRequest('not_enough_judges', { need: roomsNeeded, have: judges.length, teams: teams.length })
 
   // order teams
   const method = opts.method ?? 'power'
@@ -54,21 +65,37 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     ordered = shuffle(teams.map(t => t.id)).sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999))
   }
 
-  const met = new Set(previous.map(p => [p.propositionTeamId, p.oppositionTeamId].sort().join('|')))
-  const propCount = new Map<string, number>()
-  previous.forEach(p => propCount.set(p.propositionTeamId, (propCount.get(p.propositionTeamId) ?? 0) + 1))
-
   const protectClubs = opts.protectClubs ?? round.number <= CLUB_PROTECTED_ROUNDS
   const clubOf = new Map(teams.map(t => [t.id, t.clubId ?? t.institutionId]))
-  const result = pairTeams({ order: ordered, method, met, clubOf, protectClubs })
-  // side balance: Proposition to the team that has had it less often
-  const pairs = result.pairs.map(([a, b]) => ((propCount.get(a) ?? 0) <= (propCount.get(b) ?? 0) ? [a, b] : [b, a]) as [string, string])
+  let pairs: string[][], report: { sameClub: number; rematches: number }
+  if (perRoom === 4) {
+    // BP: how often each team has held OG, OO, CG, CO
+    const counts = new Map<string, number[]>()
+    for (const p of previous) BP_SIDES.forEach((_, pos) => {
+      const id = [p.propositionTeamId, p.oppositionTeamId, p.closingPropositionTeamId, p.closingOppositionTeamId][pos]
+      if (!id) return
+      const c = counts.get(id) ?? [0, 0, 0, 0]
+      c[pos]++
+      counts.set(id, c)
+    })
+    const result = groupRooms({ order: ordered, method, clubOf, protectClubs })
+    pairs = result.rooms.map(room => assignPositions(room, counts))
+    report = { sameClub: result.sameClub, rematches: 0 }
+  } else {
+    const met = new Set(previous.map(p => [p.propositionTeamId, p.oppositionTeamId].sort().join('|')))
+    const propCount = new Map<string, number>()
+    previous.forEach(p => propCount.set(p.propositionTeamId, (propCount.get(p.propositionTeamId) ?? 0) + 1))
+    const result = pairTeams({ order: ordered, method, met, clubOf, protectClubs })
+    // side balance: Proposition to the team that has had it less often
+    pairs = result.pairs.map(([a, b]) => ((propCount.get(a) ?? 0) <= (propCount.get(b) ?? 0) ? [a, b] : [b, a]))
+    report = { sameClub: result.sameClub, rematches: result.rematches }
+  }
 
   // judge allocation
   const inst = new Map(teams.map(t => [t.id, t.institutionId]))
-  const conflictsWith = (judgeInst: string | null, pair: [string, string]) => !!judgeInst && (inst.get(pair[0]) === judgeInst || inst.get(pair[1]) === judgeInst)
+  const conflictsWith = (judgeInst: string | null, room: string[]) => !!judgeInst && room.some(id => inst.get(id) === judgeInst)
   const free = [...judges]
-  const takeJudge = (pair: [string, string]) => {
+  const takeJudge = (pair: string[]) => {
     let i = free.findIndex(j => !conflictsWith(j.institutionId, pair))
     if (i === -1) i = 0
     return free.splice(i, 1)[0]
@@ -87,21 +114,24 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
       await tx.debate.create({
         data: {
           roundId, room: roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS), propositionTeamId: pairs[i][0], oppositionTeamId: pairs[i][1],
+          closingPropositionTeamId: pairs[i][2] ?? null, closingOppositionTeamId: pairs[i][3] ?? null,
           judges: { create: panels[i] },
         },
       })
     }
   })
-  return { method, protectClubs, sameClub: result.sameClub, rematches: result.rematches }
+  return { method, protectClubs, ...report }
 }
 
-// the tournament's stand-in team (created once): three placeholder speakers so judges can score it; never ranked
-async function swingTeam(tournamentId: string) {
+// the tournament's stand-in teams (each created once): placeholder speakers so judges can score them; never ranked.
+// Two-team formats need at most one ("Swing"), BP up to three ("Swing", "Swing 2", "Swing 3").
+async function swingTeam(tournamentId: string, index = 0) {
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { format: true } })
-  const existing = await prisma.team.findFirst({ where: { tournamentId, swing: true }, select: { id: true, institutionId: true, clubId: true } })
+  const name = index ? `Swing ${index + 1}` : 'Swing'
+  const existing = await prisma.team.findFirst({ where: { tournamentId, swing: true, name }, select: { id: true, institutionId: true, clubId: true } })
   if (existing) return existing
   return prisma.team.create({
-    data: { tournamentId, name: 'Swing', swing: true, speakers: { create: Array.from({ length: rulesOf(t.format).speakers }, (_, i) => ({ name: `Swing ${i + 1}`, position: i + 1 })) } },
+    data: { tournamentId, name, swing: true, speakers: { create: Array.from({ length: rulesOf(t.format).speakers }, (_, i) => ({ name: `Swing ${i + 1}`, position: i + 1 })) } },
     select: { id: true, institutionId: true, clubId: true },
   })
 }

@@ -61,9 +61,13 @@ enum RoundStatus {
   completed
 }
 
+// WSDC, APF, Karl Popper: proposition / opposition.
+// British Parliamentary: proposition = Opening Government, opposition = Opening Opposition, plus the closing half.
 enum Side {
   proposition
   opposition
+  closingProposition @map("closing_proposition")
+  closingOpposition  @map("closing_opposition")
 }
 
 enum BallotStatus {
@@ -278,23 +282,25 @@ model ScheduleItem {
 }
 
 model Team {
-  id            String       @id @default(cuid())
-  tournamentId  String       @map("tournament_id")
-  name          String
-  institutionId String?      @map("institution_id")
-  city          String?
-  checkedInAt   DateTime?    @map("checked_in_at") // present at the venue (QR check-in or marked by the organizer)
-  swing         Boolean      @default(false) // stand-in team that evens out the draw; never ranked
-  clubId        String?      @map("club_id") // the club the team came from (ratings, same-club draw rule)
-  clubTeamId    String?      @map("club_team_id")
-  createdAt     DateTime     @default(now()) @map("created_at")
-  tournament    Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  institution   Institution? @relation(fields: [institutionId], references: [id])
-  club          Club?        @relation(fields: [clubId], references: [id], onDelete: SetNull)
-  clubTeam      ClubTeam?    @relation(fields: [clubTeamId], references: [id], onDelete: SetNull)
-  speakers      Speaker[]
-  propositionIn Debate[]     @relation("PropositionTeam")
-  oppositionIn  Debate[]     @relation("OppositionTeam")
+  id                   String       @id @default(cuid())
+  tournamentId         String       @map("tournament_id")
+  name                 String
+  institutionId        String?      @map("institution_id")
+  city                 String?
+  checkedInAt          DateTime?    @map("checked_in_at") // present at the venue (QR check-in or marked by the organizer)
+  swing                Boolean      @default(false) // stand-in team that evens out the draw; never ranked
+  clubId               String?      @map("club_id") // the club the team came from (ratings, same-club draw rule)
+  clubTeamId           String?      @map("club_team_id")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  tournament           Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  institution          Institution? @relation(fields: [institutionId], references: [id])
+  club                 Club?        @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  clubTeam             ClubTeam?    @relation(fields: [clubTeamId], references: [id], onDelete: SetNull)
+  speakers             Speaker[]
+  propositionIn        Debate[]     @relation("PropositionTeam")
+  oppositionIn         Debate[]     @relation("OppositionTeam")
+  closingPropositionIn Debate[]     @relation("ClosingPropositionTeam")
+  closingOppositionIn  Debate[]     @relation("ClosingOppositionTeam")
 
   @@unique([tournamentId, name])
   @@map("teams")
@@ -350,18 +356,24 @@ model Round {
 }
 
 model Debate {
-  id                String        @id @default(cuid())
-  roundId           String        @map("round_id")
-  room              String
-  propositionTeamId String        @map("proposition_team_id")
-  oppositionTeamId  String        @map("opposition_team_id")
-  winner            Side?
-  ballotStatus      BallotStatus  @default(pending) @map("ballot_status")
-  round             Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
-  proposition       Team          @relation("PropositionTeam", fields: [propositionTeamId], references: [id], onDelete: Cascade)
-  opposition        Team          @relation("OppositionTeam", fields: [oppositionTeamId], references: [id], onDelete: Cascade)
-  judges            DebateJudge[]
-  ballots           Ballot[]
+  id                       String        @id @default(cuid())
+  roundId                  String        @map("round_id")
+  room                     String
+  propositionTeamId        String        @map("proposition_team_id")
+  oppositionTeamId         String        @map("opposition_team_id")
+  // British Parliamentary only: the closing half of the room
+  closingPropositionTeamId String?       @map("closing_proposition_team_id")
+  closingOppositionTeamId  String?       @map("closing_opposition_team_id")
+  winner                   Side?
+  ranking                  Side[] // BP: the sides from 1st to 4th place (3/2/1/0 team points); empty in two-team formats
+  ballotStatus             BallotStatus  @default(pending) @map("ballot_status")
+  round                    Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  proposition              Team          @relation("PropositionTeam", fields: [propositionTeamId], references: [id], onDelete: Cascade)
+  opposition               Team          @relation("OppositionTeam", fields: [oppositionTeamId], references: [id], onDelete: Cascade)
+  closingProposition       Team?         @relation("ClosingPropositionTeam", fields: [closingPropositionTeamId], references: [id], onDelete: Cascade)
+  closingOpposition        Team?         @relation("ClosingOppositionTeam", fields: [closingOppositionTeamId], references: [id], onDelete: Cascade)
+  judges                   DebateJudge[]
+  ballots                  Ballot[]
 
   @@index([roundId])
   @@map("debates")
@@ -385,6 +397,7 @@ model Ballot {
   debateId    String         @map("debate_id")
   judgeId     String         @map("judge_id")
   winner      Side
+  ranking     Side[] // BP: the panel's ranking of the four teams, 1st to 4th
   submittedAt DateTime       @default(now()) @map("submitted_at")
   debate      Debate         @relation(fields: [debateId], references: [id], onDelete: Cascade)
   judge       Judge          @relation(fields: [judgeId], references: [id], onDelete: Cascade)
@@ -399,7 +412,7 @@ model SpeakerScore {
   ballotId  String  @map("ballot_id")
   speakerId String  @map("speaker_id")
   side      Side
-  position  Int // 1..3 substantive, 4 = reply
+  position  Int // 1..3 substantive (BP: 1..2), 4 = reply
   score     Decimal @db.Decimal(4, 1)
   feedback  String? // the judge's short written comment to this speaker (shown after the round is completed)
   ballot    Ballot  @relation(fields: [ballotId], references: [id], onDelete: Cascade)
