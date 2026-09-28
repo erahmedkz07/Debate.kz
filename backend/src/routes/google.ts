@@ -31,7 +31,7 @@ const FLOW_TTL_S = 10 * 60
 const callbackUrl = () => `${env.CLIENT_ORIGIN}/api/auth/google/callback`
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: isProd ? 40 : 500, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
 
-interface Flow { state: string; nonce: string; verifier: string; mode: 'login' | 'link'; next: string; userId?: string }
+interface Flow { state: string; nonce: string; verifier: string; mode: 'login' | 'link'; next: string; userId?: string; lang?: 'ru' | 'kz' }
 const b64url = (b: Buffer) => b.toString('base64url')
 // only same-site paths: "/me", never "//evil.com" or "https://…"
 const safeNext = (p?: string) => (p && p.startsWith('/') && !p.startsWith('//') && !p.startsWith('/\\') ? p.slice(0, 300) : '/')
@@ -47,14 +47,14 @@ googleRouter.get('/google/config', (_req, res) => {
 })
 
 googleRouter.get('/google/start', limiter, (req: Request, res: Response) => {
-  const q = query(req, z.object({ mode: z.enum(['login', 'link']).default('login'), next: z.string().max(300).optional() }))
+  const q = query(req, z.object({ mode: z.enum(['login', 'link']).default('login'), next: z.string().max(300).optional(), lang: z.enum(['ru', 'kz']).optional() }))
   const next = safeNext(q.next)
   if (!googleEnabled()) return back(res, '/login', { google_error: 'google_disabled' })
   // linking needs a signed-in user; otherwise it is a plain sign-in
   if (q.mode === 'link' && !req.user) return back(res, '/login', { next: '/me', google_error: 'login_required' })
   const flow: Flow = {
     state: b64url(randomBytes(24)), nonce: b64url(randomBytes(24)), verifier: b64url(randomBytes(48)),
-    mode: q.mode, next, ...(q.mode === 'link' && { userId: req.user!.id }),
+    mode: q.mode, next, ...(q.mode === 'link' && { userId: req.user!.id }), ...(q.lang && { lang: q.lang }),
   }
   res.cookie(FLOW_COOKIE, jwt.sign(flow, env.JWT_SECRET, { expiresIn: FLOW_TTL_S, algorithm: 'HS256' }), {
     // lax: the cookie comes back on Google's top-level redirect to the callback
@@ -184,7 +184,8 @@ googleRouter.get('/google/callback', limiter, async (req: Request, res: Response
       } else {
         // consent to data processing: the buttons say "by continuing you accept the privacy policy"
         user = await prisma.user.create({
-          data: { email, name: fullName(c), googleId: c.sub, googleEmail: email, emailVerifiedAt: new Date(), consentAt: new Date() },
+          // a new account speaks the language the site was shown in (welcome letter, bot)
+          data: { email, name: fullName(c), googleId: c.sub, googleEmail: email, emailVerifiedAt: new Date(), consentAt: new Date(), language: flow.lang ?? 'ru' },
         })
         created = true
       }

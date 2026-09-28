@@ -37,13 +37,14 @@ const registerSchema = z.object({
   phone,
   password: z.string().min(8).max(128),
   consent: z.literal(true), // consent to personal data processing
+  language: z.enum(['ru', 'kz']).default('ru'), // the site's language: letters and the bot use it
 })
 
 authRouter.post('/register', limiter, async (req, res) => {
   const data = body(req, registerSchema)
   if (await prisma.user.findUnique({ where: { email: data.email } })) throw conflict('exists')
   const user = await prisma.user.create({
-    data: { name: data.name, email: data.email, phone: data.phone, passwordHash: await bcrypt.hash(data.password, 12), consentAt: new Date() },
+    data: { name: data.name, email: data.email, phone: data.phone, passwordHash: await bcrypt.hash(data.password, 12), consentAt: new Date(), language: data.language },
   })
   const devToken = await sendVerification(user)
   setSession(res, user.id)

@@ -60,7 +60,7 @@ invitesRouter.post('/tournaments/:id/invites/email', requireAuth(), async (req, 
   if (invitee) {
     background(notify([invitee.id], 'participant.inviteReceived', { tournament: t.name, name: req.user!.name, kind: d.kind }, path))
   }
-  const sent = await inviteLetter(d.email, { inviter: req.user!.name, tournament: t.name, kind: d.kind, registered: !!invitee, url: `${env.CLIENT_ORIGIN}${path}` })
+  const sent = await inviteLetter(d.email, { inviter: req.user!.name, tournament: t.name, kind: d.kind, registered: !!invitee, url: `${env.CLIENT_ORIGIN}${path}`, language: invitee?.language })
   res.status(201).json({ id: invite.id, email: d.email, kind: d.kind, state: 'pending', registered: !!invitee, mailed: sent, createdAt: invite.createdAt.toISOString() })
 })
 
