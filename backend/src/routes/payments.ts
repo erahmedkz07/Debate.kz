@@ -12,7 +12,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage } from '../services/tournaments.js'
 import { FREE_TEAM_LIMIT, newReference, platformSettings } from '../services/plans.js'
-import { admins, background, inbox, notifyUsers, organizersOf, withLink } from '../services/notify.js'
+import { admins, background, notify, organizersOf } from '../services/notify.js'
 import { paymentConfirmedLetter, paymentRejectedLetter } from '../services/letters.js'
 import { logAction } from './admin.js'
 
@@ -78,8 +78,7 @@ paymentsRouter.post('/tournaments/:id/payment/claim', requireAuth(), receiptUplo
   if (p.receiptPath) await unlink(path.join(RECEIPTS_DIR, path.basename(p.receiptPath))).catch(() => undefined)
   await prisma.payment.update({ where: { id: p.id }, data: { status: 'pending', payerNote, paidAt: new Date(), userId: req.user!.id, adminNote: null, receiptPath } })
   const to = await admins()
-  background(inbox(to, 'admin.paymentClaimed', { tournament: t.name, amount: p.amount, reference: p.reference }, '/admin?tab=payments'))
-  background(notifyUsers(to, () => withLink(`💳 Оплата Pro: «${t.name}», ${p.amount.toLocaleString('ru-RU')} ₸, код ${p.reference}. Проверьте поступление в Kaspi.`, 'Открыть оплаты', '/admin?tab=payments')))
+  background(notify(to, 'admin.paymentClaimed', { tournament: t.name, amount: p.amount, reference: p.reference }, '/admin?tab=payments'))
   res.json({ ok: true })
 })
 
@@ -117,10 +116,7 @@ paymentsRouter.patch('/admin/payments/:id', requireAuth('admin'), async (req, re
   // the organizers learn the decision on the site, in Telegram and by email
   const orgs = await organizersOf(p.tournamentId)
   const link = `/dashboard/tournaments/${p.tournamentId}/settings`
-  background(inbox(orgs, d.status === 'confirmed' ? 'organizer.paymentConfirmed' : 'organizer.paymentRejected', { tournament: p.tournament.name, reason: d.adminNote ?? '' }, link))
-  background(notifyUsers(orgs, () => withLink(d.status === 'confirmed'
-    ? `✅ Оплата Pro подтверждена: «${p.tournament.name}». Лимит команд снят.`
-    : `⚠️ Оплата Pro не подтверждена: «${p.tournament.name}». Причина: ${d.adminNote}`, 'Открыть турнир', link)))
+  background(notify(orgs, d.status === 'confirmed' ? 'organizer.paymentConfirmed' : 'organizer.paymentRejected', { tournament: p.tournament.name, reason: d.adminNote ?? '' }, link))
   const people = await prisma.user.findMany({ where: { id: { in: orgs } } })
   for (const u of people) background(d.status === 'confirmed' ? paymentConfirmedLetter(u, p.tournament.name, p.reference) : paymentRejectedLetter(u, p.tournament.name, d.adminNote!, p.tournamentId))
   res.json({ ok: true })

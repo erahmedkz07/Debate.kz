@@ -97,7 +97,9 @@ export const googleSignInUrl = (mode: 'login' | 'link', next?: string | null) =>
 export const unlinkGoogle = () => http<{ user: User }>('DELETE', '/auth/google').then(r => r.user)
 // ---------- Telegram bot ----------
 export const getTelegramConfig = () => http<{ enabled: boolean; username?: string }>('GET', '/telegram/config')
-export const createTelegramLink = () => http<{ url: string; expiresInMinutes: number }>('POST', '/me/telegram/link')
+// the bot will speak the language the site is shown in right now
+export const createTelegramLink = (language: 'ru' | 'kz') => http<{ url: string; expiresInMinutes: number }>('POST', '/me/telegram/link', { language })
+export const setAccountLanguage = (language: 'ru' | 'kz') => http<{ user: User }>('PUT', '/me/language', { language }).then(r => r.user)
 export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATCH', '/me/telegram', { notify }).then(r => r.user)
 export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
 // confirmed by the password, or by typing the email for accounts without a password

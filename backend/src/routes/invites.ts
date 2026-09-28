@@ -8,7 +8,7 @@ import { hashToken, newToken } from '../lib/tokens.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn } from '../services/tournaments.js'
-import { background, inbox, notifyJoined, notifyUsers, organizersOf, withLink } from '../services/notify.js'
+import { background, notify, notifyJoined, organizersOf } from '../services/notify.js'
 import { inviteLetter } from '../services/letters.js'
 import { coverOf } from '../services/covers.js'
 
@@ -58,8 +58,7 @@ invitesRouter.post('/tournaments/:id/invites/email', requireAuth(), async (req, 
   })
   const path = `/invite/${token}`
   if (invitee) {
-    background(inbox([invitee.id], 'participant.inviteReceived', { tournament: t.name, name: req.user!.name, kind: d.kind }, path))
-    background(notifyUsers([invitee.id], () => withLink(`✉️ ${req.user!.name} приглашает вас ${d.kind === 'judge' ? 'судить' : 'стать соорганизатором'}: «${t.name}».`, 'Принять или отклонить', path)))
+    background(notify([invitee.id], 'participant.inviteReceived', { tournament: t.name, name: req.user!.name, kind: d.kind }, path))
   }
   const sent = await inviteLetter(d.email, { inviter: req.user!.name, tournament: t.name, kind: d.kind, registered: !!invitee, url: `${env.CLIENT_ORIGIN}${path}` })
   res.status(201).json({ id: invite.id, email: d.email, kind: d.kind, state: 'pending', registered: !!invitee, mailed: sent, createdAt: invite.createdAt.toISOString() })
@@ -146,7 +145,7 @@ invitesRouter.post('/invites/:token/decline', requireAuth(), async (req, res) =>
   if (invite.email && invite.email !== req.user!.email) throw forbidden('invite_other_email')
   await prisma.tournamentInvite.update({ where: { id: invite.id }, data: { declinedAt: new Date() } })
   const orgs = await organizersOf(invite.tournamentId)
-  background(inbox(orgs, 'organizer.inviteDeclined', { tournament: invite.tournament.name, name: req.user!.name, kind: invite.kind },
+  background(notify(orgs, 'organizer.inviteDeclined', { tournament: invite.tournament.name, name: req.user!.name, kind: invite.kind },
     `/dashboard/tournaments/${invite.tournamentId}/${invite.kind === 'judge' ? 'judges' : 'settings'}`))
   res.json({ ok: true })
 })

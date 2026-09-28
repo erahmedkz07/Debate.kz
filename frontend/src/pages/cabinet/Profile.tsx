@@ -27,7 +27,7 @@ const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'dan
 
 // Telegram: notifications, phone verification and one-tap judge feedback
 function TelegramCard() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { user, signIn } = useAuth()
   const config = useAsync(getTelegramConfig)
   const [link, setLink] = useState<string | null>(null)
@@ -38,7 +38,7 @@ function TelegramCard() {
     try { await fn() } catch (e) { toast.error(errorMessage(e, t)) } finally { setBusy(false) }
   }
   const connect = () => act(async () => {
-    const { url } = await createTelegramLink()
+    const { url } = await createTelegramLink(i18n.language === 'kz' ? 'kz' : 'ru')
     setLink(url)
     window.open(url, '_blank', 'noopener')
   })
@@ -61,6 +61,7 @@ function TelegramCard() {
         <li className="flex items-center gap-2"><Bell className="size-4 text-primary" />{t('telegram.f1')}</li>
         <li className="flex items-center gap-2"><CheckCircle2 className="size-4 text-primary" />{t('telegram.f2')}</li>
         <li className="flex items-center gap-2"><BadgeCheck className="size-4 text-primary" />{t('telegram.f3')}</li>
+        <li className="flex items-center gap-2"><Send className="size-4 text-primary" />{t('telegram.f4')}</li>
       </ul>
       {user.telegramLinked ? (
         <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-border pt-4">

@@ -5,8 +5,7 @@ import { toDay } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/errors.js'
 import { body, param, query } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { esc } from '../lib/telegram.js'
-import { background, inbox, notifyUsers, withLink } from '../services/notify.js'
+import { background, notify } from '../services/notify.js'
 
 // "Find a teammate" board. Posts show only the author's name, institution and city — never contacts.
 // A reply is delivered to the author as a notification; people exchange contacts there if they want.
@@ -65,11 +64,6 @@ teammatesRouter.post('/teammates/:id/reply', requireAuth(), requireVerified, asy
   if (today >= DAILY_REPLIES) throw new HttpError(429, 'too_many_replies')
   if (await prisma.teammateReply.findUnique({ where: { postId_userId: { postId: p.id, userId: me.id } } })) throw conflict('already_replied')
   await prisma.teammateReply.create({ data: { postId: p.id, userId: me.id, message } })
-  background(inbox([p.userId], 'participant.teammateReply', { name: me.name, institution: me.institution ?? '', city: me.city ?? '', message, kind: p.kind }, '/teammates'))
-  const who = [me.name, me.institution, me.city].filter(Boolean).map(x => esc(x!)).join(' · ')
-  background(notifyUsers([p.userId], () => withLink(`🤝 Отклик на ваше объявление «Поиск сокомандника»
-<b>${who}</b>
-
-${esc(message)}`, 'Доска объявлений', '/teammates')))
+  background(notify([p.userId], 'participant.teammateReply', { name: me.name, institution: me.institution ?? '', city: me.city ?? '', message, kind: p.kind }, '/teammates'))
   res.status(201).json({ ok: true })
 })

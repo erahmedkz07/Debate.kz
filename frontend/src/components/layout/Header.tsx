@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogTrigger, SheetContent } from '@/components/ui/dialog'
 import { useTheme } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
+import { setAccountLanguage } from '@/api'
 import { Avatar, UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { cn } from '@/lib/utils'
@@ -24,12 +25,18 @@ const links = [
 
 export function LangSwitch({ className, onDark }: { className?: string; onDark?: boolean }) {
   const { i18n } = useTranslation()
+  const { user, signIn } = useAuth()
+  // a signed-in person's choice is kept in the account too: the Telegram bot then writes in the same language
+  const choose = (l: 'ru' | 'kz') => {
+    void i18n.changeLanguage(l)
+    if (user && user.language !== l) setAccountLanguage(l).then(signIn, () => undefined)
+  }
   return (
     <div className={cn('flex rounded-xl p-1 text-xs font-bold', onDark ? 'bg-white/15' : 'bg-muted', className)} role="group" aria-label="Language">
       {(['ru', 'kz'] as const).map(l => (
         <button
           key={l}
-          onClick={() => i18n.changeLanguage(l)}
+          onClick={() => choose(l)}
           aria-pressed={i18n.language === l}
           className={cn('cursor-pointer rounded-lg px-2.5 py-1.5 uppercase transition-all', i18n.language === l ? 'bg-card text-primary shadow-sm' : onDark ? 'text-white/80 hover:text-white' : 'text-muted-foreground hover:text-foreground')}
         >

@@ -52,7 +52,7 @@ export function Footer() {
         <div>
           <h3 className="mb-4 font-bold text-white">{t('footer.contacts')}</h3>
           <ul className="space-y-3 text-sm">
-            <li className="flex items-center gap-2.5"><MapPin className="size-4 text-accent" />Астана, Казахстан</li>
+            <li className="flex items-center gap-2.5"><MapPin className="size-4 text-accent" />{t('footer.address')}</li>
             <li className="flex items-center gap-2.5"><Mail className="size-4 text-accent" />hello@debate.kz</li>
             <li className="flex items-center gap-2.5"><Phone className="size-4 text-accent" />+7 700 000 00 00</li>
           </ul>

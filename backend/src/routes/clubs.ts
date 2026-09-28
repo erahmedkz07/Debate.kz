@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param, query } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { background, inbox } from '../services/notify.js'
+import { background, notify } from '../services/notify.js'
 
 // Clubs and their teams. All members are equal: any member can edit the club, create and rename teams,
 // put members into teams, share or reset the join link and remove a member. Every change goes to the club log.
@@ -140,7 +140,7 @@ clubsRouter.post('/clubs/join', requireAuth(), requireVerified, async (req, res)
     await tx.clubJoinRequest.updateMany({ where: { userId: me.id, status: 'pending' }, data: { status: 'cancelled' } })
     await log(tx, c.id, me, 'joined')
   })
-  background(inbox(others, 'participant.clubJoined', { name: me.name, club: c.name }, '/me?tab=club'))
+  background(notify(others, 'participant.clubJoined', { name: me.name, club: c.name }, '/me?tab=club'))
   res.json({ id: c.id })
 })
 
@@ -165,7 +165,7 @@ clubsRouter.delete('/clubs/:id/members/:userId', requireAuth(), async (req, res)
     await tx.clubMember.delete({ where: { userId: target.userId } })
     await log(tx, id, req.user!, 'removed', target.user.name)
   })
-  background(inbox([target.userId], 'participant.clubRemoved', { name: req.user!.name, club: target.club.name }, '/clubs'))
+  background(notify([target.userId], 'participant.clubRemoved', { name: req.user!.name, club: target.club.name }, '/clubs'))
   res.status(204).end()
 })
 
@@ -245,7 +245,7 @@ clubsRouter.post('/clubs/:id/requests', requireAuth(), requireVerified, async (r
   if ((await prisma.clubJoinRequest.count({ where: { userId: me.id, status: 'pending' } })) >= MAX_OPEN_REQUESTS) throw badRequest('too_many_club_requests')
   const r = await prisma.clubJoinRequest.create({ data: { clubId: c.id, userId: me.id, message } })
   const members = (await prisma.clubMember.findMany({ where: { clubId: c.id }, select: { userId: true } })).map(m => m.userId)
-  background(inbox(members, 'participant.clubRequest', { name: me.name, club: c.name }, '/me?tab=club'))
+  background(notify(members, 'participant.clubRequest', { name: me.name, club: c.name }, '/me?tab=club'))
   res.status(201).json({ id: r.id })
 })
 
@@ -283,7 +283,7 @@ clubsRouter.patch('/club-requests/:requestId', requireAuth(), async (req, res) =
     }
     await log(tx, r.clubId, req.user!, d.status === 'accepted' ? 'request.accepted' : 'request.declined', team ? `${r.user.name} → ${team.name}` : r.user.name)
   })
-  background(inbox([r.userId], d.status === 'accepted' ? 'participant.clubRequestAccepted' : 'participant.clubRequestDeclined',
+  background(notify([r.userId], d.status === 'accepted' ? 'participant.clubRequestAccepted' : 'participant.clubRequestDeclined',
     { club: r.club.name, team: team?.name ?? '' }, d.status === 'accepted' ? '/me?tab=club' : `/clubs/${r.clubId}`))
   res.json({ ok: true })
 })
