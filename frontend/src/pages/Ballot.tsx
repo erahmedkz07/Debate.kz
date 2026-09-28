@@ -3,9 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Minus, Plus, Timer, Trophy, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Medal, Minus, Plus, Timer, Trophy, Users, X } from 'lucide-react'
 import { getBallot, NotFoundError, submitBallot } from '@/api'
-import type { Team } from '@/types'
+import type { Side, Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
 import {
@@ -23,9 +23,9 @@ import { BackButton } from '@/components/layout/BackButton'
 import { BallotReview } from '@/components/ballot/BallotReview'
 import { SpeechTimer } from '@/components/tools/SpeechTimer'
 import { formatOfTournament } from '@/content/formats'
+import { BP_POINTS, BP_SIDES, TWO_SIDES } from '@/lib/formats'
 import NotFound from './NotFound'
 
-type Side = 'proposition' | 'opposition'
 type Range = { min: number; max: number; step: number }
 
 // the sheet comes from the API; without a network the copy saved on the last visit is used
@@ -92,8 +92,10 @@ export default function Ballot() {
   const [scores, setScores] = useState<Record<string, string>>(draft?.scores ?? {})
   // speakerId (substantive) or "reply:<side>" -> comment
   const [feedback, setFeedback] = useState<Record<string, string>>(draft?.feedback ?? {})
-  const [reply, setReply] = useState<Record<Side, string>>(draft?.reply ?? { proposition: '', opposition: '' })
-  const [replyBy, setReplyBy] = useState<Partial<Record<Side, string>>>(draft?.replyBy ?? {})
+  // reply speeches exist only in two-team formats (WSDC, APF)
+  type ReplySide = 'proposition' | 'opposition'
+  const [reply, setReply] = useState<Record<ReplySide, string>>(draft?.reply ?? { proposition: '', opposition: '' })
+  const [replyBy, setReplyBy] = useState<Partial<Record<ReplySide, string>>>(draft?.replyBy ?? {})
   const [winner, setWinner] = useState<Side | null>(draft?.winner ?? null)
   const [tried, setTried] = useState(false)
   const [confirm, setConfirm] = useState(false)
@@ -123,12 +125,19 @@ export default function Ballot() {
 
   const inRange = (v: string, r: Range) => v !== '' && !isNaN(Number(v)) && Number(v) >= r.min && Number(v) <= r.max && Math.abs(Number(v) / r.step - Math.round(Number(v) / r.step)) < 1e-9
 
+  // the debate's sides: two, or four in British Parliamentary (OG, OO, CG, CO)
+  const sides: Side[] = data?.rules?.teams === 4 && data.closingProposition && data.closingOpposition ? BP_SIDES : TWO_SIDES
+  const teamOf = (side: Side) => data![side]!
   const totals = useMemo(() => {
-    if (!data) return { proposition: 0, opposition: 0 }
-    const sum = (team: Team, side: Side) =>
-      team.speakers.reduce((s, sp) => s + (Number(scores[sp.id]) || 0), 0) + (Number(reply[side]) || 0)
-    return { proposition: sum(data.proposition, 'proposition'), opposition: sum(data.opposition, 'opposition') }
-  }, [data, scores, reply])
+    const out = { proposition: 0, opposition: 0, closingProposition: 0, closingOpposition: 0 } as Record<Side, number>
+    if (!data) return out
+    for (const side of sides) {
+      const team = data[side]
+      if (!team) continue
+      out[side] = team.speakers.reduce((s, sp) => s + (Number(scores[sp.id]) || 0), 0) + (side === 'proposition' || side === 'opposition' ? Number(reply[side]) || 0 : 0)
+    }
+    return out
+  }, [data, scores, reply]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error instanceof NotFoundError) return <NotFound />
   if (error) return <div className="container-page py-20"><ErrorState onRetry={reload} /></div>
@@ -142,17 +151,25 @@ export default function Ballot() {
   // the tournament's format: team size, score ranges and whether there are reply speeches (WSDC 60–80/30–40 by default)
   const rules = data.rules ?? { format: 'WSDC', speakers: 3, step: 0.5, speaker: [60, 80] as [number, number], reply: { range: [30, 40] as [number, number], by: [1, 2] } }
   const SPEAKER: Range = { min: rules.speaker[0], max: rules.speaker[1], step: rules.step }
+  // whole-point formats (BP, Karl Popper) show totals without decimals
+  const fmt = (n: number) => n.toFixed(rules.step < 1 ? 1 : 0)
   const REPLY: Range | null = rules.reply ? { min: rules.reply.range[0], max: rules.reply.range[1], step: rules.step } : null
   const format = formatOfTournament(rules.format)
-  const sideName = (side: Side) => format.sides[side === 'proposition' ? 0 : 1][lang]
-  const allSpeakers = [...data.proposition.speakers, ...data.opposition.speakers]
+  const bp = sides.length === 4
+  const sideName = (side: Side) => format.sides[BP_SIDES.indexOf(side)]?.[lang] ?? ''
+  const allSpeakers = sides.flatMap(side => teamOf(side).speakers)
   const complete = allSpeakers.every(s => inRange(scores[s.id] ?? '', SPEAKER)) && (!REPLY || (inRange(reply.proposition, REPLY) && inRange(reply.opposition, REPLY)))
-  const higher: Side | null = totals.proposition === totals.opposition ? null : totals.proposition > totals.opposition ? 'proposition' : 'opposition'
+  // the places follow the totals: two teams cannot share a place (BP) or draw (two-team formats)
+  const ranking = [...sides].sort((a, b) => totals[b] - totals[a])
+  const tied = new Set(sides.map(side => totals[side])).size !== sides.length
+  const higher: Side | null = tied ? null : ranking[0]
   const errors: string[] = []
   if (!complete) errors.push(t('ballot.errors.incomplete'))
-  else if (!higher) errors.push(t('ballot.errors.tie'))
-  if (!winner) errors.push(t('ballot.errors.winnerRequired'))
-  else if (complete && higher && winner !== higher) errors.push(t('ballot.errors.winnerMismatch'))
+  else if (tied) errors.push(t(bp ? 'ballot.errors.tieBP' : 'ballot.errors.tie'))
+  if (!bp) {
+    if (!winner) errors.push(t('ballot.errors.winnerRequired'))
+    else if (complete && higher && winner !== higher) errors.push(t('ballot.errors.winnerMismatch'))
+  }
 
   const onSubmit = () => {
     setTried(true)
@@ -162,7 +179,7 @@ export default function Ballot() {
   const send = async () => {
     setSending(true)
     const payload = {
-      winner: winner!,
+      ...(bp ? { ranking } : { winner: winner! }),
       ...(REPLY && {
         replySpeakers: {
           proposition: replyBy.proposition ?? data.proposition.speakers[0].id,
@@ -225,16 +242,19 @@ export default function Ballot() {
   const teamCard = (side: Side, team: Team) => {
     // who may give the reply: WSDC the 1st or 2nd speaker, APF the leader
     const replyOptions = team.speakers.filter((_, i) => rules.reply?.by.includes(i + 1))
+    const rs = side as ReplySide
+    const government = side === 'proposition' || side === 'closingProposition'
+    const leading = bp ? complete && !tied && ranking[0] === side : winner === side
     return (
-      <Card className={cn('overflow-hidden transition-shadow', winner === side && 'ring-2 ring-success')}>
-        <div className={cn('flex items-center justify-between px-5 py-3.5', side === 'proposition' ? 'bg-primary text-primary-foreground' : 'bg-navy text-white')}>
+      <Card key={side} className={cn('overflow-hidden transition-shadow', leading && 'ring-2 ring-success')}>
+        <div className={cn('flex items-center justify-between px-5 py-3.5', government ? 'bg-primary text-primary-foreground' : 'bg-navy text-white')}>
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">{sideName(side)}</p>
             <p className="text-lg font-extrabold">{team.name}</p>
           </div>
           <div className="text-right">
             <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">{t('ballot.total')}</p>
-            <p className="text-2xl font-extrabold tabular-nums">{totals[side].toFixed(1)}</p>
+            <p className="text-2xl font-extrabold tabular-nums">{fmt(totals[side])}</p>
           </div>
         </div>
         <div className="divide-y divide-border px-5">
@@ -250,12 +270,12 @@ export default function Ballot() {
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-bold text-primary">{t(rules.format === 'APF' ? 'ballot.rebuttal' : 'ballot.reply')}</span>
               <div className="w-40">
-                <Select size="sm" aria-label={t('ballot.replySpeaker')} value={replyBy[side] ?? replyOptions[0].id}
-                  onValueChange={v => setReplyBy(p => ({ ...p, [side]: v }))}
+                <Select size="sm" aria-label={t('ballot.replySpeaker')} value={replyBy[rs] ?? replyOptions[0].id}
+                  onValueChange={v => setReplyBy(p => ({ ...p, [rs]: v }))}
                   options={replyOptions.map(s => ({ value: s.id, label: s.name }))} />
               </div>
             </div>
-            <ScoreInput label={team.speakers.find(s => s.id === (replyBy[side] ?? replyOptions[0].id))!.name} value={reply[side]} range={REPLY!} invalid={tried && !inRange(reply[side], REPLY!)} onChange={v => setReply(p => ({ ...p, [side]: v }))} />
+            <ScoreInput label={team.speakers.find(s => s.id === (replyBy[rs] ?? replyOptions[0].id))!.name} value={reply[rs]} range={REPLY!} invalid={tried && !inRange(reply[rs], REPLY!)} onChange={v => setReply(p => ({ ...p, [rs]: v }))} />
             <FeedbackField label={t('ballot.feedbackReply')} value={feedback[`reply:${side}`] ?? ''} onChange={v => setFeedback(p => ({ ...p, [`reply:${side}`]: v }))} />
           </div>
           )}
@@ -291,11 +311,35 @@ export default function Ballot() {
         </p>
       </div>
 
-      <div className="mt-6 space-y-5">
-        {teamCard('proposition', data.proposition)}
-        {teamCard('opposition', data.opposition)}
+      {bp && (
+        <p className="mt-4 flex items-start gap-2 rounded-2xl bg-primary-soft p-4 text-sm"><Users className="mt-0.5 size-4 shrink-0 text-primary" />{t('ballot.bpChair')}</p>
+      )}
+
+      <div className={cn('mt-6', bp ? 'grid gap-5 sm:grid-cols-2' : 'space-y-5')}>
+        {sides.map(side => teamCard(side, teamOf(side)))}
       </div>
 
+      {bp ? (
+        // BP: the places come from the totals as the judge types; 1st–4th give 3/2/1/0 team points
+        <Card className="mt-5 p-5">
+          <p className="font-bold">{t('ballot.places')}</p>
+          <p className="text-sm text-muted-foreground">{t('ballot.placesHint')}</p>
+          <ol className="mt-4 space-y-2">
+            {ranking.map((side, i) => (
+              <li key={side} className={cn('flex items-center gap-3 rounded-xl border-2 px-4 py-2.5', complete && !tied && i === 0 ? 'border-success bg-success-soft' : 'border-border')}>
+                <span className={cn('grid size-8 shrink-0 place-items-center rounded-full text-sm font-extrabold', i === 0 ? 'bg-accent text-navy' : 'bg-muted')}>{complete && !tied ? i + 1 : '–'}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-bold">{teamOf(side).name}</span>
+                  <span className="block text-xs text-muted-foreground">{sideName(side)}</span>
+                </span>
+                <span className="text-right text-sm tabular-nums"><b>{totals[side].toFixed(0)}</b>
+                  {complete && !tied && <span className="block text-xs text-muted-foreground">{t('ballot.teamPoints', { count: BP_POINTS[i] })}</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </Card>
+      ) : (
       <Card className="mt-5 p-5">
         <p className="font-bold">{t('ballot.winner')}</p>
         <p className="text-sm text-muted-foreground">{t('ballot.chooseWinner')}</p>
@@ -314,6 +358,7 @@ export default function Ballot() {
           })}
         </div>
       </Card>
+      )}
 
       {tried && errors.length > 0 && (
         <div role="alert" className="mt-5 space-y-1.5 rounded-2xl bg-danger-soft p-4 text-sm font-medium text-danger">
@@ -343,11 +388,20 @@ export default function Ballot() {
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent heading={t('ballot.confirmTitle')} description={t('ballot.confirmText')}>
           <div className="rounded-xl bg-muted p-4 text-sm">
-            <p className="flex justify-between"><span>{data.proposition.name}</span><b className="tabular-nums">{totals.proposition.toFixed(1)}</b></p>
-            <p className="mt-1 flex justify-between"><span>{data.opposition.name}</span><b className="tabular-nums">{totals.opposition.toFixed(1)}</b></p>
-            <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 font-bold text-success">
-              <Trophy className="size-4" />{winner && (winner === 'proposition' ? data.proposition.name : data.opposition.name)}
-            </p>
+            {bp ? ranking.map((side, i) => (
+              <p key={side} className="mt-1 flex justify-between gap-3 first:mt-0">
+                <span className="flex min-w-0 items-center gap-2">{i === 0 ? <Medal className="size-4 shrink-0 text-success" /> : <span className="w-4 text-center font-bold">{i + 1}</span>}<span className="truncate">{teamOf(side).name}</span></span>
+                <b className="tabular-nums">{totals[side].toFixed(0)}</b>
+              </p>
+            )) : (
+              <>
+                <p className="flex justify-between"><span>{data.proposition.name}</span><b className="tabular-nums">{fmt(totals.proposition)}</b></p>
+                <p className="mt-1 flex justify-between"><span>{data.opposition.name}</span><b className="tabular-nums">{fmt(totals.opposition)}</b></p>
+                <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 font-bold text-success">
+                  <Trophy className="size-4" />{winner && teamOf(winner).name}
+                </p>
+              </>
+            )}
           </div>
           <div className="mt-5 flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>

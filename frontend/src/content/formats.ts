@@ -137,7 +137,7 @@ export const formatById = (id: string) => FORMATS.find(f => f.id === id)
 // the API names a tournament's format 'WSDC' | 'APF' | 'POPPER'; the description here has the same id in lower case
 export const formatOfTournament = (code?: string) => formatById((code ?? 'WSDC').toLowerCase()) ?? FORMATS[0]
 // formats a tournament can be created with today (British Parliamentary, four teams per room, comes later)
-export const TOURNAMENT_FORMATS = ['WSDC', 'APF', 'POPPER'] as const
+export const TOURNAMENT_FORMATS = ['WSDC', 'APF', 'POPPER', 'BP'] as const
 
 // the window when points of information are allowed, in seconds from the start of the speech (null = no POIs)
 export function poiWindow(f: Format, s: Speech): [number, number] | null {

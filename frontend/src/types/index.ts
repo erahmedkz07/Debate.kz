@@ -2,7 +2,9 @@
 
 export type TournamentLevel = 'school' | 'university' | 'mixed' // mixed: school and university teams together
 export type TournamentStatus = 'registration' | 'ongoing' | 'finished'
-export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER'
+export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER' | 'BP'
+// WSDC, APF, Karl Popper: proposition / opposition; British Parliamentary adds the closing half
+export type Side = 'proposition' | 'opposition' | 'closingProposition' | 'closingOpposition'
 export type Lang = 'ru' | 'kz'
 
 export interface Tournament {
@@ -71,8 +73,12 @@ export interface Debate {
   room: string
   propositionTeamId: string
   oppositionTeamId: string
+  // British Parliamentary: the closing half and the places 1st–4th once decided
+  closingPropositionTeamId?: string
+  closingOppositionTeamId?: string
+  ranking?: Side[]
   judgeIds: string[]
-  winner?: 'proposition' | 'opposition'
+  winner?: Side
   ballotStatus: 'pending' | 'submitted' | 'confirmed'
 }
 
@@ -81,6 +87,7 @@ export interface TeamStanding {
   team: Team
   wins: number
   losses: number
+  points: number // wins in two-team formats, team points (3/2/1/0 per round) in BP
   speakerPoints: number
   margins: number
 }
@@ -218,9 +225,11 @@ export interface TeamRegistration {
 export interface JudgeAssignment {
   debate: Debate
   round: Round
-  tournament: Pick<Tournament, 'id' | 'name' | 'city'>
+  tournament: Pick<Tournament, 'id' | 'name' | 'city'> & { format?: TournamentFormat }
   proposition: Team
   opposition: Team
+  closingProposition?: Team
+  closingOpposition?: Team
   isChair: boolean
 }
 

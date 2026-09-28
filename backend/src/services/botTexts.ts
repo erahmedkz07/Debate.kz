@@ -15,9 +15,12 @@ const b = (v: unknown) => `<b>${s(v)}</b>`
 const q = (v: unknown) => `«${s(v)}»`
 
 const ru = {
-  sideName: { proposition: 'Правительство', opposition: 'Оппозиция' } as Record<string, string>,
+  sideName: {
+    proposition: 'Правительство', opposition: 'Оппозиция', openingProposition: 'Открывающее правительство', openingOpposition: 'Открывающая оппозиция',
+    closingProposition: 'Закрывающее правительство', closingOpposition: 'Закрывающая оппозиция',
+  } as Record<string, string>,
   kindName: { judge: 'судья', co_organizer: 'соорганизатор' } as Record<string, string>,
-  resultName: { win: 'победа', loss: 'поражение' } as Record<string, string>,
+  resultName: { win: 'победа', loss: 'поражение', place1: '1-е место', place2: '2-е место', place3: '3-е место', place4: '4-е место' } as Record<string, string>,
   safetyStatus: { open: 'новое', in_progress: 'в работе', resolved: 'решено' } as Record<string, string>,
   help: [
     '<b>Debate.kz</b> — уведомления о ваших турнирах.',
@@ -72,9 +75,12 @@ const ru = {
 }
 
 const kz: typeof ru = {
-  sideName: { proposition: 'Үкімет', opposition: 'Оппозиция' },
+  sideName: {
+    proposition: 'Үкімет', opposition: 'Оппозиция', openingProposition: 'Ашушы үкімет', openingOpposition: 'Ашушы оппозиция',
+    closingProposition: 'Жабушы үкімет', closingOpposition: 'Жабушы оппозиция',
+  },
   kindName: { judge: 'төреші', co_organizer: 'қосалқы ұйымдастырушы' },
-  resultName: { win: 'жеңіс', loss: 'жеңіліс' },
+  resultName: { win: 'жеңіс', loss: 'жеңіліс', place1: '1-орын', place2: '2-орын', place3: '3-орын', place4: '4-орын' },
   safetyStatus: { open: 'жаңа', in_progress: 'қаралуда', resolved: 'шешілді' },
   help: [
     '<b>Debate.kz</b> — турнирлеріңіз туралы хабарламалар.',
@@ -137,7 +143,7 @@ const N: Record<Lang, Record<string, Render>> = {
     'participant.registrationConfirmed': d => `✅ Заявка команды ${q(d.team)} на турнир ${b(d.tournament)} подтверждена. Удачи!`,
     'participant.registrationRejected': d => `❌ Заявка команды ${q(d.team)} на турнир ${b(d.tournament)} отклонена организатором.`,
     'participant.drawReleased': (d, l) => l.nextSpeaker(d),
-    'participant.roundResult': (d, l) => `${d.result === 'win' ? '🏆' : '📊'} ${b(d.tournament)} · ${s(d.round)}: ${b(l.resultName[String(d.result)])}. Таблица — на странице турнира.`,
+    'participant.roundResult': (d, l) => `${d.result === 'win' || d.result === 'place1' ? '🏆' : '📊'} ${b(d.tournament)} · ${s(d.round)}: ${b(l.resultName[String(d.result)])}. Таблица — на странице турнира.`,
     'participant.teammateReply': d => `🤝 Отклик на ваше объявление «Поиск сокомандника»\n${b(d.name)}${d.institution ? `, ${s(d.institution)}` : ''}${d.city ? `, ${s(d.city)}` : ''}:\n${q(d.message)}`,
     'participant.safetyUpdate': (d, l) => `🛡 Статус вашего обращения о поведении: ${b(l.safetyStatus[String(d.status)] ?? d.status)}. Ответ — на сайте.`,
     'participant.inviteReceived': (d, l) => `✉️ ${b(d.name)} приглашает вас в турнир ${q(d.tournament)}: ${s(l.kindName[String(d.kind)])}.`,
@@ -167,7 +173,7 @@ const N: Record<Lang, Record<string, Render>> = {
     'participant.registrationConfirmed': d => `✅ ${q(d.team)} командасының ${b(d.tournament)} турниріне өтінімі расталды. Сәттілік!`,
     'participant.registrationRejected': d => `❌ ${q(d.team)} командасының ${b(d.tournament)} турниріне өтінімін ұйымдастырушы қабылдамады.`,
     'participant.drawReleased': (d, l) => l.nextSpeaker(d),
-    'participant.roundResult': (d, l) => `${d.result === 'win' ? '🏆' : '📊'} ${b(d.tournament)} · ${s(d.round)}: ${b(l.resultName[String(d.result)])}. Кесте — турнир бетінде.`,
+    'participant.roundResult': (d, l) => `${d.result === 'win' || d.result === 'place1' ? '🏆' : '📊'} ${b(d.tournament)} · ${s(d.round)}: ${b(l.resultName[String(d.result)])}. Кесте — турнир бетінде.`,
     'participant.teammateReply': d => `🤝 «Сокомандник іздеу» хабарландыруыңызға жауап\n${b(d.name)}${d.institution ? `, ${s(d.institution)}` : ''}${d.city ? `, ${s(d.city)}` : ''}:\n${q(d.message)}`,
     'participant.safetyUpdate': (d, l) => `🛡 Мінез-құлық туралы өтінішіңіздің мәртебесі: ${b(l.safetyStatus[String(d.status)] ?? d.status)}. Жауабы — сайтта.`,
     'participant.inviteReceived': (d, l) => `✉️ ${b(d.name)} сізді ${q(d.tournament)} турниріне шақырады: ${s(l.kindName[String(d.kind)])}.`,

@@ -7,6 +7,7 @@ import { getTournamentById, updateRound } from '@/api'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn } from '@/lib/utils'
+import { sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { Logo } from '@/components/brand'
 import { Select } from '@/components/ui/select'
 
@@ -33,6 +34,9 @@ export default function Projector() {
   const debates = data?.debates.filter(d => d.roundId === round?.id) ?? []
   const team = (tid: string) => data?.teams.find(x => x.id === tid)?.name ?? '—'
   const judge = (jid?: string) => data?.judges.find(j => j.id === jid)?.name ?? '—'
+  // the format's sides: two, or four in BP
+  const sideNames = useSides(data?.format)
+  const sideList = sidesOf(data?.format)
 
   // preparation countdown, from a fixed end time so it never drifts
   useEffect(() => {
@@ -128,14 +132,13 @@ export default function Projector() {
             {debates.length === 0 || (round.status === 'draft' && !manager) ? <p className="text-center text-3xl text-white/70">{t('projector.noDraw')}</p> : (
               <table className="w-full text-left text-xl sm:text-2xl">
                 <thead className="text-sm uppercase tracking-wider text-white/50">
-                  <tr><th className="py-3 pr-4">{t('tournament.room')}</th><th className="py-3 pr-4">{t('tournament.proposition')}</th><th className="py-3 pr-4">{t('tournament.opposition')}</th><th className="py-3">{t('tournament.chair')}</th></tr>
+                  <tr><th className="py-3 pr-4">{t('tournament.room')}</th>{sideList.map(side => <th key={side} className="py-3 pr-4">{sideNames[side]}</th>)}<th className="py-3">{t('tournament.chair')}</th></tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
                   {debates.map(d => (
                     <tr key={d.id}>
                       <td className="py-4 pr-4 font-bold text-accent">{d.room}</td>
-                      <td className="py-4 pr-4 font-semibold">{team(d.propositionTeamId)}</td>
-                      <td className="py-4 pr-4 font-semibold">{team(d.oppositionTeamId)}</td>
+                      {sideList.map(side => <td key={side} className="py-4 pr-4 font-semibold">{team(teamIdOn(d, side) ?? '')}</td>)}
                       <td className="py-4 text-white/70">{judge(d.judgeIds[0])}</td>
                     </tr>
                   ))}

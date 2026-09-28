@@ -1308,7 +1308,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   let tr = await host.c('POST', '/tournaments', { ...base(1), level: 'mixed', format: 'APF' })
   ok(tr.status === 201 && tr.data.level === 'mixed' && tr.data.format === 'APF', 'a mixed (school + university) APF tournament is created')
   const apf = tr.data
-  ok((await host.c('POST', '/tournaments', { ...base(2), format: 'BP' })).status === 400, 'British Parliamentary is not offered yet')
+  ok((await host.c('POST', '/tournaments', { ...base(2), format: 'LD' })).status === 400, 'an unknown format is refused')
   r = await host.c('POST', `/tournaments/${apf.id}/teams`, { name: 'Тройка', institution: 'Школа 1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
   ok(r.status === 400 && r.data.error === 'wrong_speaker_count' && r.data.details?.need === 2, 'APF teams have two speakers, not three')
   for (const n of ['Альфа', 'Бета']) await host.c('POST', `/tournaments/${apf.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Первый`, `${n} Второй`] })
@@ -1355,6 +1355,87 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((school.items ?? school).some(x => x.id === apf.id) && (uni.items ?? uni).some(x => x.id === apf.id), 'a mixed tournament shows up under both school and university')
   r = await student('POST', `/tournaments/${apf.id}/registrations`, { teamName: 'Трое в APF', institution: 'Лицей', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
   ok(r.data?.error === 'wrong_speaker_count', 'an application to an APF tournament names two speakers')
+}
+// ---------- 39. British Parliamentary: four teams per room, places 1–4, the chair's agreed ballot ----------
+{
+  const host = await newAccount('BP Организатор')
+  let tr = await host.c('POST', '/tournaments', { ...tBody(90), name: `BP ${jtag}`, format: 'BP' })
+  ok(tr.status === 201 && tr.data.format === 'BP', 'a British Parliamentary tournament is created')
+  const bp = tr.data
+  r = await host.c('POST', `/tournaments/${bp.id}/teams`, { name: 'Тройка BP', institution: 'Вуз', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+  ok(r.data?.error === 'wrong_speaker_count' && r.data.details?.need === 2, 'BP teams have two speakers')
+  const names = ['Орёл', 'Барс', 'Сокол', 'Беркут', 'Тулпар', 'Арлан']
+  for (const n of names) await host.c('POST', `/tournaments/${bp.id}/teams`, { name: n, institution: `Вуз ${n}`, speakers: [`${n} Первый`, `${n} Второй`] })
+  const round1 = (await host.c('GET', `/tournaments/${bp.id}`)).data.rounds[0]
+  r = await host.c('POST', `/rounds/${round1.id}/draw`, { addSwing: false })
+  ok(r.data?.error === 'bp_teams_multiple_of_four' && r.data.details?.teams === 6, 'a BP draw needs a multiple of four teams')
+  const j1 = await addJudge(host.c, bp.id, 'BP Судья Один')
+  r = await host.c('POST', `/rounds/${round1.id}/draw`, { addSwing: true })
+  ok(r.data?.error === 'not_enough_judges' && r.data.details?.need === 2 && r.data.details.teams === 8, 'two swing teams fill the last room; two rooms need two judges')
+  const j2 = await addJudge(host.c, bp.id, 'BP Судья Два')
+  const j3 = await addJudge(host.c, bp.id, 'BP Судья Три')
+  r = await host.c('POST', `/rounds/${round1.id}/draw`, { addSwing: true })
+  const rooms = r.data?.debates ?? []
+  const seated = rooms.flatMap(d => [d.propositionTeamId, d.oppositionTeamId, d.closingPropositionTeamId, d.closingOppositionTeamId])
+  ok(r.status === 201 && rooms.length === 2 && seated.every(Boolean) && new Set(seated).size === 8, 'the draw seats eight teams in two rooms of four (OG, OO, CG, CO)')
+  const teamsNow = (await host.c('GET', `/tournaments/${bp.id}`)).data.teams
+  ok(teamsNow.filter(x => x.swing).length === 2, 'two swing teams were added')
+  await host.c('PATCH', `/rounds/${round1.id}`, { motion: 'ЭП ввела бы всеобщий базовый доход', status: 'released' })
+
+  // the room with a wing judge: the wing reads, the chair sends the agreed ballot
+  const withWing = rooms.find(d => d.judgeIds.length === 2)
+  ok(!!withWing, 'the spare judge sits as a wing')
+  const [chairId, wingId] = withWing.judgeIds
+  const wing = judgeClients.get(wingId), chair = judgeClients.get(chairId)
+  const wv = (await wing('GET', `/ballots/${withWing.id}`)).data
+  ok(wv.canSubmit === false && Array.isArray(wv.panel), 'in BP a wing judge reads the ballot, the chair sends it')
+  const sheet = (await chair('GET', `/ballots/${withWing.id}`)).data
+  ok(sheet.canSubmit === true && sheet.rules?.teams === 4 && sheet.rules.speakers === 2 && sheet.rules.speaker.join('-') === '50-100' && !sheet.rules.reply
+    && sheet.closingProposition?.speakers.length === 2 && sheet.closingOpposition?.speakers.length === 2,
+    'the BP sheet: four teams of two, 50–100, no reply speeches')
+  const pts = { proposition: 78, opposition: 75, closingProposition: 80, closingOpposition: 72 }
+  const scores = {}
+  for (const side of Object.keys(pts)) sheet[side].speakers.forEach(x => (scores[x.id] = pts[side]))
+  ok((await wing('POST', `/ballots/${withWing.id}`, { scores })).data?.error === 'chair_only', "a wing's ballot is refused")
+  ok((await chair('POST', `/ballots/${withWing.id}`, { scores: { ...scores, [sheet.proposition.speakers[0].id]: 77.5 } })).data?.error === 'speaker_score_out_of_range', 'BP speeches are whole points 50–100')
+  const tie = { ...scores }
+  sheet.closingOpposition.speakers.forEach(x => (tie[x.id] = 75))
+  ok((await chair('POST', `/ballots/${withWing.id}`, { scores: tie })).data?.error === 'tie_not_allowed', 'two teams cannot share a place')
+  ok((await chair('POST', `/ballots/${withWing.id}`, { scores, ranking: ['proposition', 'opposition', 'closingProposition', 'closingOpposition'] })).data?.error === 'ranking_mismatch',
+    'the places must follow the team totals')
+  r = await chair('POST', `/ballots/${withWing.id}`, { scores, ranking: ['closingProposition', 'proposition', 'opposition', 'closingOpposition'] })
+  ok(r.status === 201 && r.data.ranking?.join() === 'closingProposition,proposition,opposition,closingOpposition' && r.data.totals.closingProposition === 160,
+    'the chair sends the ballot: CG 1st, OG 2nd, OO 3rd, CO 4th')
+  const other = rooms.find(d => d.id !== withWing.id)
+  const oc = judgeClients.get(other.judgeIds[0])
+  const os = (await oc('GET', `/ballots/${other.id}`)).data
+  const sc2 = {}
+  ;[['proposition', 70], ['opposition', 74], ['closingProposition', 72], ['closingOpposition', 76]].forEach(([side, v]) => os[side].speakers.forEach(x => (sc2[x.id] = v)))
+  ok((await oc('POST', `/ballots/${other.id}`, { scores: sc2 })).status === 201, 'the other room is decided (the ranking comes from the totals)')
+  const decided = (await host.c('GET', `/tournaments/${bp.id}`)).data.debates.find(d => d.id === withWing.id)
+  ok(decided.winner === 'closingProposition' && decided.ranking?.length === 4 && decided.ballotStatus === 'submitted', 'the debate keeps its places')
+  ok((await host.c('PATCH', `/rounds/${round1.id}`, { status: 'completed' })).status === 200, 'the BP round is completed')
+
+  // standings: 3/2/1/0 team points, then speaker points; swing teams are not ranked
+  await admin('PATCH', `/admin/tournaments/${bp.id}`, { moderation: 'approved' })
+  const st = (await client()('GET', `/tournaments/${bp.id}/standings`)).data.teams
+  const pointsOf = id => st.find(x => x.team.id === id)?.points
+  ok(st.length === 6 && st.every(x => x.team.swing === false), 'swing teams stay out of the BP standings')
+  const real = new Set(teamsNow.filter(x => !x.swing).map(x => x.id))
+  const expected = [[withWing.closingPropositionTeamId, 3], [withWing.propositionTeamId, 2], [withWing.oppositionTeamId, 1], [withWing.closingOppositionTeamId, 0]].filter(([id]) => real.has(id))
+  ok(expected.every(([id, p]) => pointsOf(id) === p), 'places give 3/2/1/0 team points')
+  ok(st.every((x, i) => i === 0 || st[i - 1].points >= x.points), 'the BP table is ordered by team points')
+
+  // round 2: every team moves to a position it has not held yet
+  const round2 = (await host.c('GET', `/tournaments/${bp.id}`)).data.rounds[1]
+  r = await host.c('POST', `/rounds/${round2.id}/draw`, { addSwing: true })
+  const pos = d => [d.propositionTeamId, d.oppositionTeamId, d.closingPropositionTeamId, d.closingOppositionTeamId]
+  const before = new Map(rooms.flatMap(d => pos(d).map((id, i) => [id, i])))
+  ok(r.status === 201 && r.data.debates.every(d => pos(d).every((id, i) => before.get(id) !== i)), 'the second round balances positions: nobody repeats OG/OO/CG/CO')
+  const room1 = r.data.debates.map(pos).find(ids => ids.includes(withWing.closingPropositionTeamId))
+  // swing teams are ranked last, so the check holds for real teams only
+  const leaders = [withWing.closingPropositionTeamId, withWing.propositionTeamId]
+  ok(!leaders.every(id => real.has(id)) || room1.includes(withWing.propositionTeamId), 'power pairing: the round 1 leaders meet in the top room')
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

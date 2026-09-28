@@ -6,7 +6,7 @@ import type {
   MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
   AppNotification,
   AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
-  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem } from '@/types'
+  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem, Side } from '@/types'
 import { ApiError, http, qs, upload } from './http'
 import i18n from '@/lib/i18n'
 
@@ -126,7 +126,9 @@ export const registerTeam = (tournamentId: string, data: { teamName: string; ins
 
 export interface MyDebate {
   debate: Pick<Debate, 'id' | 'roundId' | 'room' | 'ballotStatus' | 'winner'>
-  side: 'proposition' | 'opposition'
+  // BP names the opening half explicitly: openingProposition / openingOpposition / closingProposition / closingOpposition
+  side: 'proposition' | 'opposition' | 'openingProposition' | 'openingOpposition' | 'closingProposition' | 'closingOpposition'
+  place?: number // BP: 1–4
   tournament: { id: string; name: string }
   round: Pick<Round, 'id' | 'number' | 'name' | 'motion' | 'status' | 'date'>
   opponent: { id: string; name: string }
@@ -145,27 +147,31 @@ export interface PanelBallot {
   isChair: boolean
   hasAccount: boolean
   submittedAt?: string
-  winner?: 'proposition' | 'opposition'
-  totals?: { proposition: number; opposition: number }
-  scores?: { side: 'proposition' | 'opposition'; position: number; speaker: string; score: number; feedback?: string }[]
+  winner?: Side
+  ranking?: Side[] // BP
+  totals?: Partial<Record<Side, number>>
+  scores?: { side: Side; position: number; speaker: string; score: number; feedback?: string }[]
 }
 // the ballot sheet's rules come from the tournament's format (and its score ranges)
-export interface BallotRules { format: string; speakers: number; step: number; speaker: [number, number]; reply?: { range: [number, number]; by: number[] } }
+export interface BallotRules { format: string; teams?: 2 | 4; speakers: number; step: number; speaker: [number, number]; reply?: { range: [number, number]; by: number[] } }
 export interface BallotData {
   rules?: BallotRules
-  canSubmit?: boolean // true for a judge of this debate; organizers and admins get `panel` instead
+  canSubmit?: boolean // true for a judge who sends the ballot (BP: the chair); others get `panel` instead
   panel?: PanelBallot[]
   tournament: { id: string; name: string }
   round: Round
   debate: Debate
   proposition: Team
   opposition: Team
+  closingProposition?: Team
+  closingOpposition?: Team
   judges: Judge[]
 }
 export const getBallot = (debateId: string) => or404(http<BallotData>('GET', `/ballots/${encodeURIComponent(debateId)}`))
 
 export interface BallotPayload {
-  winner: 'proposition' | 'opposition'
+  winner?: Side // two-team formats
+  ranking?: Side[] // BP: the places 1st–4th (the server checks them against the totals)
   scores: Record<string, number> // speakerId -> substantive speech score
   // formats without reply speeches (Karl Popper) send neither
   reply?: Record<'proposition' | 'opposition', number>
@@ -185,7 +191,7 @@ export interface CreateTournamentInput {
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
-  format?: 'WSDC' | 'APF' | 'POPPER'
+  format?: 'WSDC' | 'APF' | 'POPPER' | 'BP'
 }
 export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
 export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })

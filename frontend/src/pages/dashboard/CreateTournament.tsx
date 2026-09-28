@@ -242,11 +242,6 @@ export default function CreateTournament() {
                         </button>
                       )
                     })}
-                    <div className="rounded-2xl border-2 border-dashed border-border p-5 opacity-60">
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-bold">{t('wizard.soon')}</span>
-                      <p className="mt-3 font-bold">{formatOfTournament('BP').name[lang]}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{formatOfTournament('BP').teams[lang]}</p>
-                    </div>
                   </div>
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>

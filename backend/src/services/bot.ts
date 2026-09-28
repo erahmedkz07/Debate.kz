@@ -4,6 +4,7 @@ import { env } from '../lib/env.js'
 import { hashToken } from '../lib/tokens.js'
 import { answerCallback, editMessage, esc, linkable, sendMessage, type InlineButton, type TgCallback, type TgMessage, type TgUpdate } from '../lib/telegram.js'
 import { asLang, fromTelegram, LANGS, T, type Lang } from './botTexts.js'
+import { campNames, sideLabel, sidesInDebate } from './formats.js'
 
 // Telegram bot logic (transport-independent: fed by long polling, or by e2e in test mode).
 // Private chats only. Linking: the site creates a one-time token -> t.me/<bot>?start=<token>.
@@ -72,13 +73,28 @@ async function onNext(chat: string, user: User) {
   const live = { round: { status: 'released' as const } }
   const [speaking, judging, organizing] = await Promise.all([
     prisma.debate.findMany({
-      where: { ...live, OR: [{ proposition: { speakers: { some: { userId: user.id } } } }, { opposition: { speakers: { some: { userId: user.id } } } }] },
-      include: { round: { include: { tournament: { select: { id: true, name: true } } } }, proposition: { include: { speakers: { select: { userId: true } } } }, opposition: { select: { name: true } } },
+      where: {
+        ...live,
+        OR: (['proposition', 'opposition', 'closingProposition', 'closingOpposition'] as const).map(side => ({ [side]: { speakers: { some: { userId: user.id } } } })),
+      },
+      include: {
+        round: { include: { tournament: { select: { id: true, name: true } } } },
+        proposition: { include: { speakers: { select: { userId: true } } } }, opposition: { include: { speakers: { select: { userId: true } } } },
+        closingProposition: { include: { speakers: { select: { userId: true } } } }, closingOpposition: { include: { speakers: { select: { userId: true } } } },
+      },
       orderBy: { round: { date: 'desc' } }, take: 5,
     }),
     prisma.debateJudge.findMany({
       where: { judge: { userId: user.id }, debate: live },
-      include: { debate: { include: { round: { include: { tournament: { select: { name: true } } } }, proposition: { select: { name: true } }, opposition: { select: { name: true } }, ballots: { select: { judgeId: true } } } } },
+      include: {
+        debate: {
+          include: {
+            round: { include: { tournament: { select: { name: true } } } }, ballots: { select: { judgeId: true } },
+            proposition: { select: { name: true } }, opposition: { select: { name: true } },
+            closingProposition: { select: { name: true } }, closingOpposition: { select: { name: true } },
+          },
+        },
+      },
       take: 5,
     }),
     prisma.tournament.findMany({
@@ -89,17 +105,19 @@ async function onNext(chat: string, user: User) {
   ])
   const parts: [string, string, string][] = [] // text, button label, path
   for (const d of speaking) {
-    const onProp = d.proposition.speakers.some(s => s.userId === user.id)
+    const teams = { proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition }
+    const inRoom = sidesInDebate(d)
+    const mine = inRoom.find(x => teams[x.side]!.speakers.some(s => s.userId === user.id))!.side
     parts.push([t.nextSpeaker({
-      tournament: d.round.tournament.name, round: d.round.name, room: d.room, side: onProp ? 'proposition' : 'opposition',
-      opponent: onProp ? d.opposition.name : d.proposition.name, motion: d.round.motion,
+      tournament: d.round.tournament.name, round: d.round.name, room: d.room, side: sideLabel(mine, inRoom.length === 4),
+      opponent: inRoom.filter(x => x.side !== mine).map(x => teams[x.side]!.name).join(', '), motion: d.round.motion,
     }), t.open, `/tournaments/${d.round.tournament.id}?tab=draw`])
   }
   for (const j of judging) {
     const d = j.debate
     parts.push([t.nextJudge({
       tournament: d.round.tournament.name, round: d.round.name, room: d.room, chair: j.isChair,
-      proposition: d.proposition.name, opposition: d.opposition.name, motion: d.round.motion, submitted: d.ballots.some(b => b.judgeId === j.judgeId),
+      ...campNames(d), motion: d.round.motion, submitted: d.ballots.some(b => b.judgeId === j.judgeId),
     }), t.open, `/ballot/${d.id}`])
   }
   for (const o of organizing) parts.push([t.nextOrganizer({ tournament: o.name, count: o._count.registrations }), t.open, `/dashboard/tournaments/${o.id}/registrations`])

@@ -389,7 +389,7 @@ export default function Profile() {
                 <Link key={d.debate.id} to={`/tournaments/${d.tournament.id}?tab=draw`}
                   className="group flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20">
                   <span className={cn('grid size-12 shrink-0 place-items-center rounded-xl text-sm font-extrabold',
-                    d.result === 'win' ? 'bg-success-soft text-success' : d.result === 'loss' ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-navy dark:text-accent')}>
+                    d.place && d.place > 1 ? 'bg-muted' : d.result === 'win' ? 'bg-success-soft text-success' : d.result === 'loss' ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-navy dark:text-accent')}>
                     {d.round.number}
                   </span>
                   <div className="min-w-0 flex-1">
@@ -401,8 +401,9 @@ export default function Profile() {
                       <span>{formatDate(d.round.date)}</span>
                     </p>
                   </div>
-                  <Badge variant={d.result === 'win' ? 'success' : d.result === 'loss' ? 'danger' : 'accent'}>
-                    {d.result ? t(`profile.result.${d.result}`) : t('profile.result.upcoming')}
+                  {/* BP: the place 1–4 instead of a win or a loss */}
+                  <Badge variant={d.place ? (d.place === 1 ? 'success' : 'muted') : d.result === 'win' ? 'success' : d.result === 'loss' ? 'danger' : 'accent'}>
+                    {d.place ? t('ballot.placeN', { n: d.place }) : d.result ? t(`profile.result.${d.result}`) : t('profile.result.upcoming')}
                   </Badge>
                   <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </Link>

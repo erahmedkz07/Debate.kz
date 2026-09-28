@@ -1,18 +1,20 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, Clock, DoorOpen, Eye, Gavel, Trophy, UserX } from 'lucide-react'
+import { CheckCircle2, Clock, DoorOpen, Eye, Gavel, Medal, Trophy, UserX } from 'lucide-react'
 import type { BallotData, PanelBallot } from '@/api'
 import { cn, formatDateTime } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { BackButton } from '@/components/layout/BackButton'
-import { useSides } from '@/lib/formats'
+import { BP_POINTS, sidesOf, useSides } from '@/lib/formats'
 
 // What organizers and admins see instead of the form: every judge's ballot as it was sent, read-only.
 // Tournament rules: only the judges decide; the organizer follows who has voted and reads the scores.
+// British Parliamentary: the panel confers and the chair sends the one ballot, so only the chair's ballot is shown.
 export function BallotReview({ data }: { data: BallotData }) {
   const { t } = useTranslation()
-  const panel = data.panel ?? []
+  const bp = data.rules?.teams === 4
+  const panel = (data.panel ?? []).filter(p => !bp || p.isChair)
   const sent = panel.filter(p => p.submittedAt).length
   const tid = data.tournament.id
   return (
@@ -24,12 +26,14 @@ export function BallotReview({ data }: { data: BallotData }) {
           <span className="flex items-center gap-1.5 text-white/80"><DoorOpen className="size-4" />{data.debate.room}</span>
           <span className="text-white/80">{data.tournament.name}</span>
         </div>
-        <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">{data.proposition.name} <span className="text-white/60">vs</span> {data.opposition.name}</p>
+        <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">
+          {sidesOf(data.rules?.format).map(side => data[side]?.name).filter(Boolean).join(bp ? ' · ' : ' vs ')}
+        </p>
         {data.round.motion && <p className="mt-1 text-sm text-white/80">«{data.round.motion}»</p>}
       </div>
 
       <p className="mt-4 flex items-start gap-2 rounded-2xl bg-primary-soft p-4 text-sm">
-        <Eye className="mt-0.5 size-4 shrink-0 text-primary" />{t('ballot.review.readOnly')}
+        <Eye className="mt-0.5 size-4 shrink-0 text-primary" />{t(bp ? 'ballot.review.bpReadOnly' : 'ballot.review.readOnly')}
       </p>
       <p className="mt-4 text-sm font-semibold">{t('ballot.review.progress', { sent, total: panel.length })}</p>
 
@@ -49,7 +53,8 @@ function JudgeBallot({ p, data }: { p: PanelBallot; data: BallotData }) {
   const { t } = useTranslation()
   const sides = useSides(data.rules?.format)
   const replyWord = t(data.rules?.format === 'APF' ? 'ballot.rebuttal' : 'ballot.reply')
-  const team = (side: 'proposition' | 'opposition') => (side === 'proposition' ? data.proposition.name : data.opposition.name)
+  const sideList = sidesOf(data.rules?.format)
+  const bp = sideList.length === 4
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
@@ -64,13 +69,17 @@ function JudgeBallot({ p, data }: { p: PanelBallot; data: BallotData }) {
       </div>
       {p.scores && p.totals && (
         <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
-          {(['proposition', 'opposition'] as const).map(side => (
+          {sideList.map(side => {
+            const place = p.ranking ? p.ranking.indexOf(side) + 1 : 0
+            return (
             <div key={side} className={cn('rounded-xl border-2 p-3', p.winner === side ? 'border-success bg-success-soft/40' : 'border-border')}>
               <p className="flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 <span>{sides[side]}</span>
-                {p.winner === side && <span className="flex items-center gap-1 text-success"><Trophy className="size-3.5" />{t('ballot.review.winner')}</span>}
+                {bp && place > 0
+                  ? <span className={cn('flex items-center gap-1', place === 1 && 'text-success')}><Medal className="size-3.5" />{t('ballot.placeN', { n: place })} · {t('ballot.teamPoints', { count: BP_POINTS[place - 1] })}</span>
+                  : p.winner === side && <span className="flex items-center gap-1 text-success"><Trophy className="size-3.5" />{t('ballot.review.winner')}</span>}
               </p>
-              <p className="mt-0.5 font-extrabold">{team(side)}</p>
+              <p className="mt-0.5 font-extrabold">{data[side]?.name}</p>
               <ul className="mt-2 space-y-1.5 text-sm">
                 {p.scores!.filter(s => s.side === side).map(s => (
                   <li key={`${s.position}-${s.speaker}`}>
@@ -82,9 +91,10 @@ function JudgeBallot({ p, data }: { p: PanelBallot; data: BallotData }) {
                   </li>
                 ))}
               </ul>
-              <p className="mt-2 flex justify-between border-t border-border pt-2 text-sm font-bold"><span>{t('ballot.total')}</span><span className="tabular-nums">{p.totals![side].toFixed(1)}</span></p>
+              <p className="mt-2 flex justify-between border-t border-border pt-2 text-sm font-bold"><span>{t('ballot.total')}</span><span className="tabular-nums">{(p.totals![side] ?? 0).toFixed((data.rules?.step ?? 0.5) < 1 ? 1 : 0)}</span></p>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </Card>

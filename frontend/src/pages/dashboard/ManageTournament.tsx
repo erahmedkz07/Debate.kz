@@ -36,7 +36,7 @@ import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
 import { PaymentCard } from '@/components/payments/PaymentCard'
 import { FREE_TEAM_LIMIT } from '@/lib/plans'
 import { EntityLogo } from '@/components/ui/entity-logo'
-import { useSides } from '@/lib/formats'
+import { sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { formatOfTournament } from '@/content/formats'
 
 const sections = [
@@ -545,6 +545,8 @@ function Schedule({ data, reload }: SectionProps) {
 function Draw({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const sides = useSides(data.format)
+  // BP: four teams per room (OG, OO, CG, CO); swapping exchanges the government and opposition halves
+  const sideList = sidesOf(data.format)
   const { busy, run } = useAction()
   const [wingsFor, setWingsFor] = useState<Debate | null>(null)
   const defaultRound = data.rounds.find(r => r.status === 'released') ?? data.rounds.find(r => r.status === 'draft') ?? data.rounds[0]
@@ -647,7 +649,7 @@ function Draw({ data, reload }: SectionProps) {
                   <th className="px-4 py-3">{t('tournament.room')}</th>
                   <th className="px-4 py-3">{sides.proposition}</th>
                   <th className="w-12 px-2 py-3" />
-                  <th className="px-4 py-3">{sides.opposition}</th>
+                  {sideList.slice(1).map(side => <th key={side} className="px-4 py-3">{sides[side]}</th>)}
                   <th className="px-4 py-3">{t('tournament.judges')}</th>
                 </tr>
               </thead>
@@ -665,7 +667,7 @@ function Draw({ data, reload }: SectionProps) {
                         <ArrowLeftRight className="size-4" />
                       </Button>
                     </td>
-                    <td className="px-4 py-3 font-bold">{team(d.oppositionTeamId)?.name}</td>
+                    {sideList.slice(1).map(side => <td key={side} className="px-4 py-3 font-bold">{team(teamIdOn(d, side)!)?.name}</td>)}
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
                         onValueChange={v => patch(d, { chairJudgeId: v })}
@@ -704,7 +706,7 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
   const team = (id: string) => data.teams.find(x => x.id === id)?.name
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent heading={t('dashboard.draw.wingsTitle')} description={`${debate.room} · ${team(debate.propositionTeamId)} vs ${team(debate.oppositionTeamId)}`}>
+      <DialogContent heading={t('dashboard.draw.wingsTitle')} description={`${debate.room} · ${sidesOf(data.format).map(side => team(teamIdOn(debate, side)!)).join(debate.closingPropositionTeamId ? ' · ' : ' vs ')}`}>
         <p className="text-sm text-muted-foreground">{t('dashboard.draw.wingsText')}</p>
         <ul className="mt-4 max-h-80 space-y-1.5 overflow-y-auto">
           {data.judges.filter(j => j.id !== chair).map(j => {
@@ -761,7 +763,7 @@ function Ballots({ data }: SectionProps) {
           <Card key={d.id} className="flex items-center gap-4 p-4">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-muted-foreground">{d.room}</p>
-              <p className="truncate font-bold">{data.teams.find(x => x.id === d.propositionTeamId)?.name} <span className="text-muted-foreground">vs</span> {data.teams.find(x => x.id === d.oppositionTeamId)?.name}</p>
+              <p className="truncate font-bold">{sidesOf(data.format).map(side => data.teams.find(x => x.id === teamIdOn(d, side))?.name).join(d.closingPropositionTeamId ? ' · ' : ' vs ')}</p>
             </div>
             <Badge variant={variant[d.ballotStatus]}>{t(`dashboard.ballots.${d.ballotStatus}`)}</Badge>
             <Button asChild variant="ghost" size="icon" aria-label={t('dashboard.ballots.open')} title={t('dashboard.ballots.open')}>

@@ -103,3 +103,69 @@ export function pairTeams(input: PairingInput): PairingResult {
   // unreachable: level 2 accepts any pairing
   throw new Error('pairing failed')
 }
+
+// ---------- British Parliamentary: rooms of four ----------
+//   power    — brackets: the ranking is cut into consecutive groups of four (1–4, 5–8 …)
+//   high_low — every room mixes the table: room k gets the k-th team of each quarter
+//   random   — a random order cut into groups of four
+// BP teams meet each other again and again, so there is no rematch rule. In protected rounds teams of one club are
+// spread over the rooms: a clashing team swaps with a team of the nearest room whenever that lowers the clashes.
+
+export interface RoomsResult { rooms: string[][]; sameClub: number }
+
+export function groupRooms(input: Omit<PairingInput, 'met'>): RoomsResult {
+  const { order, method, clubOf, protectClubs } = input
+  const R = order.length / 4
+  const rooms = method === 'high_low'
+    ? Array.from({ length: R }, (_, k) => [0, 1, 2, 3].map(q => order[q * R + k]))
+    : Array.from({ length: R }, (_, k) => order.slice(k * 4, k * 4 + 4))
+  const clashes = (room: string[]) => {
+    let c = 0
+    for (let i = 0; i < room.length; i++) for (let j = i + 1; j < room.length; j++) {
+      const a = clubOf.get(room[i])
+      if (a && a === clubOf.get(room[j])) c++
+    }
+    return c
+  }
+  if (protectClubs) {
+    for (let pass = 0, improved = true; improved && pass < 50; pass++) {
+      improved = false
+      for (let i = 0; i < R; i++) {
+        if (!clashes(rooms[i])) continue
+        // the nearest rooms first, so a bracket stays close to its strength
+        const others = Array.from({ length: R }, (_, j) => j).filter(j => j !== i).sort((x, y) => Math.abs(x - i) - Math.abs(y - i))
+        search: for (let a = 0; a < 4; a++) for (const j of others) for (let b = 0; b < 4; b++) {
+          const before = clashes(rooms[i]) + clashes(rooms[j])
+          ;[rooms[i][a], rooms[j][b]] = [rooms[j][b], rooms[i][a]]
+          if (clashes(rooms[i]) + clashes(rooms[j]) < before) { improved = true; break search }
+          ;[rooms[i][a], rooms[j][b]] = [rooms[j][b], rooms[i][a]]
+        }
+      }
+    }
+  }
+  return { rooms, sameClub: protectClubs ? rooms.reduce((s, r) => s + clashes(r), 0) : 0 }
+}
+
+// every order of four positions
+const PERMUTATIONS: number[][] = []
+const permute = (rest: number[], acc: number[]) => {
+  if (!rest.length) { PERMUTATIONS.push(acc); return }
+  rest.forEach((x, i) => permute([...rest.slice(0, i), ...rest.slice(i + 1)], [...acc, x]))
+}
+permute([0, 1, 2, 3], [])
+
+// BP positions (OG, OO, CG, CO): each team goes where it has been least often.
+// counts: team -> how many times it has held each position. Returns the room's teams in position order.
+export function assignPositions(room: string[], counts: Map<string, number[]>, random = Math.random): string[] {
+  const teams = shuffle(room, random) // equal options stay random
+  let best = teams, bestCost = Infinity
+  for (const perm of PERMUTATIONS) {
+    // squared, so one team repeating a position three times weighs more than three teams repeating once
+    const cost = perm.reduce((s, pos, i) => s + ((counts.get(teams[i])?.[pos] ?? 0) + 1) ** 2, 0)
+    if (cost < bestCost) {
+      bestCost = cost
+      best = Array.from({ length: 4 }, (_, pos) => teams[perm.indexOf(pos)])
+    }
+  }
+  return best
+}

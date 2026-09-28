@@ -14,6 +14,7 @@ import { removeOld } from './avatar.js'
 import { assertSpeakers } from './organizer.js'
 import { background, notifyNewRegistration } from '../services/notify.js'
 import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
+import { placeOf, sideLabel, sidesInDebate } from '../services/formats.js'
 
 export const meRouter = Router()
 const mailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
@@ -102,19 +103,29 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
   const speakers = await prisma.speaker.findMany({ where: { userId: req.user!.id }, select: { teamId: true } })
   const teamIds = speakers.map(s => s.teamId)
   const debates = await prisma.debate.findMany({
-    where: { round: { status: { not: 'draft' } }, OR: [{ propositionTeamId: { in: teamIds } }, { oppositionTeamId: { in: teamIds } }] },
-    include: { round: { include: { tournament: true } }, proposition: true, opposition: true },
+    where: {
+      round: { status: { not: 'draft' } },
+      OR: [{ propositionTeamId: { in: teamIds } }, { oppositionTeamId: { in: teamIds } }, { closingPropositionTeamId: { in: teamIds } }, { closingOppositionTeamId: { in: teamIds } }],
+    },
+    include: { round: { include: { tournament: true } }, proposition: true, opposition: true, closingProposition: true, closingOpposition: true },
     orderBy: [{ round: { date: 'asc' } }, { round: { number: 'asc' } }],
   })
   res.json(debates.map(d => {
-    const side = teamIds.includes(d.propositionTeamId) ? 'proposition' : 'opposition'
-    const opponent = side === 'proposition' ? d.opposition : d.proposition
+    const teams = { proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition }
+    const side = sidesInDebate(d).find(x => teamIds.includes(x.teamId))!.side
+    const bp = d.ranking.length > 0 || !!d.closingPropositionTeamId
+    // BP: the other three teams of the room are the opponents
+    const others = sidesInDebate(d).filter(x => x.side !== side).map(x => teams[x.side]!)
+    const opponent = { id: others[0].id, name: others.map(o => o.name).join(', ') }
+    const place = placeOf(d, side)
     return {
       debate: { id: d.id, roundId: d.roundId, room: d.room, ballotStatus: d.ballotStatus, winner: d.winner ?? undefined },
-      side,
+      side: sideLabel(side, bp),
+      ...(place && { place }),
       tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
       round: { id: d.round.id, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
       opponent: { id: opponent.id, name: opponent.name },
+      // 1st place in BP counts as a win, like in the standings
       result: d.winner ? (d.winner === side ? 'win' : 'loss') : null,
     }
   }))
