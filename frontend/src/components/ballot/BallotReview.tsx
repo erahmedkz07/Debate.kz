@@ -6,6 +6,7 @@ import { cn, formatDateTime } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { BackButton } from '@/components/layout/BackButton'
+import { useSides } from '@/lib/formats'
 
 // What organizers and admins see instead of the form: every judge's ballot as it was sent, read-only.
 // Tournament rules: only the judges decide; the organizer follows who has voted and reads the scores.
@@ -46,6 +47,8 @@ export function BallotReview({ data }: { data: BallotData }) {
 
 function JudgeBallot({ p, data }: { p: PanelBallot; data: BallotData }) {
   const { t } = useTranslation()
+  const sides = useSides(data.rules?.format)
+  const replyWord = t(data.rules?.format === 'APF' ? 'ballot.rebuttal' : 'ballot.reply')
   const team = (side: 'proposition' | 'opposition') => (side === 'proposition' ? data.proposition.name : data.opposition.name)
   return (
     <Card className="overflow-hidden">
@@ -64,7 +67,7 @@ function JudgeBallot({ p, data }: { p: PanelBallot; data: BallotData }) {
           {(['proposition', 'opposition'] as const).map(side => (
             <div key={side} className={cn('rounded-xl border-2 p-3', p.winner === side ? 'border-success bg-success-soft/40' : 'border-border')}>
               <p className="flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                <span>{t(`tournament.${side}`)}</span>
+                <span>{sides[side]}</span>
                 {p.winner === side && <span className="flex items-center gap-1 text-success"><Trophy className="size-3.5" />{t('ballot.review.winner')}</span>}
               </p>
               <p className="mt-0.5 font-extrabold">{team(side)}</p>
@@ -72,7 +75,7 @@ function JudgeBallot({ p, data }: { p: PanelBallot; data: BallotData }) {
                 {p.scores!.filter(s => s.side === side).map(s => (
                   <li key={`${s.position}-${s.speaker}`}>
                     <div className="flex justify-between gap-2">
-                      <span className="min-w-0 truncate">{s.position === 4 ? `${t('ballot.reply')}: ${s.speaker}` : `${s.position}. ${s.speaker}`}</span>
+                      <span className="min-w-0 truncate">{s.position === 4 ? `${replyWord}: ${s.speaker}` : `${s.position}. ${s.speaker}`}</span>
                       <b className="tabular-nums">{s.score}</b>
                     </div>
                     {s.feedback && <p className="mt-0.5 text-xs italic text-muted-foreground">«{s.feedback}»</p>}

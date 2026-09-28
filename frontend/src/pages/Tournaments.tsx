@@ -143,7 +143,7 @@ export default function Tournaments() {
                 <div>
                   <Label>{t('tournaments.level')}</Label>
                   <div className="flex flex-wrap gap-2">
-                    {(['all', 'school', 'university'] as const).map(l => (
+                    {(['all', 'school', 'university', 'mixed'] as const).map(l => (
                       <Chip key={l} active={filters.level === l} onClick={() => setFilters({ ...filters, level: l })}>
                         {l === 'all' ? t('common.all') : t(`level.${l}`)}
                       </Chip>

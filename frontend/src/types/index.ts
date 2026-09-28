@@ -1,8 +1,8 @@
 // Domain types — mirror the planned DB schema (tournaments, teams, speakers, judges, rounds, debates, ballots)
 
-export type TournamentLevel = 'school' | 'university'
+export type TournamentLevel = 'school' | 'university' | 'mixed' // mixed: school and university teams together
 export type TournamentStatus = 'registration' | 'ongoing' | 'finished'
-export type TournamentFormat = 'WSDC'
+export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER'
 export type Lang = 'ru' | 'kz'
 
 export interface Tournament {

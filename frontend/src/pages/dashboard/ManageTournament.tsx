@@ -36,6 +36,8 @@ import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
 import { PaymentCard } from '@/components/payments/PaymentCard'
 import { FREE_TEAM_LIMIT } from '@/lib/plans'
 import { EntityLogo } from '@/components/ui/entity-logo'
+import { useSides } from '@/lib/formats'
+import { formatOfTournament } from '@/content/formats'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -193,9 +195,10 @@ function Registrations({ data, reload }: SectionProps) {
 }
 
 /* ---------- Teams ---------- */
-function TeamDialog({ team, open, onOpenChange, onSave, saving }: { team: Team | null; open: boolean; onOpenChange: (v: boolean) => void; onSave: (t: TeamInput) => void; saving: boolean }) {
+function TeamDialog({ team, open, onOpenChange, onSave, saving, speakers }: { team: Team | null; open: boolean; onOpenChange: (v: boolean) => void; onSave: (t: TeamInput) => void; saving: boolean; speakers: number }) {
   const { t } = useTranslation()
-  const empty: TeamInput = { name: '', institution: '', speakers: ['', '', ''] }
+  // as many speakers as the tournament's format has (APF: 2, WSDC and Karl Popper: 3)
+  const empty: TeamInput = { name: '', institution: '', speakers: Array.from({ length: speakers }, () => '') }
   const [form, setForm] = useState<TeamInput>(empty)
   useEffect(() => {
     if (open) setForm(team ? { name: team.name, institution: team.institution, speakers: team.speakers.map(s => s.name) } : empty)
@@ -322,7 +325,7 @@ function Teams({ data, reload }: SectionProps) {
           </table>
         </Card>
       )}
-      <TeamDialog team={editing} open={open} onOpenChange={setOpen} onSave={save} saving={busy === 'save'} />
+      <TeamDialog team={editing} open={open} onOpenChange={setOpen} onSave={save} saving={busy === 'save'} speakers={formatOfTournament(data.format).score.speakersPerTeam} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t('dashboard.teams.confirmDelete', { name: toDelete?.name })}>
           <div className="flex justify-end gap-2">
@@ -541,6 +544,7 @@ function Schedule({ data, reload }: SectionProps) {
 /* ---------- Draw ---------- */
 function Draw({ data, reload }: SectionProps) {
   const { t } = useTranslation()
+  const sides = useSides(data.format)
   const { busy, run } = useAction()
   const [wingsFor, setWingsFor] = useState<Debate | null>(null)
   const defaultRound = data.rounds.find(r => r.status === 'released') ?? data.rounds.find(r => r.status === 'draft') ?? data.rounds[0]
@@ -641,9 +645,9 @@ function Draw({ data, reload }: SectionProps) {
               <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">{t('tournament.room')}</th>
-                  <th className="px-4 py-3">{t('tournament.proposition')}</th>
+                  <th className="px-4 py-3">{sides.proposition}</th>
                   <th className="w-12 px-2 py-3" />
-                  <th className="px-4 py-3">{t('tournament.opposition')}</th>
+                  <th className="px-4 py-3">{sides.opposition}</th>
                   <th className="px-4 py-3">{t('tournament.judges')}</th>
                 </tr>
               </thead>

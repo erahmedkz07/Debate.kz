@@ -46,6 +46,7 @@ enum ModerationStatus {
 enum TournamentLevel {
   school
   university
+  mixed // school and university teams together
 }
 
 enum TournamentStatus {

@@ -11,7 +11,7 @@ export const publicRouter = Router()
 const listSchema = z.object({
   search: z.string().trim().max(100).optional(),
   city: z.string().max(60).optional(),
-  level: z.enum(['all', 'school', 'university']).optional(),
+  level: z.enum(['all', 'school', 'university', 'mixed']).optional(),
   status: z.enum(['all', 'registration', 'ongoing', 'finished']).optional(),
   sort: z.enum(['date-asc', 'date-desc', 'teams']).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
@@ -25,7 +25,7 @@ publicRouter.get('/tournaments', async (req, res) => {
     ...publicWhere,
     ...(f.search && { OR: [{ name: { contains: f.search, mode: 'insensitive' } }, { organizerName: { contains: f.search, mode: 'insensitive' } }] }),
     ...(f.city && f.city !== 'all' && { city: f.city }),
-    ...(f.level && f.level !== 'all' && { level: f.level }),
+    ...(f.level && f.level !== 'all' && { level: { in: [f.level, 'mixed' as const] } }),
     ...(f.status && f.status !== 'all' && { status: f.status }),
   }
   const rows = await prisma.tournament.findMany({ where, include: summaryInclude, orderBy: { startDate: f.sort === 'date-desc' ? 'desc' : 'asc' } })
@@ -107,7 +107,7 @@ publicRouter.get('/testimonials', async (_req, res) => {
 // Season rating: aggregates results of all tournaments by team name + institution
 publicRouter.get('/rating', async (_req, res) => {
   const tournaments = await prisma.tournament.findMany({ where: publicWhere, select: { id: true, level: true, city: true } })
-  type Level = 'school' | 'university'
+  type Level = 'school' | 'university' | 'mixed'
   type Ref = { id: string; name: string } | undefined
   // teams: the same club team is one row across tournaments even if it entered under different names
   const teamAgg = new Map<string, { name: string; institution: string; club: Ref; logoUrl?: string; city: string; level: Level; tournaments: Set<string>; wins: number; points: number }>()

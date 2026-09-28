@@ -11,6 +11,7 @@ import { passwordChangedLetter, resetPasswordLetter } from '../services/letters.
 import { body, param } from '../middleware/validate.js'
 import { clearSession, requireAuth, requireVerified, sessionUser, setSession } from '../middleware/auth.js'
 import { removeOld } from './avatar.js'
+import { assertSpeakers } from './organizer.js'
 import { background, notifyNewRegistration } from '../services/notify.js'
 import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 
@@ -122,7 +123,7 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
 const registrationSchema = z.object({
   teamName: z.string().trim().min(2).max(60),
   institution: z.string().trim().min(2).max(150),
-  speakers: z.array(z.string().trim().min(3).max(100)).length(3),
+  speakers: z.array(z.string().trim().min(3).max(100)).min(2).max(3), // as many as the tournament's format needs
   phone,
 })
 
@@ -139,6 +140,7 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
   if (t.registrationDeadline && t.registrationDeadline < new Date(toDay(new Date()))) throw forbidden('registration_closed')
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
+  assertSpeakers(t.format, data.speakers)
   // a participant states their club and team in the profile first (organizers and ratings need to know who is from where)
   const membership = await prisma.clubMember.findUnique({ where: { userId: req.user!.id } })
   if (!membership?.teamId) throw badRequest('club_required')

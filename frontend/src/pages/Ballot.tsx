@@ -22,11 +22,11 @@ import { Textarea } from '@/components/ui/input'
 import { BackButton } from '@/components/layout/BackButton'
 import { BallotReview } from '@/components/ballot/BallotReview'
 import { SpeechTimer } from '@/components/tools/SpeechTimer'
+import { formatOfTournament } from '@/content/formats'
 import NotFound from './NotFound'
 
 type Side = 'proposition' | 'opposition'
-const SPEAKER = { min: 60, max: 80, step: 0.5 }
-const REPLY = { min: 30, max: 40, step: 0.5 }
+type Range = { min: number; max: number; step: number }
 
 // the sheet comes from the API; without a network the copy saved on the last visit is used
 async function loadSheet(debateId: string, userId: string) {
@@ -56,7 +56,7 @@ function FeedbackField({ value, onChange, label }: { value: string; onChange: (v
   )
 }
 
-function ScoreInput({ label, value, onChange, range, invalid }: { label: string; value: string; onChange: (v: string) => void; range: typeof SPEAKER; invalid: boolean }) {
+function ScoreInput({ label, value, onChange, range, invalid }: { label: string; value: string; onChange: (v: string) => void; range: Range; invalid: boolean }) {
   const bump = (d: number) => {
     const n = value === '' ? (range.min + range.max) / 2 : Number(value) + d
     onChange(String(Math.min(range.max, Math.max(range.min, n))))
@@ -80,7 +80,8 @@ function ScoreInput({ label, value, onChange, range, invalid }: { label: string;
 
 export default function Ballot() {
   const { debateId = '' } = useParams()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const { user } = useAuth()
   // the page is behind RequireAuth, so there is always a user here
   const uid = user?.id ?? ''
@@ -120,7 +121,7 @@ export default function Ballot() {
     return () => window.removeEventListener(OUTBOX_EVENT, sync)
   }, [debateId, user?.id])
 
-  const inRange = (v: string, r: typeof SPEAKER) => v !== '' && !isNaN(Number(v)) && Number(v) >= r.min && Number(v) <= r.max
+  const inRange = (v: string, r: Range) => v !== '' && !isNaN(Number(v)) && Number(v) >= r.min && Number(v) <= r.max && Math.abs(Number(v) / r.step - Math.round(Number(v) / r.step)) < 1e-9
 
   const totals = useMemo(() => {
     if (!data) return { proposition: 0, opposition: 0 }
@@ -138,8 +139,14 @@ export default function Ballot() {
   // organizers and admins read the ballots; only the judges of the debate fill them in
   if (data.canSubmit === false) return <BallotReview data={data} />
 
+  // the tournament's format: team size, score ranges and whether there are reply speeches (WSDC 60–80/30–40 by default)
+  const rules = data.rules ?? { format: 'WSDC', speakers: 3, step: 0.5, speaker: [60, 80] as [number, number], reply: { range: [30, 40] as [number, number], by: [1, 2] } }
+  const SPEAKER: Range = { min: rules.speaker[0], max: rules.speaker[1], step: rules.step }
+  const REPLY: Range | null = rules.reply ? { min: rules.reply.range[0], max: rules.reply.range[1], step: rules.step } : null
+  const format = formatOfTournament(rules.format)
+  const sideName = (side: Side) => format.sides[side === 'proposition' ? 0 : 1][lang]
   const allSpeakers = [...data.proposition.speakers, ...data.opposition.speakers]
-  const complete = allSpeakers.every(s => inRange(scores[s.id] ?? '', SPEAKER)) && inRange(reply.proposition, REPLY) && inRange(reply.opposition, REPLY)
+  const complete = allSpeakers.every(s => inRange(scores[s.id] ?? '', SPEAKER)) && (!REPLY || (inRange(reply.proposition, REPLY) && inRange(reply.opposition, REPLY)))
   const higher: Side | null = totals.proposition === totals.opposition ? null : totals.proposition > totals.opposition ? 'proposition' : 'opposition'
   const errors: string[] = []
   if (!complete) errors.push(t('ballot.errors.incomplete'))
@@ -156,12 +163,14 @@ export default function Ballot() {
     setSending(true)
     const payload = {
       winner: winner!,
-      replySpeakers: {
-        proposition: replyBy.proposition ?? data.proposition.speakers[0].id,
-        opposition: replyBy.opposition ?? data.opposition.speakers[0].id,
-      },
+      ...(REPLY && {
+        replySpeakers: {
+          proposition: replyBy.proposition ?? data.proposition.speakers[0].id,
+          opposition: replyBy.opposition ?? data.opposition.speakers[0].id,
+        },
+      }),
       scores: Object.fromEntries(allSpeakers.map(s => [s.id, Number(scores[s.id])])),
-      reply: { proposition: Number(reply.proposition), opposition: Number(reply.opposition) },
+      ...(REPLY && { reply: { proposition: Number(reply.proposition), opposition: Number(reply.opposition) } }),
       feedback: Object.fromEntries(Object.entries(feedback).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v)),
     }
     try {
@@ -214,12 +223,13 @@ export default function Ballot() {
   }
 
   const teamCard = (side: Side, team: Team) => {
-    const replyOptions = team.speakers.slice(0, 2)
+    // who may give the reply: WSDC the 1st or 2nd speaker, APF the leader
+    const replyOptions = team.speakers.filter((_, i) => rules.reply?.by.includes(i + 1))
     return (
       <Card className={cn('overflow-hidden transition-shadow', winner === side && 'ring-2 ring-success')}>
         <div className={cn('flex items-center justify-between px-5 py-3.5', side === 'proposition' ? 'bg-primary text-primary-foreground' : 'bg-navy text-white')}>
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">{t(`tournament.${side}`)}</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">{sideName(side)}</p>
             <p className="text-lg font-extrabold">{team.name}</p>
           </div>
           <div className="text-right">
@@ -235,18 +245,20 @@ export default function Ballot() {
               <FeedbackField label={t('ballot.feedbackFor', { name: s.name })} value={feedback[s.id] ?? ''} onChange={v => setFeedback(p => ({ ...p, [s.id]: v }))} />
             </div>
           ))}
+          {REPLY && replyOptions.length > 0 && (
           <div className="py-2.5">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-bold text-primary">{t('ballot.reply')}</span>
+              <span className="text-sm font-bold text-primary">{t(rules.format === 'APF' ? 'ballot.rebuttal' : 'ballot.reply')}</span>
               <div className="w-40">
                 <Select size="sm" aria-label={t('ballot.replySpeaker')} value={replyBy[side] ?? replyOptions[0].id}
                   onValueChange={v => setReplyBy(p => ({ ...p, [side]: v }))}
                   options={replyOptions.map(s => ({ value: s.id, label: s.name }))} />
               </div>
             </div>
-            <ScoreInput label={team.speakers.find(s => s.id === (replyBy[side] ?? replyOptions[0].id))!.name} value={reply[side]} range={REPLY} invalid={tried && !inRange(reply[side], REPLY)} onChange={v => setReply(p => ({ ...p, [side]: v }))} />
+            <ScoreInput label={team.speakers.find(s => s.id === (replyBy[side] ?? replyOptions[0].id))!.name} value={reply[side]} range={REPLY!} invalid={tried && !inRange(reply[side], REPLY!)} onChange={v => setReply(p => ({ ...p, [side]: v }))} />
             <FeedbackField label={t('ballot.feedbackReply')} value={feedback[`reply:${side}`] ?? ''} onChange={v => setFeedback(p => ({ ...p, [`reply:${side}`]: v }))} />
           </div>
+          )}
         </div>
       </Card>
     )
@@ -274,7 +286,9 @@ export default function Ballot() {
         </div>
         <h1 className="mt-3 text-xs font-bold uppercase tracking-wider text-white/70">{t('ballot.title')} · {t('ballot.motion')}</h1>
         <p className="mt-1 text-lg font-bold leading-snug sm:text-xl">«{data.round.motion}»</p>
-        <p className="mt-3 text-xs text-white/70">{t('ballot.speakerRange')} · {t('ballot.replyRange')}</p>
+        <p className="mt-3 text-xs text-white/70">
+          {format.name[lang]} · {t('ballot.speakerRange', { min: SPEAKER.min, max: SPEAKER.max })}{REPLY && ` · ${t(rules.format === 'APF' ? 'ballot.rebuttalRange' : 'ballot.replyRange', { min: REPLY.min, max: REPLY.max })}`}
+        </p>
       </div>
 
       <div className="mt-6 space-y-5">
@@ -293,7 +307,7 @@ export default function Ballot() {
                 className={cn('flex cursor-pointer flex-col items-center gap-1 rounded-2xl border-2 p-4 transition-all',
                   winner === side ? 'border-success bg-success-soft' : 'border-border hover:border-primary/40')}>
                 <Trophy className={cn('size-6', winner === side ? 'text-success' : 'text-muted-foreground')} />
-                <span className="text-xs text-muted-foreground">{t(`tournament.${side}`)}</span>
+                <span className="text-xs text-muted-foreground">{sideName(side)}</span>
                 <span className="font-extrabold">{team.name}</span>
               </button>
             )
@@ -322,7 +336,7 @@ export default function Ballot() {
             <button type="button" onClick={() => setTimer('hidden')} aria-label={t('common.close')}
               className="grid size-9 cursor-pointer place-items-center rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button>
           </div>
-          <SpeechTimer formatId="wsdc" compact active={timer === 'open'} />
+          <SpeechTimer formatId={format.id} compact active={timer === 'open'} />
         </aside>
       )}
 

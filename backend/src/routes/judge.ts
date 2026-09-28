@@ -7,6 +7,7 @@ import { badRequest, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
 import { isOrganizerOf, teamInclude, toTeam } from '../services/tournaments.js'
+import { rulesOf } from '../services/formats.js'
 
 export const judgeRouter = Router()
 
@@ -75,8 +76,16 @@ judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
         .map(s => ({ side: s.side, position: s.position, speaker: speakerName.get(s.speakerId) ?? '', score: Number(s.score), feedback: s.feedback ?? undefined })),
     }
   })
+  // the sheet follows the tournament's format and score ranges
+  const rules = rulesOf(d.round.tournament.format)
+  const cfg = d.round.tournament.scoringConfig
   res.json({
     canSubmit: !!myJudge,
+    rules: {
+      format: d.round.tournament.format, speakers: rules.speakers, step: Number(cfg?.step ?? rules.step),
+      speaker: [Number(cfg?.speakerMin ?? rules.speaker[0]), Number(cfg?.speakerMax ?? rules.speaker[1])],
+      ...(rules.reply && { reply: { range: [Number(cfg?.replyMin ?? rules.reply.range[0]), Number(cfg?.replyMax ?? rules.reply.range[1])], by: rules.reply.by } }),
+    },
     ...(panel && { panel }),
     tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
     round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
@@ -90,8 +99,9 @@ judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
 const ballotSchema = z.object({
   winner: z.enum(['proposition', 'opposition']),
   scores: z.record(z.string(), z.number()), // speakerId -> substantive score
-  reply: z.object({ proposition: z.number(), opposition: z.number() }),
-  replySpeakers: z.object({ proposition: z.string(), opposition: z.string() }),
+  // formats without reply speeches (Karl Popper) send neither
+  reply: z.object({ proposition: z.number(), opposition: z.number() }).optional(),
+  replySpeakers: z.object({ proposition: z.string(), opposition: z.string() }).optional(),
   // optional short written comments: speakerId -> text for substantive speeches, "reply:<side>" for replies
   feedback: z.record(z.string(), z.string().trim().max(400)).optional(),
 })
@@ -105,11 +115,12 @@ judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
   if (d.round.status === 'completed' || d.ballotStatus === 'confirmed') throw forbidden('ballot_locked')
   const judgeId = myJudge.id
 
-  // ---- server-side WSDC validation (never trust the client) ----
+  // ---- server-side validation by the tournament's format (never trust the client) ----
+  const rules = rulesOf(d.round.tournament.format)
   const cfg = d.round.tournament.scoringConfig
   const [sMin, sMax, rMin, rMax, step] = cfg
     ? [cfg.speakerMin, cfg.speakerMax, cfg.replyMin, cfg.replyMax, cfg.step].map(Number)
-    : [60, 80, 30, 40, 0.5]
+    : [rules.speaker[0], rules.speaker[1], rules.reply?.range[0] ?? 0, rules.reply?.range[1] ?? 0, rules.step]
   const onStep = (v: number) => Math.abs(v / step - Math.round(v / step)) < 1e-9
   const sides = { proposition: d.proposition, opposition: d.opposition } as const
   const totals = { proposition: 0, opposition: 0 }
@@ -118,20 +129,21 @@ judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
 
   for (const side of ['proposition', 'opposition'] as const) {
     const team = sides[side]
-    if (team.speakers.length !== 3) throw badRequest('team_incomplete')
+    if (team.speakers.length !== rules.speakers) throw badRequest('team_incomplete')
     for (const s of team.speakers) {
       const v = data.scores[s.id]
       if (typeof v !== 'number' || v < sMin || v > sMax || !onStep(v)) throw badRequest('speaker_score_out_of_range', { speakerId: s.id })
       totals[side] += v
       rows.push({ speakerId: s.id, side, position: s.position, score: v, feedback: note(s.id) })
     }
-    // reply speech: only the 1st or 2nd speaker may give it
-    const replyBy = data.replySpeakers[side]
-    if (!team.speakers.slice(0, 2).some(s => s.id === replyBy)) throw badRequest('invalid_reply_speaker')
-    const r = data.reply[side]
-    if (r < rMin || r > rMax || !onStep(r)) throw badRequest('reply_score_out_of_range')
+    if (!rules.reply) continue
+    // reply speech: only the speakers the format allows (WSDC: 1st or 2nd, APF: the leader)
+    const replyBy = data.replySpeakers?.[side]
+    if (!team.speakers.some(s => s.id === replyBy && rules.reply!.by.includes(s.position))) throw badRequest('invalid_reply_speaker')
+    const r = data.reply?.[side]
+    if (typeof r !== 'number' || r < rMin || r > rMax || !onStep(r)) throw badRequest('reply_score_out_of_range')
     totals[side] += r
-    rows.push({ speakerId: replyBy, side, position: 4, score: r, feedback: note(`reply:${side}`) })
+    rows.push({ speakerId: replyBy!, side, position: 4, score: r, feedback: note(`reply:${side}`) })
   }
   if (totals.proposition === totals.opposition) throw badRequest('tie_not_allowed')
   const higher = totals.proposition > totals.opposition ? 'proposition' : 'opposition'

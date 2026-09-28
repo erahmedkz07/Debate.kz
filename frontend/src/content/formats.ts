@@ -101,7 +101,7 @@ export const FORMATS: Format[] = [
     prep: t('Обычно 15–20 минут подготовки.', 'Әдетте 15–20 минут дайындық.'),
     where: t('Школьные и студенческие лиги СНГ, клубные тренировки.', 'ТМД мектеп және студенттік лигалары, клуб жаттығулары.'),
     sides: [t('Правительство', 'Үкімет'), t('Оппозиция', 'Оппозиция')], prepMinutes: [15, 20],
-    score: { speaker: [20, 30], step: 0.5, teamsPerDebate: 2, speakersPerTeam: 2 },
+    score: { speaker: [20, 30], reply: [10, 15], step: 0.5, teamsPerDebate: 2, speakersPerTeam: 2 },
   },
   {
     id: 'popper', short: 'КП', accent: 'from-amber-500 to-orange-800',
@@ -134,6 +134,10 @@ export const FORMATS: Format[] = [
 ]
 
 export const formatById = (id: string) => FORMATS.find(f => f.id === id)
+// the API names a tournament's format 'WSDC' | 'APF' | 'POPPER'; the description here has the same id in lower case
+export const formatOfTournament = (code?: string) => formatById((code ?? 'WSDC').toLowerCase()) ?? FORMATS[0]
+// formats a tournament can be created with today (British Parliamentary, four teams per room, comes later)
+export const TOURNAMENT_FORMATS = ['WSDC', 'APF', 'POPPER'] as const
 
 // the window when points of information are allowed, in seconds from the start of the speech (null = no POIs)
 export function poiWindow(f: Format, s: Speech): [number, number] | null {

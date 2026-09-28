@@ -149,7 +149,10 @@ export interface PanelBallot {
   totals?: { proposition: number; opposition: number }
   scores?: { side: 'proposition' | 'opposition'; position: number; speaker: string; score: number; feedback?: string }[]
 }
+// the ballot sheet's rules come from the tournament's format (and its score ranges)
+export interface BallotRules { format: string; speakers: number; step: number; speaker: [number, number]; reply?: { range: [number, number]; by: number[] } }
 export interface BallotData {
+  rules?: BallotRules
   canSubmit?: boolean // true for a judge of this debate; organizers and admins get `panel` instead
   panel?: PanelBallot[]
   tournament: { id: string; name: string }
@@ -164,8 +167,9 @@ export const getBallot = (debateId: string) => or404(http<BallotData>('GET', `/b
 export interface BallotPayload {
   winner: 'proposition' | 'opposition'
   scores: Record<string, number> // speakerId -> substantive speech score
-  reply: Record<'proposition' | 'opposition', number>
-  replySpeakers: Record<'proposition' | 'opposition', string>
+  // formats without reply speeches (Karl Popper) send neither
+  reply?: Record<'proposition' | 'opposition', number>
+  replySpeakers?: Record<'proposition' | 'opposition', string>
   feedback?: Record<string, string> // speakerId or "reply:<side>" -> short comment to the speaker
 }
 export const submitBallot = (debateId: string, payload: BallotPayload) =>
@@ -176,11 +180,12 @@ export const submitBallot = (debateId: string, payload: BallotPayload) =>
 export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/tournaments')
 
 export interface CreateTournamentInput {
-  name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university'; description: string
+  name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
   preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
+  format?: 'WSDC' | 'APF' | 'POPPER'
 }
 export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
 export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })

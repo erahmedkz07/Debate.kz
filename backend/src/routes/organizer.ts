@@ -22,6 +22,7 @@ import sharp from 'sharp'
 import { randomBytes } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { FORMAT_CODES, rulesOf, scoringDefaults } from '../services/formats.js'
 import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -45,7 +46,8 @@ const createSchema = z.object({
   city: z.string().trim().min(2).max(60),
   startDate: day,
   endDate: day,
-  level: z.enum(['school', 'university']),
+  level: z.enum(['school', 'university', 'mixed']),
+  format: z.enum(FORMAT_CODES).default('WSDC'),
   description: z.string().trim().max(3000).default(''),
   coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
   preliminaryRounds: z.number().int().min(2).max(8),
@@ -72,7 +74,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const start = fromDay(d.startDate), end = fromDay(d.endDate)
   const t = await prisma.tournament.create({
     data: {
-      name: d.name, city: d.city, startDate: start, endDate: end, level: d.level, description: d.description,
+      name: d.name, city: d.city, startDate: start, endDate: end, level: d.level, format: d.format, description: d.description,
       coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, maxTeams: d.maxTeams,
       registrationOpen: d.registrationOpen, requireApproval: d.requireApproval,
       registrationDeadline: d.registrationDeadline ? fromDay(d.registrationDeadline) : null,
@@ -82,7 +84,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
       // new tournaments stay out of the public list until an admin approves them
       moderation: isAdmin ? 'approved' : 'pending',
       organizers: { create: { userId: req.user!.id, role: 'owner' } },
-      scoringConfig: { create: {} },
+      scoringConfig: { create: scoringDefaults(d.format) }, // the format's score ranges
       rounds: {
         create: Array.from({ length: d.preliminaryRounds }, (_, i) => ({
           number: i + 1, name: `Раунд ${i + 1}`, date: i < Math.ceil(d.preliminaryRounds / 2) ? start : end,
@@ -189,10 +191,16 @@ const teamSchema = z.object({
   name: z.string().trim().min(2).max(60),
   institution: z.string().trim().min(2).max(150),
   city: z.string().trim().max(60).optional(),
-  speakers: z.array(z.string().trim().min(3).max(100)).length(3),
+  speakers: z.array(z.string().trim().min(3).max(100)).min(2).max(3), // the tournament's format says how many
 })
 
-async function institutionId(name: string, level: 'school' | 'university') {
+// a team has exactly as many speakers as the tournament's format needs
+export function assertSpeakers(format: string, speakers: string[]) {
+  const need = rulesOf(format).speakers
+  if (speakers.length !== need) throw badRequest('wrong_speaker_count', { need })
+}
+
+async function institutionId(name: string, level: 'school' | 'university' | 'mixed') {
   const i = await prisma.institution.upsert({ where: { name }, update: {}, create: { name, level } })
   return i.id
 }
@@ -201,6 +209,7 @@ organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
   const d = body(req, teamSchema)
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { _count: { select: { teams: { where: { swing: false } } } } } })
+  assertSpeakers(t.format, d.speakers)
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
   assertRoomForTeam(t, t._count.teams)
   if (await prisma.team.findUnique({ where: { tournamentId_name: { tournamentId: t.id, name: d.name } } })) throw conflict('team_name_taken')
@@ -219,6 +228,7 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
   if (!existing) throw notFound('team_not_found')
   await assertCanManage(req.user, existing.tournamentId)
   const d = body(req, teamSchema)
+  assertSpeakers(existing.tournament.format, d.speakers)
   const team = await prisma.$transaction(async tx => {
     await Promise.all(existing.speakers.map((s, i) => tx.speaker.update({ where: { id: s.id }, data: { name: d.speakers[i] } })))
     return tx.team.update({

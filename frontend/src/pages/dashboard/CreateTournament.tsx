@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Loader2, PartyPopper, Trophy } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Loader2, PartyPopper } from 'lucide-react'
 import { claimPayment, createTournament, getCities, getCoverTemplates, getPlanQuote, uploadTournamentCover } from '@/api'
 import { KaspiPayBox } from '@/components/payments/KaspiPayBox'
 import { Skeleton } from '@/components/ui/states'
@@ -21,10 +21,12 @@ import { Select } from '@/components/ui/select'
 import { DatePicker } from '@/components/ui/date-picker'
 
 import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
+import { formatOfTournament, TOURNAMENT_FORMATS } from '@/content/formats'
 type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
 
 export default function CreateTournament() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const navigate = useNavigate()
   const { user } = useAuth()
   const { data: cities = [] } = useAsync(getCities)
@@ -40,7 +42,8 @@ export default function CreateTournament() {
     city: z.string().min(1, t('auth.errors.required')),
     startDate: z.string().min(1, t('auth.errors.required')),
     endDate: z.string().min(1, t('auth.errors.required')),
-    level: z.enum(['school', 'university']),
+    level: z.enum(['school', 'university', 'mixed']),
+    format: z.enum(TOURNAMENT_FORMATS),
     description: z.string().optional(),
     prelims: z.coerce.number().int().min(2).max(8),
     breakSize: z.coerce.number().int().min(2).max(16),
@@ -55,7 +58,7 @@ export default function CreateTournament() {
 
   const { register, handleSubmit, trigger, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { level: 'school', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, city: '', startDate: '', endDate: '', regDeadline: '' },
+    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, city: '', startDate: '', endDate: '', regDeadline: '' },
   })
   const v = watch()
   // tournaments cannot start in the past
@@ -97,6 +100,7 @@ export default function CreateTournament() {
         languages: [...(f.langKz ? ['kz' as const] : []), ...(f.langRu ? ['ru' as const] : [])],
         coverUrl: cover && !coverFile ? cover : undefined,
         paymentReference: paid ? quote?.reference : undefined,
+        format: f.format,
       })
       // the receipt goes to the admin queue at once; if it fails, the organizer can resend it from the settings
       if (paid && receipt) {
@@ -160,11 +164,12 @@ export default function CreateTournament() {
                     </div>
                     <div>
                       <Label>{t('wizard.level')}</Label>
-                      <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-muted p-1">
-                        {(['school', 'university'] as const).map(l => (
-                          <button key={l} type="button" onClick={() => setValue('level', l)}
-                            className={cn('h-9 cursor-pointer rounded-lg text-sm font-semibold transition-all', v.level === l ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
-                            {t(`level.${l}`)}
+                      <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1">
+                        {(['school', 'university', 'mixed'] as const).map(l => (
+                          <button key={l} type="button" onClick={() => setValue('level', l)} aria-pressed={v.level === l}
+                            title={l === 'mixed' ? t('level.mixedHint') : t(`level.${l}`)} aria-label={t(`level.${l}`)}
+                            className={cn('h-9 cursor-pointer truncate rounded-lg px-1 text-sm font-semibold transition-all', v.level === l ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
+                            {t(`levelShort.${l}`)}
                           </button>
                         ))}
                       </div>
@@ -222,17 +227,25 @@ export default function CreateTournament() {
               {current === 'format' && (
                 <>
                   <Label>{t('wizard.format')}</Label>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="relative rounded-2xl border-2 border-primary bg-primary-soft p-5">
-                      <Check className="absolute right-4 top-4 size-5 text-primary" />
-                      <Trophy className="size-7 text-primary" />
-                      <p className="mt-3 font-bold">World Schools (WSDC)</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{t('wizard.wsdcText')}</p>
-                    </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t('wizard.format')}>
+                    {TOURNAMENT_FORMATS.map(code => {
+                      const f = formatOfTournament(code)
+                      const on = v.format === code
+                      return (
+                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => setValue('format', code)}
+                          className={cn('relative cursor-pointer rounded-2xl border-2 p-5 text-left transition-all', on ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
+                          {on && <Check className="absolute right-4 top-4 size-5 text-primary" />}
+                          <span className={cn('inline-grid h-8 min-w-8 place-items-center rounded-lg bg-gradient-to-br px-2 text-xs font-extrabold text-white', f.accent)}>{f.short}</span>
+                          <p className="mt-3 font-bold">{f.name[lang]}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{f.teams[lang]}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{t('wizard.formatScale', { min: f.score.speaker[0], max: f.score.speaker[1] })}</p>
+                        </button>
+                      )
+                    })}
                     <div className="rounded-2xl border-2 border-dashed border-border p-5 opacity-60">
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-bold">{t('wizard.soon')}</span>
-                      <p className="mt-3 font-bold">British Parliamentary</p>
-                      <p className="mt-1 text-sm text-muted-foreground">4 × 2</p>
+                      <p className="mt-3 font-bold">{formatOfTournament('BP').name[lang]}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{formatOfTournament('BP').teams[lang]}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -293,7 +306,7 @@ export default function CreateTournament() {
                       [t('wizard.city'), v.city],
                       [t('wizard.level'), t(`level.${v.level}`)],
                       [t('wizard.startDate'), v.startDate && v.endDate ? formatDateRange(v.startDate, v.endDate) : '—'],
-                      [t('wizard.format'), 'WSDC'],
+                      [t('wizard.format'), formatOfTournament(v.format).name[lang]],
                       [t('wizard.prelims'), String(v.prelims)],
                       [t('wizard.breakSize'), String(v.breakSize)],
                       [t('wizard.maxTeams'), String(v.maxTeams)],

@@ -5,6 +5,7 @@ import type { Tournament } from '@/types'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/states'
 import { formatDateRange } from '@/lib/utils'
+import { formatOfTournament } from '@/content/formats'
 
 export function TournamentCard({ t: item }: { t: Tournament }) {
   const { t } = useTranslation()
@@ -22,7 +23,7 @@ export function TournamentCard({ t: item }: { t: Tournament }) {
           <Badge variant="glass"><StatusDot status={item.status} />{t(`status.${item.status}`)}</Badge>
         </div>
         <div className="absolute bottom-3 left-3 flex gap-1.5">
-          <Badge variant="accent">{item.format}</Badge>
+          <Badge variant="accent">{formatOfTournament(item.format).short}</Badge>
           <Badge variant="glass">{t(`level.${item.level}`)}</Badge>
         </div>
         <span className="absolute right-3 top-3 grid size-9 translate-y-1 place-items-center rounded-full bg-white text-navy opacity-0 shadow transition-all group-hover:translate-y-0 group-hover:opacity-100">

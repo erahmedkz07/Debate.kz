@@ -1300,5 +1300,61 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(r.status === 200 && (await client()('GET', `/clubs/${club.id}`)).data.teams.find(x => x.id === team.id)?.logoUrl === r.data.logoUrl, 'a team logo shows on the club page')
   ok((await owner.c('DELETE', `/clubs/${club.id}/logo`)).status === 204 && !(await client()('GET', `/clubs/${club.id}`)).data.logoUrl, 'the logo can be removed')
 }
+
+// ---------- 38. formats (WSDC, APF, Karl Popper) and mixed tournaments ----------
+{
+  const host = await newAccount('Формат Организатор')
+  const base = n => ({ ...tBody(80 + n), name: `Формат ${n} ${jtag}` })
+  let tr = await host.c('POST', '/tournaments', { ...base(1), level: 'mixed', format: 'APF' })
+  ok(tr.status === 201 && tr.data.level === 'mixed' && tr.data.format === 'APF', 'a mixed (school + university) APF tournament is created')
+  const apf = tr.data
+  ok((await host.c('POST', '/tournaments', { ...base(2), format: 'BP' })).status === 400, 'British Parliamentary is not offered yet')
+  r = await host.c('POST', `/tournaments/${apf.id}/teams`, { name: 'Тройка', institution: 'Школа 1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+  ok(r.status === 400 && r.data.error === 'wrong_speaker_count' && r.data.details?.need === 2, 'APF teams have two speakers, not three')
+  for (const n of ['Альфа', 'Бета']) await host.c('POST', `/tournaments/${apf.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Первый`, `${n} Второй`] })
+  const aj = await addJudge(host.c, apf.id, 'Судья Форматов')
+  const apfRound = (await host.c('GET', `/tournaments/${apf.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${apfRound.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${apfRound.id}`, { motion: 'ЭП разрешила бы голосование с 16 лет', status: 'released' })
+  const apfDebate = (await host.c('GET', `/tournaments/${apf.id}`)).data.debates.find(x => x.roundId === apfRound.id)
+  const jc = judgeClients.get(aj.data.id)
+  const sheet = (await jc('GET', `/ballots/${apfDebate.id}`)).data
+  ok(sheet.rules?.format === 'APF' && sheet.rules.speakers === 2 && sheet.rules.speaker.join('-') === '20-30' && sheet.rules.reply?.range.join('-') === '10-15' && sheet.rules.reply.by.join() === '1',
+    'the APF ballot sheet: 2 speakers, 20–30, rebuttal 10–15 by the leader')
+  const sc = {}
+  sheet.proposition.speakers.forEach(s => (sc[s.id] = 26)); sheet.opposition.speakers.forEach(s => (sc[s.id] = 24.5))
+  const good = { winner: 'proposition', scores: sc, reply: { proposition: 13, opposition: 12 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  ok((await jc('POST', `/ballots/${apfDebate.id}`, { ...good, replySpeakers: { ...good.replySpeakers, proposition: sheet.proposition.speakers[1].id } })).data?.error === 'invalid_reply_speaker', 'in APF only the leader gives the rebuttal')
+  ok((await jc('POST', `/ballots/${apfDebate.id}`, { ...good, reply: { proposition: 30, opposition: 12 } })).data?.error === 'reply_score_out_of_range', 'the rebuttal is scored 10–15')
+  ok((await jc('POST', `/ballots/${apfDebate.id}`, { ...good, scores: { ...sc, [sheet.proposition.speakers[0].id]: 70 } })).data?.error === 'speaker_score_out_of_range', 'APF speeches are scored 20–30')
+  r = await jc('POST', `/ballots/${apfDebate.id}`, good)
+  ok(r.status === 201 && r.data.totals.proposition === 65 && r.data.totals.opposition === 61, 'a valid APF ballot is accepted')
+
+  // Karl Popper: three speakers and no reply speeches
+  tr = await host.c('POST', '/tournaments', { ...base(3), format: 'POPPER' })
+  const kp = tr.data
+  ok(tr.status === 201 && kp.format === 'POPPER', 'a Karl Popper tournament is created')
+  for (const n of ['Гамма', 'Дельта']) await host.c('POST', `/tournaments/${kp.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  const kj = await addJudge(host.c, kp.id, 'Судья Поппера')
+  const kpRound = (await host.c('GET', `/tournaments/${kp.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${kpRound.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${kpRound.id}`, { motion: 'Школьная форма должна быть отменена', status: 'released' })
+  const kpDebate = (await host.c('GET', `/tournaments/${kp.id}`)).data.debates.find(x => x.roundId === kpRound.id)
+  const kc = judgeClients.get(kj.data.id)
+  const ks = (await kc('GET', `/ballots/${kpDebate.id}`)).data
+  ok(ks.rules?.speakers === 3 && !ks.rules.reply, 'the Karl Popper sheet has no reply speeches')
+  const kscores = {}
+  ks.proposition.speakers.forEach(s => (kscores[s.id] = 27)); ks.opposition.speakers.forEach(s => (kscores[s.id] = 25))
+  r = await kc('POST', `/ballots/${kpDebate.id}`, { winner: 'proposition', scores: kscores })
+  ok(r.status === 201 && r.data.totals.proposition === 81 && r.data.totals.opposition === 75, 'a Karl Popper ballot needs no reply speeches')
+
+  // registrations follow the format too, and the public filters show mixed tournaments for both levels
+  await admin('PATCH', `/admin/tournaments/${apf.id}`, { moderation: 'approved' })
+  const school = (await client()('GET', '/tournaments?level=school&limit=100')).data
+  const uni = (await client()('GET', '/tournaments?level=university&limit=100')).data
+  ok((school.items ?? school).some(x => x.id === apf.id) && (uni.items ?? uni).some(x => x.id === apf.id), 'a mixed tournament shows up under both school and university')
+  r = await student('POST', `/tournaments/${apf.id}/registrations`, { teamName: 'Трое в APF', institution: 'Лицей', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+  ok(r.data?.error === 'wrong_speaker_count', 'an application to an APF tournament names two speakers')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
