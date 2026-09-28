@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js'
 import { env } from '../lib/env.js'
 import { linkable, sendMessage, telegramEnabled, TelegramError, type InlineButton, type SendOptions } from '../lib/telegram.js'
 import { asLang, buttonLabel, renderNotification } from './botTexts.js'
+import { getStandings } from './tournaments.js'
 
 // Notifications. Every event lands in the in-app notification centre (type + data, rendered in RU/KZ on the site)
 // and, for people who linked the bot themselves, is also sent to Telegram — the same type rendered by botTexts.ts
@@ -159,4 +160,25 @@ export async function notifyAdminsNewTournament(tournamentId: string) {
   })
   if (!t || t.moderation !== 'pending') return
   await notify(await admins(), 'admin.tournamentPending', { tournament: t.name, owner: t.organizers[0]?.user.name ?? '', city: t.city, pro: t.plan === 'pro' }, '/admin')
+}
+
+// the tournament is over: every speaker learns their team's place, judges and speakers that the certificate is ready,
+// the organizers who won
+export async function notifyTournamentFinished(tournamentId: string) {
+  const t = await prisma.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { id: true, name: true, breakSize: true, teams: { where: { swing: false }, select: { id: true, name: true, speakers: { select: { userId: true } } } }, judges: { select: { userId: true } } },
+  })
+  if (!t) return
+  const st = await getStandings(tournamentId)
+  const place = new Map(st.teams.map(r => [r.team.id, r.rank]))
+  for (const team of t.teams) {
+    const p = place.get(team.id)
+    if (!p) continue
+    await notify(team.speakers.map(s => s.userId), 'participant.tournamentFinished',
+      { tournament: t.name, team: team.name, place: p, teams: st.teams.length, inBreak: p <= t.breakSize }, '/me?tab=certificates')
+  }
+  await notify(t.judges.map(j => j.userId), 'judge.tournamentFinished', { tournament: t.name }, '/me?tab=certificates')
+  await notify(await organizersOf(t.id), 'organizer.tournamentFinished',
+    { tournament: t.name, winner: st.teams[0]?.team.name ?? '', teams: st.teams.length }, `/dashboard/tournaments/${t.id}/results`)
 }

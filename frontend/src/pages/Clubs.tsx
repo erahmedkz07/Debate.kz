@@ -18,16 +18,22 @@ import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import NotFound from './NotFound'
 import { BackButton } from '@/components/layout/BackButton'
+import { EntityLogo } from '@/components/ui/entity-logo'
 
 function ClubCard({ c }: { c: ClubSummary }) {
   const { t } = useTranslation()
   return (
     <Link to={`/clubs/${c.id}`} className="group flex flex-col rounded-2xl border border-border bg-card p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20">
-      <p className="font-bold leading-snug group-hover:text-primary">{c.name}</p>
-      <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1"><MapPin className="size-3.5" />{c.city}</span>
-        {c.institution && c.institution !== c.name && <span className="flex items-center gap-1"><Building2 className="size-3.5" />{c.institution}</span>}
-      </p>
+      <div className="flex items-start gap-3">
+        <EntityLogo src={c.logoUrl} name={c.name} size="lg" />
+        <div className="min-w-0">
+          <p className="font-bold leading-snug group-hover:text-primary">{c.name}</p>
+          <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><MapPin className="size-3.5" />{c.city}</span>
+            {c.institution && c.institution !== c.name && <span className="flex items-center gap-1"><Building2 className="size-3.5" />{c.institution}</span>}
+          </p>
+        </div>
+      </div>
       <p className="mt-auto flex items-center justify-between pt-4 text-sm text-muted-foreground">
         <span className="flex items-center gap-1.5"><Users className="size-4 text-primary" />{t('club.membersCount', { count: c.members })} · {t('club.teamsCount', { count: c.teams })}</span>
         <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />

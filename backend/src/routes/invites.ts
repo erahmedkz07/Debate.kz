@@ -35,10 +35,19 @@ invitesRouter.post('/tournaments/:id/invites', requireAuth(), async (req, res) =
 // Invite a person by email: registered people get a notification with Accept / Decline (and Telegram),
 // everyone gets a letter. Only the account with this address can accept.
 invitesRouter.post('/tournaments/:id/invites/email', requireAuth(), async (req, res) => {
-  const d = body(req, z.object({ email: z.string().trim().toLowerCase().email().max(200), kind: z.enum(['judge', 'co_organizer']).default('judge') }))
+  const d = body(req, z.object({
+    email: z.string().trim().toLowerCase().email().max(200),
+    kind: z.enum(['judge', 'co_organizer']).default('judge'),
+    judgeId: z.string().optional(), // link this judge (added without an account) instead of adding a new one
+  }))
   const tournamentId = param(req, 'id')
   if (d.kind === 'co_organizer') await assertOwner(req.user, tournamentId)
   else await assertCanManage(req.user, tournamentId)
+  if (d.judgeId) {
+    const j = await prisma.judge.findFirst({ where: { id: d.judgeId, tournamentId } })
+    if (!j || d.kind !== 'judge') throw notFound('judge_not_found')
+    if (j.userId) throw conflict('judge_has_account')
+  }
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } })
   if (t.status === 'finished') throw badRequest('tournament_finished')
   const today = await prisma.tournamentInvite.count({ where: { tournamentId, email: { not: null }, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
@@ -54,7 +63,7 @@ invitesRouter.post('/tournaments/:id/invites/email', requireAuth(), async (req, 
   }
   const { token, hash } = newToken()
   const invite = await prisma.tournamentInvite.create({
-    data: { tournamentId, kind: d.kind, email: d.email, tokenHash: hash, createdById: req.user!.id, expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
+    data: { tournamentId, kind: d.kind, email: d.email, judgeId: d.judgeId, tokenHash: hash, createdById: req.user!.id, expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
   })
   const path = `/invite/${token}`
   if (invitee) {
@@ -129,7 +138,12 @@ invitesRouter.post('/invites/:token/accept', requireAuth(), requireVerified, asy
       const institutionId = user.institution
         ? (await tx.institution.upsert({ where: { name: user.institution }, update: {}, create: { name: user.institution, level: invite.tournament.level } })).id
         : undefined
-      await tx.judge.create({ data: { tournamentId: invite.tournamentId, name: user.name, rating: 5, userId: user.id, institutionId } })
+      // a judge the organizer had added without an account becomes this person (the draws they sat on stay);
+      // if that judge was removed or linked meanwhile, the person joins as a new judge
+      const linked = invite.judgeId
+        ? await tx.judge.updateMany({ where: { id: invite.judgeId, userId: null }, data: { userId: user.id, name: user.name, ...(institutionId && { institutionId }) } })
+        : { count: 0 }
+      if (!linked.count) await tx.judge.create({ data: { tournamentId: invite.tournamentId, name: user.name, rating: 5, userId: user.id, institutionId } })
     } else {
       await tx.tournamentOrganizer.create({ data: { tournamentId: invite.tournamentId, userId: user.id, role: 'co_organizer' } })
     }

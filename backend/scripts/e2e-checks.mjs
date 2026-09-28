@@ -25,6 +25,58 @@ const student = await login('student@debate.kz')
 const judge = await login('judge@debate.kz')
 const admin = await login('admin@debate.kz')
 
+// ---------- judges vote only from their own accounts ----------
+// The seed's judges have names only. A check that needs a ballot links such a judge to a fresh account in the test DB
+// (as accepting an invite does) and votes as that judge; new judges join through an invite link, as on the site.
+const { default: pgModule } = await import('pg')
+const db = new pgModule.Client({ connectionString: process.env.E2E_DATABASE_URL })
+await db.connect()
+const jtag = Date.now().toString(36)
+let accounts = 0
+const newAccount = async (name) => {
+  const c = client()
+  const email = `acct.${jtag}.${++accounts}@mail.kz`
+  const res = await c('POST', '/auth/register', { name, email, phone: '+7 707 000 00 00', password: 'secret123', consent: true })
+  await c('POST', '/auth/verify-email', { token: res.data.devVerificationToken })
+  return { c, id: res.data.user.id, email }
+}
+const judgeClients = new Map()
+const judgeAs = async (judgeId) => {
+  if (judgeClients.has(judgeId)) return judgeClients.get(judgeId)
+  const j = (await db.query('select j.name, u.email from judges j left join users u on u.id = j.user_id where j.id = $1', [judgeId])).rows[0]
+  let c
+  if (j.email) {
+    c = client()
+    if ((await c('POST', '/auth/login', { email: j.email, password: 'demo1234' })).status !== 200) await c('POST', '/auth/login', { email: j.email, password: 'secret123' })
+  } else {
+    const a = await newAccount(j.name.includes(' ') ? j.name : `${j.name} Судья`)
+    await db.query('update judges set user_id = $1 where id = $2', [a.id, judgeId])
+    c = a.c
+  }
+  judgeClients.set(judgeId, c)
+  return c
+}
+// every judge on the panel sends a ballot built from the sheet they see
+const panelVote = async (debateId, build) => {
+  const panel = (await db.query('select judge_id from debate_judges where debate_id = $1', [debateId])).rows
+  for (const { judge_id } of panel) {
+    const c = await judgeAs(judge_id)
+    const sheet = (await c('GET', `/ballots/${debateId}`)).data
+    const res = await c('POST', `/ballots/${debateId}`, build(sheet))
+    if (res.status !== 201) ok(false, `panel ballot ${res.status} ${JSON.stringify(res.data)}`)
+  }
+}
+// a new judge joins a tournament through an invite link and accepts it from a fresh account
+const addJudge = async (orgClient, tournamentId, name) => {
+  const a = await newAccount(name)
+  const link = (await orgClient('POST', `/tournaments/${tournamentId}/invites`, { kind: 'judge' })).data.url
+  const res = await a.c('POST', `/invites/${link.split('/invite/')[1]}/accept`)
+  if (res.status !== 200) ok(false, `judge accepts ${res.status} ${JSON.stringify(res.data)}`)
+  const id = (await db.query('select id from judges where tournament_id = $1 and user_id = $2', [tournamentId, a.id])).rows[0].id
+  judgeClients.set(id, a.c)
+  return { status: 201, data: { id } }
+}
+
 // ---------- 1. registration -> confirmation ----------
 const mine = (await org('GET', '/organizer/tournaments')).data
 const t1 = mine.find(t => t.status === 'registration')
@@ -75,13 +127,22 @@ ok(r.status === 201 && r.data.totals.proposition === 262 && r.data.totals.opposi
 const t4 = mine.find(t => t.status === 'ongoing')
 let det = (await org('GET', `/tournaments/${t4.id}`)).data
 const live = det.rounds.find(x => x.status === 'released')
-// the organizer fills the missing ballots (on behalf of the chair)
-for (const d of det.debates.filter(x => x.roundId === live.id && !x.winner)) {
-  const bd = (await org('GET', `/ballots/${d.id}`)).data
+// the organizer cannot fill ballots: the panels vote themselves
+{
+  const d0 = det.debates.find(x => x.roundId === live.id && !x.winner)
+  const bd = (await org('GET', `/ballots/${d0.id}`)).data
   const sc = {}
   bd.proposition.speakers.forEach(s => (sc[s.id] = 74)); bd.opposition.speakers.forEach(s => (sc[s.id] = 73.5))
-  const res = await org('POST', `/ballots/${d.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 36 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id } })
-  if (res.status !== 201) ok(false, `org ballot ${res.status} ${JSON.stringify(res.data)}`)
+  r = await org('POST', `/ballots/${d0.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 36 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id } })
+  ok(r.status === 403 && r.data.error === 'judges_only', 'the organizer cannot send or change a ballot')
+  ok((await admin('POST', `/ballots/${d0.id}`, {})).data?.error === 'judges_only', 'an admin cannot either')
+}
+for (const d of det.debates.filter(x => x.roundId === live.id && !x.winner)) {
+  await panelVote(d.id, bd => {
+    const sc = {}
+    bd.proposition.speakers.forEach(s => (sc[s.id] = 74)); bd.opposition.speakers.forEach(s => (sc[s.id] = 73.5))
+    return { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 36 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id } }
+  })
 }
 det = (await org('GET', `/tournaments/${t4.id}`)).data
 const stillMissing = det.debates.filter(x => x.roundId === live.id && !x.winner).length
@@ -301,7 +362,7 @@ r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { status: 'ongoing' })
 ok(r.status === 403 && r.data.error === 'not_approved', 'an unmoderated tournament cannot start')
 
 // ---------- 10. removing judges ----------
-r = await fresh('POST', `/tournaments/${pendingOwn.id}/judges`, { name: 'Лишний Судья', rating: 5 })
+r = await addJudge(fresh, pendingOwn.id, 'Лишний Судья')
 r = await fresh('DELETE', `/judges/${r.data.id}`)
 ok(r.status === 204, 'a judge who is not in any draw can be removed')
 const t4full = (await org('GET', `/tournaments/${t4id}`)).data
@@ -335,7 +396,7 @@ r = await fresh('PATCH', `/tournaments/${pendingOwn.id}`, { rooms: ['Зал A', 
 po = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data
 ok(r.status === 200 && po.rooms.join('|') === 'Зал A|Зал B', 'own rooms saved without duplicates')
 const js = []
-for (const n of ['Первый Судья', 'Второй Судья', 'Третий Судья']) js.push((await fresh('POST', `/tournaments/${pendingOwn.id}/judges`, { name: n, rating: 7 })).data.id)
+for (const n of ['Первый Судья', 'Второй Судья', 'Третий Судья']) js.push((await addJudge(fresh, pendingOwn.id, n)).data.id)
 r = await fresh('POST', `/rounds/${po.rounds[0].id}/draw`)
 ok(r.status === 201 && r.data.debates[0].room === 'Зал A', 'the draw uses the organizer\'s rooms')
 const deb = r.data.debates[0]
@@ -437,7 +498,10 @@ await org('PATCH', `/registrations/${logosReg.id}`, { status: 'rejected' })
 ok(await waitFor(111, /отклонена/), 'registration decision arrives in Telegram')
 await tgSend(333, { text: `/start ${await linkToken(judge)}` })
 // a judge with an account gets their room when the draw is published
-await fresh('POST', `/tournaments/${pendingOwn.id}/judges`, { name: 'Алихан Ахметов', rating: 9, email: 'judge@debate.kz' })
+{
+  const link = (await fresh('POST', `/tournaments/${pendingOwn.id}/invites`, { kind: 'judge' })).data.url
+  await judge('POST', `/invites/${link.split('/invite/')[1]}/accept`)
+}
 const round1 = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data.rounds[0]
 await fresh('POST', `/rounds/${round1.id}/draw`)
 await fresh('PATCH', `/rounds/${round1.id}`, { motion: 'Эта палата поддерживает уведомления в Telegram' })
@@ -465,10 +529,8 @@ r = await student('PATCH', '/me', { name: stNow.name, phone: '+77011234567' })
 ok(r.data.user.phoneVerified === true, 'the same number in another format keeps the verification')
 r = await student('PATCH', '/me', { name: stNow.name, phone: '+7 702 000 00 00' })
 ok(r.data.user.phoneVerified === false, 'changing the number by hand removes the verification')
-r = await client()('POST', `/tournaments/${t1.id}/judges`, { name: 'Проверка Рейтинга' })
-ok(r.status === 401, 'judges are added by organizers only')
-r = await org('POST', `/tournaments/${t1.id}/judges`, { name: 'Судья Без Рейтинга', rating: 10 })
-ok(r.status === 201 && r.data.rating === 5, 'organizers cannot set a judge rating (ignored, neutral default)')
+r = await org('POST', `/tournaments/${t1.id}/judges`, { name: 'Судья Без Аккаунта' })
+ok(r.status === 404, 'judges join only by invite: a judge cannot be added by name')
 
 // ---------- 18. notification centre (by role) ----------
 const notes = async c => (await c('GET', '/me/notifications')).data
@@ -518,15 +580,16 @@ const liveRound = t4live.rounds.find(x => x.status === 'released')
 const myDebate = (await student('GET', '/me/debates')).data.find(x => x.round.id === liveRound.id)
 const COMMENT = 'Сильная структура, но не хватило ответов на POI'
 for (const d of t4live.debates.filter(x => x.roundId === liveRound.id && !x.winner)) {
-  const bd = (await org('GET', `/ballots/${d.id}`)).data
-  const sc = {}, fb = {}
-  bd.proposition.speakers.forEach(s => (sc[s.id] = 75)); bd.opposition.speakers.forEach(s => (sc[s.id] = 72))
-  if (d.id === myDebate.debate.id) [...bd.proposition.speakers, ...bd.opposition.speakers].forEach(s => (fb[s.id] = COMMENT))
-  fb['reply:proposition'] = 'Хороший итог'
-  const res = await org('POST', `/ballots/${d.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id }, feedback: fb })
-  if (res.status !== 201) ok(false, `ballot with feedback ${res.status} ${JSON.stringify(res.data)}`)
+  await panelVote(d.id, bd => {
+    const sc = {}, fb = {}
+    bd.proposition.speakers.forEach(s => (sc[s.id] = 75)); bd.opposition.speakers.forEach(s => (sc[s.id] = 72))
+    if (d.id === myDebate.debate.id) [...bd.proposition.speakers, ...bd.opposition.speakers].forEach(s => (fb[s.id] = COMMENT))
+    fb['reply:proposition'] = 'Хороший итог'
+    return { winner: 'proposition', scores: sc, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id }, feedback: fb }
+  })
 }
-r = await org('POST', `/ballots/${myDebate.debate.id}`, { winner: 'proposition', scores: {}, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: 'x', opposition: 'y' }, feedback: { x: 'a'.repeat(401) } })
+const myPanelJudge = (await db.query('select judge_id from debate_judges where debate_id = $1 limit 1', [myDebate.debate.id])).rows[0].judge_id
+r = await (await judgeAs(myPanelJudge))('POST', `/ballots/${myDebate.debate.id}`, { winner: 'proposition', scores: {}, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: 'x', opposition: 'y' }, feedback: { x: 'a'.repeat(401) } })
 ok(r.status === 400, 'a comment longer than 400 characters is rejected')
 let prog = (await student('GET', '/me/progress')).data
 ok(!prog.comments.some(c => c.text === COMMENT), 'comments stay hidden until the round is completed')
@@ -942,7 +1005,7 @@ ok((await client()('GET', `/clubs/${topClub.id}`)).status === 200, 'a club in th
 const dt = (await payer('POST', '/tournaments', { ...tBody(30), name: `Жеребьёвка ${uniq}`, maxTeams: 8 })).data
 const schools = ['Школа А', 'Школа А', 'Школа А', 'Школа А', 'Школа Б', 'Школа Б', 'Школа В', 'Школа В']
 for (const [i, inst] of schools.entries()) await payer('POST', `/tournaments/${dt.id}/teams`, { name: `Д${i + 1}`, institution: inst, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
-for (let i = 1; i <= 4; i++) await payer('POST', `/tournaments/${dt.id}/judges`, { name: `Судья Жеребьёвки ${i}`, rating: 5 })
+for (let i = 1; i <= 4; i++) await addJudge(payer, dt.id, `Судья Жеребьёвки ${i}`)
 let dd = (await payer('GET', `/tournaments/${dt.id}`)).data
 const instOf = new Map(dd.teams.map(tm => [tm.id, tm.institution]))
 const dRound = dd.rounds[0]
@@ -1105,11 +1168,11 @@ ok((await timur('PUT', `/tournaments/${created.id}/schedule`, { items: [] })).st
 // the draw explains how many judges are missing
 const jd = (await qp('POST', '/tournaments', { ...tBody(52), name: `Судьи ${uniq}`, maxTeams: 8 })).data
 for (let i = 1; i <= 4; i++) await qp('POST', `/tournaments/${jd.id}/teams`, { name: `С${i}`, institution: `Школа С${i}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
-await qp('POST', `/tournaments/${jd.id}/judges`, { name: 'Единственный Судья', rating: 5 })
+await addJudge(qp, jd.id, 'Единственный Судья')
 const jr = (await qp('GET', `/tournaments/${jd.id}`)).data.rounds[0]
 r = await qp('POST', `/rounds/${jr.id}/draw`)
 ok(r.data?.error === 'not_enough_judges' && r.data.details?.need === 2 && r.data.details?.have === 1, 'the draw says: 4 teams need 2 judges, there is 1')
-await qp('POST', `/tournaments/${jd.id}/judges`, { name: 'Второй Судья', rating: 5 })
+await addJudge(qp, jd.id, 'Второй Судья')
 ok((await qp('POST', `/rounds/${jr.id}/draw`)).status === 201, 'with a second judge the draw works')
 
 
@@ -1182,4 +1245,116 @@ ok(both?.lang === 'both' && /Сәлеметсіз бе/.test(both.text) && /Зд
 await kzUser('POST', `/tournaments/${kzT.id}/invites/email`, { email: 'timur@mail.kz', kind: 'judge' })
 ok(/Здравствуйте/.test((await mails('timur@mail.kz')).at(-1)?.text) && !/Сәлеметсіз/.test((await mails('timur@mail.kz')).at(-1)?.text),
   'a registered person gets the invite in the language of their account')
+
+// ---------- 37. ballots belong to judges; judges without an account; the end of a tournament; logos ----------
+{
+  // the organizer reads every ballot of a debate as it was sent; a judge of the panel gets only the form
+  const tl = (await org('GET', `/tournaments/${t4id}`)).data
+  const decided = tl.debates.find(d => d.ballotStatus !== 'pending')
+  const view = (await org('GET', `/ballots/${decided.id}`)).data
+  ok(view.canSubmit === false && Array.isArray(view.panel) && view.panel.some(p => p.submittedAt && p.scores?.length === 8 && p.totals),
+    "the organizer sees each judge's ballot with the scores, read-only")
+  const jview = (await (await judgeAs(view.panel[0].judgeId))('GET', `/ballots/${decided.id}`)).data
+  ok(jview.canSubmit === true && jview.panel === undefined, "a judge of the panel gets the form, not the other judges' ballots")
+}
+{
+  // a judge the organizer had added by name (no account) is linked to a person by an email invite
+  const plain = (await db.query('select id from judges where tournament_id = $1 and user_id is null limit 1', [t1.id])).rows[0]
+  const before = (await org('GET', `/tournaments/${t1.id}`)).data.judges
+  ok(before.find(j => j.id === plain.id)?.hasAccount === false, 'the judges list shows who has no account yet')
+  const person = await newAccount('Привязанный Судья')
+  r = await org('POST', `/tournaments/${t1.id}/invites/email`, { email: person.email, kind: 'judge', judgeId: plain.id })
+  ok(r.status === 201, 'the organizer invites a person to be that judge')
+  const token = (await mails(person.email)).at(-1).action.url.split('/invite/')[1]
+  r = await person.c('POST', `/invites/${token}/accept`)
+  const after = (await org('GET', `/tournaments/${t1.id}`)).data.judges
+  ok(r.status === 200 && after.find(j => j.id === plain.id)?.hasAccount === true && after.length === before.length,
+    'accepting links the account to the same judge (no second judge, the draws stay)')
+  ok((await org('POST', `/tournaments/${t1.id}/invites/email`, { email: 'sabina@mail.kz', kind: 'judge', judgeId: plain.id })).data?.error === 'judge_has_account',
+    'a judge who already has an account cannot be linked again')
+}
+// the end of a tournament: its organizers learn the result (own1 was finished in section 9)
+ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished'), 'when a tournament ends its organizers get the result')
+{
+  // club and team logos
+  const owner = await newAccount('Логотип Клуба')
+  const club = (await owner.c('POST', '/clubs', { name: `Клуб логотипов ${jtag}`, city: 'Астана' })).data
+  const sess = cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: owner.email, password: 'secret123' }) }), 'dkz_token')
+  const png = await sharpR({ create: { width: 300, height: 200, channels: 3, background: '#009bc9' } }).png().toBuffer()
+  const up = async (url, file, cookie = sess) => {
+    const f = new FormData()
+    if (file) f.append('logo', file, 'logo.png')
+    const res = await fetch(`${A}${url}`, { method: 'POST', headers: { Cookie: cookie }, body: f })
+    return { status: res.status, data: await res.json().catch(() => null) }
+  }
+  r = await up(`/clubs/${club.id}/logo`, new Blob([png], { type: 'image/png' }))
+  ok(r.status === 200 && /^\/uploads\/logos\/.+\.webp$/.test(r.data?.logoUrl ?? ''), 'a member sets the club logo (stored as WebP)')
+  const img = await fetch(`${A.replace(/\/api$/, '')}${r.data.logoUrl}`)
+  const meta = await sharpR(Buffer.from(await img.arrayBuffer())).metadata()
+  ok(img.ok && meta.width === 256 && meta.height === 256, 'the logo is a 256×256 square')
+  ok((await client()('GET', '/clubs')).data.find(c => c.id === club.id)?.logoUrl === r.data.logoUrl, 'the club catalogue shows the logo')
+  ok((await up(`/clubs/${club.id}/logo`, new Blob([Buffer.from('not a picture')], { type: 'image/png' }))).data?.error === 'invalid_image', 'a file that is not a picture is refused')
+  ok((await up(`/clubs/${club.id}/logo`, new Blob([png], { type: 'image/png' }), await sessionOf('timur@mail.kz'))).status === 403, 'only members change the logo')
+  const team = (await owner.c('POST', `/clubs/${club.id}/teams`, { name: 'Команда с логотипом', join: true })).data
+  r = await up(`/club-teams/${team.id}/logo`, new Blob([png], { type: 'image/png' }))
+  ok(r.status === 200 && (await client()('GET', `/clubs/${club.id}`)).data.teams.find(x => x.id === team.id)?.logoUrl === r.data.logoUrl, 'a team logo shows on the club page')
+  ok((await owner.c('DELETE', `/clubs/${club.id}/logo`)).status === 204 && !(await client()('GET', `/clubs/${club.id}`)).data.logoUrl, 'the logo can be removed')
+}
+
+// ---------- 38. formats (WSDC, APF, Karl Popper) and mixed tournaments ----------
+{
+  const host = await newAccount('Формат Организатор')
+  const base = n => ({ ...tBody(80 + n), name: `Формат ${n} ${jtag}` })
+  let tr = await host.c('POST', '/tournaments', { ...base(1), level: 'mixed', format: 'APF' })
+  ok(tr.status === 201 && tr.data.level === 'mixed' && tr.data.format === 'APF', 'a mixed (school + university) APF tournament is created')
+  const apf = tr.data
+  ok((await host.c('POST', '/tournaments', { ...base(2), format: 'BP' })).status === 400, 'British Parliamentary is not offered yet')
+  r = await host.c('POST', `/tournaments/${apf.id}/teams`, { name: 'Тройка', institution: 'Школа 1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+  ok(r.status === 400 && r.data.error === 'wrong_speaker_count' && r.data.details?.need === 2, 'APF teams have two speakers, not three')
+  for (const n of ['Альфа', 'Бета']) await host.c('POST', `/tournaments/${apf.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Первый`, `${n} Второй`] })
+  const aj = await addJudge(host.c, apf.id, 'Судья Форматов')
+  const apfRound = (await host.c('GET', `/tournaments/${apf.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${apfRound.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${apfRound.id}`, { motion: 'ЭП разрешила бы голосование с 16 лет', status: 'released' })
+  const apfDebate = (await host.c('GET', `/tournaments/${apf.id}`)).data.debates.find(x => x.roundId === apfRound.id)
+  const jc = judgeClients.get(aj.data.id)
+  const sheet = (await jc('GET', `/ballots/${apfDebate.id}`)).data
+  ok(sheet.rules?.format === 'APF' && sheet.rules.speakers === 2 && sheet.rules.speaker.join('-') === '20-30' && sheet.rules.reply?.range.join('-') === '10-15' && sheet.rules.reply.by.join() === '1',
+    'the APF ballot sheet: 2 speakers, 20–30, rebuttal 10–15 by the leader')
+  const sc = {}
+  sheet.proposition.speakers.forEach(s => (sc[s.id] = 26)); sheet.opposition.speakers.forEach(s => (sc[s.id] = 24.5))
+  const good = { winner: 'proposition', scores: sc, reply: { proposition: 13, opposition: 12 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  ok((await jc('POST', `/ballots/${apfDebate.id}`, { ...good, replySpeakers: { ...good.replySpeakers, proposition: sheet.proposition.speakers[1].id } })).data?.error === 'invalid_reply_speaker', 'in APF only the leader gives the rebuttal')
+  ok((await jc('POST', `/ballots/${apfDebate.id}`, { ...good, reply: { proposition: 30, opposition: 12 } })).data?.error === 'reply_score_out_of_range', 'the rebuttal is scored 10–15')
+  ok((await jc('POST', `/ballots/${apfDebate.id}`, { ...good, scores: { ...sc, [sheet.proposition.speakers[0].id]: 70 } })).data?.error === 'speaker_score_out_of_range', 'APF speeches are scored 20–30')
+  r = await jc('POST', `/ballots/${apfDebate.id}`, good)
+  ok(r.status === 201 && r.data.totals.proposition === 65 && r.data.totals.opposition === 61, 'a valid APF ballot is accepted')
+
+  // Karl Popper: three speakers and no reply speeches
+  tr = await host.c('POST', '/tournaments', { ...base(3), format: 'POPPER' })
+  const kp = tr.data
+  ok(tr.status === 201 && kp.format === 'POPPER', 'a Karl Popper tournament is created')
+  for (const n of ['Гамма', 'Дельта']) await host.c('POST', `/tournaments/${kp.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  const kj = await addJudge(host.c, kp.id, 'Судья Поппера')
+  const kpRound = (await host.c('GET', `/tournaments/${kp.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${kpRound.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${kpRound.id}`, { motion: 'Школьная форма должна быть отменена', status: 'released' })
+  const kpDebate = (await host.c('GET', `/tournaments/${kp.id}`)).data.debates.find(x => x.roundId === kpRound.id)
+  const kc = judgeClients.get(kj.data.id)
+  const ks = (await kc('GET', `/ballots/${kpDebate.id}`)).data
+  ok(ks.rules?.speakers === 3 && !ks.rules.reply, 'the Karl Popper sheet has no reply speeches')
+  const kscores = {}
+  ks.proposition.speakers.forEach(s => (kscores[s.id] = 27)); ks.opposition.speakers.forEach(s => (kscores[s.id] = 25))
+  r = await kc('POST', `/ballots/${kpDebate.id}`, { winner: 'proposition', scores: kscores })
+  ok(r.status === 201 && r.data.totals.proposition === 81 && r.data.totals.opposition === 75, 'a Karl Popper ballot needs no reply speeches')
+
+  // registrations follow the format too, and the public filters show mixed tournaments for both levels
+  await admin('PATCH', `/admin/tournaments/${apf.id}`, { moderation: 'approved' })
+  const school = (await client()('GET', '/tournaments?level=school&limit=100')).data
+  const uni = (await client()('GET', '/tournaments?level=university&limit=100')).data
+  ok((school.items ?? school).some(x => x.id === apf.id) && (uni.items ?? uni).some(x => x.id === apf.id), 'a mixed tournament shows up under both school and university')
+  r = await student('POST', `/tournaments/${apf.id}/registrations`, { teamName: 'Трое в APF', institution: 'Лицей', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+  ok(r.data?.error === 'wrong_speaker_count', 'an application to an APF tournament names two speakers')
+}
+await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

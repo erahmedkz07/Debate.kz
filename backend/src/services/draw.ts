@@ -1,4 +1,5 @@
 import { badRequest, forbidden } from '../lib/errors.js'
+import { rulesOf } from './formats.js'
 import { prisma } from '../lib/prisma.js'
 import { getStandings } from './tournaments.js'
 import { pairTeams, shuffle, type DrawMethod } from './pairing.js'
@@ -96,10 +97,11 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
 
 // the tournament's stand-in team (created once): three placeholder speakers so judges can score it; never ranked
 async function swingTeam(tournamentId: string) {
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { format: true } })
   const existing = await prisma.team.findFirst({ where: { tournamentId, swing: true }, select: { id: true, institutionId: true, clubId: true } })
   if (existing) return existing
   return prisma.team.create({
-    data: { tournamentId, name: 'Swing', swing: true, speakers: { create: [1, 2, 3].map(position => ({ name: `Swing ${position}`, position })) } },
+    data: { tournamentId, name: 'Swing', swing: true, speakers: { create: Array.from({ length: rulesOf(t.format).speakers }, (_, i) => ({ name: `Swing ${i + 1}`, position: i + 1 })) } },
     select: { id: true, institutionId: true, clubId: true },
   })
 }

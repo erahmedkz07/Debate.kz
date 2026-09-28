@@ -11,9 +11,10 @@ import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { Reveal } from '@/components/motion'
+import { EntityLogo } from '@/components/ui/entity-logo'
 
 // one table row: name, where they are from (club · team), city and two numbers
-type Row = { rank: number; name: string; href?: string; club?: Ref; sub: string; city: string; value: string; extra: string }
+type Row = { rank: number; name: string; href?: string; club?: Ref; logo?: string; hasLogo?: boolean; sub: string; city: string; value: string; extra: string }
 
 // "Club · Team": the club links to its page
 function From({ club, sub }: { club?: Ref; sub: string }) {
@@ -36,9 +37,11 @@ function Podium({ rows }: { rows: Row[] }) {
       {order.map((r, i) => (
         <Reveal key={r.rank} delay={i * 0.1} className="text-center">
           {r.rank === 1 && <Crown className="mx-auto mb-1 size-7 text-accent drop-shadow" fill="currentColor" />}
-          <span className={cn('mx-auto grid place-items-center rounded-full border-4 border-card font-extrabold shadow-lg', r.rank === 1 ? 'size-20 text-xl' : 'size-16 text-lg', styles[i])}>
-            {initials(r.name)}
-          </span>
+          {r.logo
+            ? <img src={r.logo} alt="" className={cn('mx-auto rounded-full border-4 border-card bg-white object-contain shadow-lg', r.rank === 1 ? 'size-20' : 'size-16')} />
+            : <span className={cn('mx-auto grid place-items-center rounded-full border-4 border-card font-extrabold shadow-lg', r.rank === 1 ? 'size-20 text-xl' : 'size-16 text-lg', styles[i])}>
+                {initials(r.name)}
+              </span>}
           <p className="mt-2 truncate text-sm font-bold sm:text-base">{r.href ? <Link to={r.href} className="hover:text-primary">{r.name}</Link> : r.name}</p>
           <p className="truncate text-xs text-muted-foreground"><From club={r.club} sub={r.sub} /></p>
           <div className={cn('mt-3 grid place-items-center rounded-t-2xl text-2xl font-extrabold', heights[i], r.rank === 1 ? 'bg-primary text-primary-foreground' : 'bg-primary-soft text-primary')}>
@@ -62,9 +65,12 @@ function Table({ rows, nameLabel, valueLabel, extraLabel }: { rows: Row[]; nameL
         {rows.map(r => (
           <li key={r.rank + r.name} className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-3 px-4 py-3.5 hover:bg-muted/40 sm:grid-cols-[3rem_1fr_8rem_6rem_6rem] sm:gap-4 sm:px-5">
             <span className={cn('font-bold', r.rank <= 3 ? 'text-primary' : 'text-muted-foreground')}>{r.rank}</span>
-            <div className="min-w-0">
-              <p className="truncate font-bold">{r.href ? <Link to={r.href} className="hover:text-primary">{r.name}</Link> : r.name}</p>
-              <p className="truncate text-xs text-muted-foreground"><From club={r.club} sub={r.sub} /><span className="sm:hidden"> · {r.city}</span></p>
+            <div className="flex min-w-0 items-center gap-3">
+              {r.hasLogo !== false && <EntityLogo src={r.logo} name={r.name} size="sm" />}
+              <div className="min-w-0">
+                <p className="truncate font-bold">{r.href ? <Link to={r.href} className="hover:text-primary">{r.name}</Link> : r.name}</p>
+                <p className="truncate text-xs text-muted-foreground"><From club={r.club} sub={r.sub} /><span className="sm:hidden"> · {r.city}</span></p>
+              </div>
             </div>
             <span className="hidden items-center gap-1.5 text-sm text-muted-foreground sm:flex"><MapPin className="size-3.5" />{r.city}</span>
             <span className="hidden text-right text-sm tabular-nums sm:block">{r.extra}</span>
@@ -83,12 +89,12 @@ export default function Rating() {
   const fits = (l: TournamentLevel | 'mixed') => level === 'all' || l === level || l === 'mixed'
 
   const teams: Row[] = (data?.teams ?? []).filter(r => fits(r.level))
-    .map((r, i) => ({ rank: i + 1, name: r.name, club: r.club, sub: r.club ? '' : r.institution, city: r.city, value: formatNumber(r.points), extra: String(r.wins) }))
+    .map((r, i) => ({ rank: i + 1, name: r.name, club: r.club, logo: r.logoUrl, sub: r.club ? '' : r.institution, city: r.city, value: formatNumber(r.points), extra: String(r.wins) }))
   const speakers: Row[] = (data?.speakers ?? []).filter(r => fits(r.level))
-    .map((r, i) => ({ rank: i + 1, name: r.name, club: r.club, sub: r.team, city: r.city, value: r.average.toFixed(1), extra: String(r.tournaments) }))
+    .map((r, i) => ({ rank: i + 1, name: r.name, club: r.club, hasLogo: false, sub: r.team, city: r.city, value: r.average.toFixed(1), extra: String(r.tournaments) }))
   const clubs: Row[] = (data?.clubs ?? []).filter(r => fits(r.level))
     .map((r, i) => ({
-      rank: i + 1, name: r.name, href: `/clubs/${r.id}`, city: r.city, value: String(r.wins),
+      rank: i + 1, name: r.name, href: `/clubs/${r.id}`, logo: r.logoUrl, city: r.city, value: String(r.wins),
       sub: t('rating.clubSub', { teams: r.teams, tournaments: r.tournaments, average: r.speakerAverage.toFixed(1) }), extra: `${r.winRate}%`,
     }))
 

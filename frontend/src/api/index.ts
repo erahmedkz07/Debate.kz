@@ -138,7 +138,23 @@ export const getMyDebates = () => http<MyDebate[]>('GET', '/me/debates')
 
 export const getJudgeAssignments = () => http<JudgeAssignment[]>('GET', '/judge/assignments')
 
+// one judge's ballot as the organizer reads it (organizers only read ballots; judges send them)
+export interface PanelBallot {
+  judgeId: string
+  name: string
+  isChair: boolean
+  hasAccount: boolean
+  submittedAt?: string
+  winner?: 'proposition' | 'opposition'
+  totals?: { proposition: number; opposition: number }
+  scores?: { side: 'proposition' | 'opposition'; position: number; speaker: string; score: number; feedback?: string }[]
+}
+// the ballot sheet's rules come from the tournament's format (and its score ranges)
+export interface BallotRules { format: string; speakers: number; step: number; speaker: [number, number]; reply?: { range: [number, number]; by: number[] } }
 export interface BallotData {
+  rules?: BallotRules
+  canSubmit?: boolean // true for a judge of this debate; organizers and admins get `panel` instead
+  panel?: PanelBallot[]
   tournament: { id: string; name: string }
   round: Round
   debate: Debate
@@ -151,8 +167,9 @@ export const getBallot = (debateId: string) => or404(http<BallotData>('GET', `/b
 export interface BallotPayload {
   winner: 'proposition' | 'opposition'
   scores: Record<string, number> // speakerId -> substantive speech score
-  reply: Record<'proposition' | 'opposition', number>
-  replySpeakers: Record<'proposition' | 'opposition', string>
+  // formats without reply speeches (Karl Popper) send neither
+  reply?: Record<'proposition' | 'opposition', number>
+  replySpeakers?: Record<'proposition' | 'opposition', string>
   feedback?: Record<string, string> // speakerId or "reply:<side>" -> short comment to the speaker
 }
 export const submitBallot = (debateId: string, payload: BallotPayload) =>
@@ -163,11 +180,12 @@ export const submitBallot = (debateId: string, payload: BallotPayload) =>
 export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/tournaments')
 
 export interface CreateTournamentInput {
-  name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university'; description: string
+  name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
   preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
+  format?: 'WSDC' | 'APF' | 'POPPER'
 }
 export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
 export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })
@@ -185,8 +203,6 @@ export const addTeam = (tournamentId: string, data: TeamInput) => http<Team>('PO
 export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH', `/teams/${teamId}`, data)
 export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${teamId}`)
 
-export const addJudge = (tournamentId: string, data: { name: string; institution?: string }) =>
-  http<Judge>('POST', `/tournaments/${tournamentId}/judges`, data)
 export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
@@ -212,8 +228,9 @@ export const acceptInvite = (token: string) =>
   http<{ ok: true; kind: 'judge' | 'co_organizer'; tournamentId: string }>('POST', `/invites/${encodeURIComponent(token)}/accept`)
 export const declineInvite = (token: string) => http<{ ok: true }>('POST', `/invites/${encodeURIComponent(token)}/decline`)
 // invites by email: the person gets a notification and a letter; only that address can accept
-export const inviteByEmail = (tournamentId: string, email: string, kind: 'judge' | 'co_organizer') =>
-  http<EmailInvite & { registered: boolean; mailed: boolean }>('POST', `/tournaments/${tournamentId}/invites/email`, { email, kind })
+// judgeId: link that judge (added earlier without an account) to the person instead of adding a new judge
+export const inviteByEmail = (tournamentId: string, email: string, kind: 'judge' | 'co_organizer', judgeId?: string) =>
+  http<EmailInvite & { registered: boolean; mailed: boolean }>('POST', `/tournaments/${tournamentId}/invites/email`, { email, kind, judgeId })
 export const getEmailInvites = (tournamentId: string) => http<EmailInvite[]>('GET', `/tournaments/${tournamentId}/invites`)
 export const revokeInvite = (tournamentId: string, inviteId: string) => http<void>('DELETE', `/tournaments/${tournamentId}/invites/${inviteId}`)
 
@@ -333,3 +350,10 @@ export function uploadTournamentCover(id: string, file: File) {
   form.append('cover', file)
   return upload<{ cover: string }>(`/tournaments/${id}/cover`, form)
 }
+
+// club and club-team logos (any member); the server stores a square WebP
+const logoForm = (file: File) => { const f = new FormData(); f.append('logo', file); return f }
+export const uploadClubLogo = (clubId: string, file: File) => upload<{ logoUrl: string }>(`/clubs/${clubId}/logo`, logoForm(file))
+export const deleteClubLogo = (clubId: string) => http<void>('DELETE', `/clubs/${clubId}/logo`)
+export const uploadClubTeamLogo = (teamId: string, file: File) => upload<{ logoUrl: string }>(`/club-teams/${teamId}/logo`, logoForm(file))
+export const deleteClubTeamLogo = (teamId: string) => http<void>('DELETE', `/club-teams/${teamId}/logo`)

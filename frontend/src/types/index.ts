@@ -1,8 +1,8 @@
 // Domain types — mirror the planned DB schema (tournaments, teams, speakers, judges, rounds, debates, ballots)
 
-export type TournamentLevel = 'school' | 'university'
+export type TournamentLevel = 'school' | 'university' | 'mixed' // mixed: school and university teams together
 export type TournamentStatus = 'registration' | 'ongoing' | 'finished'
-export type TournamentFormat = 'WSDC'
+export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER'
 export type Lang = 'ru' | 'kz'
 
 export interface Tournament {
@@ -39,8 +39,9 @@ export interface Team {
   speakers: Speaker[]
   checkedIn?: boolean // present at the venue (QR check-in)
   swing?: boolean // stand-in team for an odd draw, never ranked
-  club?: Ref // the club and club team it comes from
+  club?: Ref & { logoUrl?: string } // the club and club team it comes from
   clubTeam?: Ref
+  logoUrl?: string // the club team's logo, else the club's
 }
 
 export interface Judge {
@@ -50,6 +51,7 @@ export interface Judge {
   institution: string
   rating: number // 1..10
   isChair?: boolean
+  hasAccount?: boolean // only judges with an account send ballots; others are invited by email to link one
 }
 
 export interface Round {
@@ -121,6 +123,7 @@ export interface RatingTeam {
   name: string
   institution: string
   club?: Ref
+  logoUrl?: string
   city: string
   level: TournamentLevel
   tournaments: number
@@ -143,6 +146,7 @@ export interface RatingClub {
   rank: number
   id: string
   name: string
+  logoUrl?: string
   city: string
   level: TournamentLevel | 'mixed' // plays both school and university events
   tournaments: number
@@ -375,7 +379,7 @@ export interface EmailInvite {
 
 // ---------- clubs ----------
 export interface Ref { id: string; name: string }
-export interface ClubSummary { id: string; name: string; city: string; institution?: string; members: number; teams: number }
+export interface ClubSummary { id: string; name: string; city: string; institution?: string; logoUrl?: string; members: number; teams: number }
 export interface ClubMemberInfo { id: string; name: string; avatarUrl?: string; teamId?: string }
 export interface ClubDetails {
   id: string
@@ -384,7 +388,8 @@ export interface ClubDetails {
   institution?: string
   description: string
   createdAt: string
-  teams: { id: string; name: string; members: ClubMemberInfo[] }[]
+  logoUrl?: string
+  teams: { id: string; name: string; logoUrl?: string; members: ClubMemberInfo[] }[]
   members: ClubMemberInfo[]
   isMember: boolean
   joinCode?: string // members only

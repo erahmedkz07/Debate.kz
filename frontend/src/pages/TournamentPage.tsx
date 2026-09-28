@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  ArrowLeft, Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users,
+  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users,
 } from 'lucide-react'
 import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
@@ -24,6 +24,10 @@ import { FieldError, Input, Label } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import NotFound from './NotFound'
+import { EntityLogo } from '@/components/ui/entity-logo'
+import { BackButton } from '@/components/layout/BackButton'
+import { useFormatName, useSides } from '@/lib/formats'
+import { formatOfTournament } from '@/content/formats'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -33,12 +37,14 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   const [gate, setGate] = useState(false)
   const { user } = useAuth()
   const navigate = useNavigate()
+  const speakersNeeded = formatOfTournament(tournament.format).score.speakersPerTeam
   const schema = z.object({
     team: z.string().trim().min(2, t('auth.errors.required')),
     institution: z.string().trim().min(2, t('auth.errors.required')),
     s1: z.string().trim().min(3, t('auth.errors.name')),
     s2: z.string().trim().min(3, t('auth.errors.name')),
-    s3: z.string().trim().min(3, t('auth.errors.name')),
+    // the 3rd speaker only in three-speaker formats (WSDC, Karl Popper); APF teams have two
+    s3: speakersNeeded === 3 ? z.string().trim().min(3, t('auth.errors.name')) : z.string().optional(),
     phone: z.string().trim().regex(phoneRe, t('auth.errors.phone')),
   })
   type Form = z.infer<typeof schema>
@@ -50,7 +56,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
 
   const onSubmit = async (v: Form) => {
     try {
-      await registerTeam(tournament.id, { teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3], phone: v.phone })
+      await registerTeam(tournament.id, { teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3 ?? ''].slice(0, speakersNeeded), phone: v.phone })
       toast.success(t('tournament.registerDialog.success'))
       reset()
       setOpen(false)
@@ -95,7 +101,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
                 <FieldError message={errors.institution?.message} />
               </div>
             </div>
-            {(['s1', 's2', 's3'] as const).map((k, i) => (
+            {(['s1', 's2', 's3'] as const).slice(0, speakersNeeded).map((k, i) => (
               <div key={k}>
                 <Label htmlFor={`r-${k}`}>{t('tournament.registerDialog.speaker', { n: i + 1 })}</Label>
                 <Input id={`r-${k}`} aria-invalid={!!errors[k]} {...register(k)} />
@@ -119,9 +125,10 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
 
 function Overview({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
+  const formatName = useFormatName(data.format)
   const days = [...new Set(data.schedule.map(s => s.day))]
   const facts = [
-    { icon: Trophy, label: t('tournament.format'), value: 'World Schools (WSDC)' },
+    { icon: Trophy, label: t('tournament.format'), value: formatName.full },
     { icon: Medal, label: t('tournament.prelims'), value: data.preliminaryRounds },
     { icon: Star, label: t('tournament.break.label'), value: data.breakSize },
     { icon: Users, label: t('tournament.tabs.teams'), value: `${data.teamsCount} / ${data.maxTeams}` },
@@ -187,12 +194,10 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {data.teams.map((team, i) => (
+      {data.teams.map(team => (
         <Card key={team.id} className="p-5 transition-shadow hover:shadow-md">
           <div className="flex items-start gap-3">
-            <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl text-sm font-extrabold', i % 2 ? 'bg-accent text-navy' : 'bg-primary text-primary-foreground')}>
-              {initials(team.name)}
-            </span>
+            <EntityLogo src={team.logoUrl} name={team.name} />
             <div className="min-w-0">
               <h3 className="font-bold">{team.name}</h3>
               <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground"><Building2 className="size-3.5 shrink-0" />{team.institution} · {team.city}</p>
@@ -210,6 +215,7 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
 
 function DrawTab({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
+  const sides = useSides(data.format)
   const released = data.rounds.filter(r => r.status !== 'draft')
   const [roundId, setRoundId] = useState(released.at(-1)?.id)
   if (!released.length) return <EmptyState icon={<CalendarDays className="size-7" />} title={t('tournament.noDraw')} text={t('tournament.noDrawText')} />
@@ -237,8 +243,8 @@ function DrawTab({ data }: { data: TournamentDetails }) {
           <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-5 py-3">{t('tournament.room')}</th>
-              <th className="px-5 py-3">{t('tournament.proposition')}</th>
-              <th className="px-5 py-3">{t('tournament.opposition')}</th>
+              <th className="px-5 py-3">{sides.proposition}</th>
+              <th className="px-5 py-3">{sides.opposition}</th>
               <th className="px-5 py-3">{t('tournament.judges')}</th>
             </tr>
           </thead>
@@ -246,8 +252,8 @@ function DrawTab({ data }: { data: TournamentDetails }) {
             {debates.map(d => (
               <tr key={d.id} className="hover:bg-muted/40">
                 <td className="px-5 py-4 font-semibold">{d.room}</td>
-                <td className="px-5 py-4"><TeamCell name={team(d.propositionTeamId).name} win={d.winner === 'proposition'} /></td>
-                <td className="px-5 py-4"><TeamCell name={team(d.oppositionTeamId).name} win={d.winner === 'opposition'} /></td>
+                <td className="px-5 py-4"><TeamCell name={team(d.propositionTeamId).name} logo={team(d.propositionTeamId).logoUrl} win={d.winner === 'proposition'} /></td>
+                <td className="px-5 py-4"><TeamCell name={team(d.oppositionTeamId).name} logo={team(d.oppositionTeamId).logoUrl} win={d.winner === 'opposition'} /></td>
                 <td className="px-5 py-4 text-muted-foreground">
                   {judges(d).map((j, i) => <span key={j.id}>{i > 0 && ', '}{j.name}{i === 0 && <Star className="ml-1 inline size-3 -translate-y-px text-primary" fill="currentColor" aria-label={t('tournament.chair')} />}</span>)}
                 </td>
@@ -262,9 +268,9 @@ function DrawTab({ data }: { data: TournamentDetails }) {
           <Card key={d.id} className="p-4">
             <p className="flex items-center gap-1.5 text-xs font-bold text-primary"><DoorOpen className="size-3.5" />{d.room}</p>
             <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center">
-              <div><p className="text-[10px] font-semibold uppercase text-muted-foreground">{t('tournament.proposition')}</p><TeamCell name={team(d.propositionTeamId).name} win={d.winner === 'proposition'} center /></div>
+              <div><p className="text-[10px] font-semibold uppercase text-muted-foreground">{sides.proposition}</p><TeamCell name={team(d.propositionTeamId).name} logo={team(d.propositionTeamId).logoUrl} win={d.winner === 'proposition'} center /></div>
               <span className="text-xs font-extrabold text-muted-foreground">VS</span>
-              <div><p className="text-[10px] font-semibold uppercase text-muted-foreground">{t('tournament.opposition')}</p><TeamCell name={team(d.oppositionTeamId).name} win={d.winner === 'opposition'} center /></div>
+              <div><p className="text-[10px] font-semibold uppercase text-muted-foreground">{sides.opposition}</p><TeamCell name={team(d.oppositionTeamId).name} logo={team(d.oppositionTeamId).logoUrl} win={d.winner === 'opposition'} center /></div>
             </div>
             <p className="mt-3 flex items-start gap-1.5 border-t border-border pt-3 text-xs text-muted-foreground"><Gavel className="mt-0.5 size-3.5 shrink-0" />{judges(d).map(j => j.name).join(', ')}</p>
           </Card>
@@ -274,11 +280,11 @@ function DrawTab({ data }: { data: TournamentDetails }) {
   )
 }
 
-function TeamCell({ name, win, center }: { name: string; win: boolean; center?: boolean }) {
+function TeamCell({ name, logo, win, center }: { name: string; logo?: string; win: boolean; center?: boolean }) {
   const { t } = useTranslation()
   return (
     <span className={cn('inline-flex flex-wrap items-center gap-1.5 font-semibold', center && 'justify-center', win && 'text-success')}>
-      {name}{win && <Badge variant="success" className="px-1.5 py-0.5 text-[10px]"><Trophy className="size-3" />{t('tournament.winner')}</Badge>}
+      <EntityLogo src={logo} name={name} size="xs" />{name}{win && <Badge variant="success" className="px-1.5 py-0.5 text-[10px]"><Trophy className="size-3" />{t('tournament.winner')}</Badge>}
     </span>
   )
 }
@@ -340,7 +346,12 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
             {data.teams.map(r => (
               <tr key={r.team.id} className={cn('hover:bg-muted/40', breakSize > 0 && r.rank <= breakSize && 'bg-primary-soft/40')}>
                 <td className="px-4 py-3">{medal(r.rank)}</td>
-                <td className="px-4 py-3"><p className="font-bold">{r.team.name}</p><p className="text-xs text-muted-foreground">{r.team.institution}</p></td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <EntityLogo src={r.team.logoUrl} name={r.team.name} size="sm" />
+                    <div className="min-w-0"><p className="font-bold">{r.team.name}</p><p className="text-xs text-muted-foreground">{r.team.institution}</p></div>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-center"><span className="font-bold text-success">{r.wins}</span><span className="text-muted-foreground"> – {r.losses}</span></td>
                 <td className="px-4 py-3 text-right font-semibold tabular-nums">{r.speakerPoints.toFixed(1)}</td>
                 {forecast && (
@@ -431,10 +442,11 @@ export default function TournamentPage() {
         <img src={data.cover} alt="" className="absolute inset-0 size-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-navy via-navy/75 to-navy/30" />
         <div className="container-page relative pb-10 pt-10 sm:pb-14 sm:pt-20">
-          <Link to="/tournaments" className="inline-flex items-center gap-1.5 text-sm font-semibold text-white/80 hover:text-white"><ArrowLeft className="size-4" />{t('nav.tournaments')}</Link>
+          {/* back to where the visitor came from (home, profile, rating…); opened from a link: the tournament list */}
+          <BackButton fallback="/tournaments" className="-ml-1 text-white/80 hover:text-white" />
           <div className="mt-6 flex flex-wrap gap-2">
             <Badge variant={statusVariant[data.status] === 'muted' ? 'glass' : statusVariant[data.status]}><StatusDot status={data.status} />{t(`status.${data.status}`)}</Badge>
-            <Badge variant="accent">{data.format}</Badge>
+            <Badge variant="accent">{formatOfTournament(data.format).short}</Badge>
             <Badge variant="glass">{t(`level.${data.level}`)}</Badge>
           </div>
           <h1 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight sm:text-5xl">{data.name}</h1>

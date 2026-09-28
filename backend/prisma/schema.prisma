@@ -46,6 +46,7 @@ enum ModerationStatus {
 enum TournamentLevel {
   school
   university
+  mixed // school and university teams together
 }
 
 enum TournamentStatus {
@@ -240,8 +241,10 @@ model TournamentInvite {
   usedAt       DateTime?  @map("used_at")
   email        String? // invite by email: only the account with this address can accept it
   declinedAt   DateTime?  @map("declined_at")
+  judgeId      String?    @map("judge_id") // a judge added earlier without an account: accepting links that judge to the account
   createdAt    DateTime   @default(now()) @map("created_at")
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  judge        Judge?     @relation(fields: [judgeId], references: [id], onDelete: SetNull)
   createdBy    User       @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   usedBy       User?      @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
 
@@ -312,17 +315,18 @@ model Speaker {
 }
 
 model Judge {
-  id            String        @id @default(cuid())
-  tournamentId  String        @map("tournament_id")
+  id            String             @id @default(cuid())
+  tournamentId  String             @map("tournament_id")
   name          String
-  institutionId String?       @map("institution_id")
-  rating        Int           @default(5) // 1..10
-  userId        String?       @map("user_id")
-  tournament    Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  institution   Institution?  @relation(fields: [institutionId], references: [id])
-  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  institutionId String?            @map("institution_id")
+  rating        Int                @default(5) // 1..10
+  userId        String?            @map("user_id")
+  tournament    Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  institution   Institution?       @relation(fields: [institutionId], references: [id])
+  user          User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   debates       DebateJudge[]
   ballots       Ballot[]
+  invites       TournamentInvite[]
 
   @@index([tournamentId])
   @@index([userId])
@@ -598,6 +602,7 @@ model Club {
   institution     String? // university / school the club belongs to
   description     String            @default("")
   joinCode        String            @unique @map("join_code") // /clubs/join/<code>
+  logoUrl         String?           @map("logo_url") // /uploads/logos/…, re-encoded square WebP
   createdAt       DateTime          @default(now()) @map("created_at")
   teams           ClubTeam[]
   members         ClubMember[]
@@ -613,6 +618,7 @@ model ClubTeam {
   id              String       @id @default(cuid())
   clubId          String       @map("club_id")
   name            String
+  logoUrl         String?      @map("logo_url") // /uploads/logos/…, re-encoded square WebP
   createdAt       DateTime     @default(now()) @map("created_at")
   club            Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
   members         ClubMember[]
