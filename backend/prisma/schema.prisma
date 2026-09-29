@@ -434,19 +434,21 @@ model SpeakerScore {
 }
 
 model TeamRegistration {
-  id           String             @id @default(cuid())
-  tournamentId String             @map("tournament_id")
-  userId       String             @map("user_id")
-  teamName     String             @map("team_name")
-  institution  String
-  speakers     String[]
-  contactPhone String             @map("contact_phone")
-  clubId       String?            @map("club_id")
-  clubTeamId   String?            @map("club_team_id")
-  status       RegistrationStatus @default(pending)
-  createdAt    DateTime           @default(now()) @map("created_at")
-  tournament   Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String             @id @default(cuid())
+  tournamentId      String             @map("tournament_id")
+  userId            String             @map("user_id")
+  teamName          String             @map("team_name")
+  institution       String
+  speakers          String[]
+  contactPhone      String             @map("contact_phone")
+  clubId            String?            @map("club_id")
+  clubTeamId        String?            @map("club_team_id")
+  // school and mixed tournaments: the applicant confirmed that the parents of speakers under 18 agreed
+  guardianConsentAt DateTime?          @map("guardian_consent_at")
+  status            RegistrationStatus @default(pending)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  tournament        Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([tournamentId, teamName])
   @@index([userId])

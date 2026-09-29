@@ -40,6 +40,8 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   const { user } = useAuth()
   const navigate = useNavigate()
   const speakersNeeded = formatOfTournament(tournament.format).score.speakersPerTeam
+  // school and mixed tournaments: speakers may be under 18, their parents' consent is confirmed by the applicant
+  const minors = tournament.level !== 'university'
   const schema = z.object({
     team: z.string().trim().min(2, t('auth.errors.required')),
     institution: z.string().trim().min(2, t('auth.errors.required')),
@@ -47,18 +49,19 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     s2: z.string().trim().min(3, t('auth.errors.name')),
     // the 3rd speaker only in three-speaker formats (WSDC, Karl Popper); APF teams have two
     s3: speakersNeeded === 3 ? z.string().trim().min(3, t('auth.errors.name')) : z.string().optional(),
+    guardian: z.boolean().refine(v => !minors || v, t('tournament.registerDialog.guardianRequired')),
     phone: z.string().trim().regex(phoneRe, t('auth.errors.phone')),
   })
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
     // prefilled from the profile: the club team name and the club's institution
-    values: { team: user?.clubTeam?.name ?? '', institution: user?.institution ?? user?.club?.name ?? '', s1: user?.name ?? '', s2: '', s3: '', phone: user?.phone ?? '' },
+    values: { team: user?.clubTeam?.name ?? '', institution: user?.institution ?? user?.club?.name ?? '', s1: user?.name ?? '', s2: '', s3: '', guardian: false, phone: user?.phone ?? '' },
   })
 
   const onSubmit = async (v: Form) => {
     try {
-      await registerTeam(tournament.id, { teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3 ?? ''].slice(0, speakersNeeded), phone: v.phone })
+      await registerTeam(tournament.id, { teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3 ?? ''].slice(0, speakersNeeded), phone: v.phone, ...(minors && { guardianConsent: true }) })
       toast.success(t('tournament.registerDialog.success'))
       reset()
       setOpen(false)
@@ -115,6 +118,15 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
               <Input id="r-phone" type="tel" placeholder="+7 7XX XXX XX XX" aria-invalid={!!errors.phone} {...register('phone')} />
               <FieldError message={errors.phone?.message} />
             </div>
+            {minors && (
+              <div>
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border-2 border-border p-3 text-sm transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary-soft/40">
+                  <input type="checkbox" className="mt-0.5 size-4 shrink-0 cursor-pointer accent-[var(--primary)]" aria-invalid={!!errors.guardian} {...register('guardian')} />
+                  <span className="text-muted-foreground">{t('tournament.registerDialog.guardian')} <Link to="/privacy#s4" target="_blank" className="font-semibold text-primary hover:underline">{t('legal.privacy')}</Link></span>
+                </label>
+                <FieldError message={errors.guardian?.message} />
+              </div>
+            )}
             <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? t('common.loading') : t('tournament.registerDialog.submit')}
             </Button>

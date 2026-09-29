@@ -16,6 +16,8 @@ const Login = lazy(() => import('@/pages/auth/Login'))
 const Register = lazy(() => import('@/pages/auth/Register'))
 const Rating = lazy(() => import('@/pages/Rating'))
 const About = lazy(() => import('@/pages/About'))
+const Privacy = lazy(() => import('@/pages/Legal').then(m => ({ default: m.PrivacyPage })))
+const Terms = lazy(() => import('@/pages/Legal').then(m => ({ default: m.TermsPage })))
 const Pricing = lazy(() => import('@/pages/Pricing'))
 const Ballot = lazy(() => import('@/pages/Ballot'))
 const DashboardLayout = lazy(() => import('@/pages/dashboard/DashboardLayout'))
@@ -87,6 +89,8 @@ export default function App() {
                 <Route path="verify/:code" element={<VerifyCertificate />} />
                 <Route path="checkin/:tournamentId" element={<RequireAuth><CheckIn /></RequireAuth>} />
                 <Route path="about" element={<About />} />
+                <Route path="privacy" element={<Privacy />} />
+                <Route path="terms" element={<Terms />} />
                 <Route path="pricing" element={<Pricing />} />
                 <Route path="ballot/:debateId" element={<RequireAuth><Ballot /></RequireAuth>} />
                 <Route path="verify-email" element={<VerifyEmail />} />

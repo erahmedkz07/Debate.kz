@@ -117,7 +117,7 @@ export const deleteAvatar = () => http<{ user: User }>('DELETE', '/me/avatar').t
 
 export const getMyRegistrations = () => http<(TeamRegistration & { tournament: Tournament })[]>('GET', '/me/registrations')
 
-export const registerTeam = (tournamentId: string, data: { teamName: string; institution: string; speakers: string[]; phone: string }) =>
+export const registerTeam = (tournamentId: string, data: { teamName: string; institution: string; speakers: string[]; phone: string; guardianConsent?: boolean }) =>
   http<TeamRegistration>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/registrations`, data)
 
 export interface MyDebate {

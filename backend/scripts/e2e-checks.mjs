@@ -81,12 +81,12 @@ const addJudge = async (orgClient, tournamentId, name) => {
 const mine = (await org('GET', '/organizer/tournaments')).data
 const t1 = mine.find(t => t.status === 'registration')
 const before = t1.teamsCount
-let r = await student('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'E2E Команда', institution: 'Лицей №15', speakers: ['Тест Первый', 'Тест Второй', 'Тест Третий'], phone: '+7 701 555 44 33' })
+let r = await student('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'E2E Команда', institution: 'Лицей №15', speakers: ['Тест Первый', 'Тест Второй', 'Тест Третий'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 201, `participant registers team (${r.status})`)
-r = await student('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'E2E Команда', institution: 'Лицей №15', speakers: ['А Б', 'В Г', 'Д Е'].map(s => s + 'ов'), phone: '+7 701 555 44 33' })
+r = await student('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'E2E Команда', institution: 'Лицей №15', speakers: ['А Б', 'В Г', 'Д Е'].map(s => s + 'ов'), phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 409 && r.data.error === 'team_name_taken', 'duplicate team name rejected')
 const t4id = mine.find(t => t.status === 'ongoing').id
-r = await judge('POST', `/tournaments/${t4id}/registrations`, { teamName: 'Команда судьи', institution: 'Лицей №1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+r = await judge('POST', `/tournaments/${t4id}/registrations`, { teamName: 'Команда судьи', institution: 'Лицей №1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 403 && r.data.error === 'conflict_of_interest', 'a judge of a tournament cannot register a team in it')
 const regs = (await org('GET', `/tournaments/${t1.id}/registrations`)).data
 const reg = regs.find(x => x.teamName === 'E2E Команда')
@@ -227,7 +227,7 @@ ok(r.status === 400, 'registration without personal-data consent rejected')
 const tBody = n => ({ name: `E2E турнир ${n} ${uniq}`, city: 'Астана', startDate: '2026-12-12', endDate: '2026-12-13', level: 'school', description: '', preliminaryRounds: 3, breakSize: 4, maxTeams: 8, registrationOpen: true, requireApproval: true, languages: ['ru'] })
 r = await fresh('POST', '/tournaments', tBody(1))
 ok(r.status === 403 && r.data.error === 'email_not_verified', 'unverified user cannot create a tournament')
-r = await fresh('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'Z', institution: 'Лицей', speakers: ['Ааа Бб', 'Ввв Гг', 'Ддд Ее'], phone: '+7 701 555 44 33' })
+r = await fresh('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'Z', institution: 'Лицей', speakers: ['Ааа Бб', 'Ввв Гг', 'Ддд Ее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 403 && r.data.error === 'email_not_verified', 'unverified user cannot register a team')
 r = await fresh('POST', '/auth/verify-email', { token: 'x'.repeat(43) })
 ok(r.status === 400 && r.data.error === 'invalid_or_expired_token', 'wrong verification token rejected')
@@ -338,7 +338,7 @@ ok(r.status === 400 && r.data.error === 'not_enough_teams', 'cannot start with f
 await fresh('POST', `/tournaments/${own1.id}/teams`, { name: 'Вторая команда', institution: 'Лицей №2', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
 r = await fresh('PATCH', `/tournaments/${own1.id}`, { status: 'ongoing' })
 ok(r.status === 200 && r.data.status === 'ongoing', 'owner starts the tournament')
-r = await student('POST', `/tournaments/${own1.id}/registrations`, { teamName: 'Поздняя команда', institution: 'Лицей №3', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+r = await student('POST', `/tournaments/${own1.id}/registrations`, { teamName: 'Поздняя команда', institution: 'Лицей №3', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 403 && r.data.error === 'registration_closed', 'registration is closed once the tournament is ongoing')
 r = await fresh('PATCH', `/tournaments/${own1.id}`, { status: 'registration' })
 ok(r.status === 200, 'can go back to registration while no round is released')
@@ -373,7 +373,7 @@ r = await sabina('DELETE', `/judges/${drawnJudge.id}`)
 ok(r.status === 403, 'outsiders cannot remove judges')
 
 // ---------- 11. admins never compete ----------
-r = await admin('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'Команда админа', institution: 'Лицей №1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+r = await admin('POST', `/tournaments/${t1.id}/registrations`, { teamName: 'Команда админа', institution: 'Лицей №1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 403 && r.data.error === 'admins_cannot_compete', 'an admin cannot register a team')
 
 // ---------- 12. editing details, rooms, wing judges ----------
@@ -908,7 +908,7 @@ ok(invList.some(i => i.state === 'accepted' && i.acceptedBy), 'the organizer see
 ok((await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'sabina@mail.kz' })).data?.error === 'already_joined', 'someone who already judges here is not invited again')
 
 // a participant of the tournament cannot be invited to judge it
-await student('POST', `/tournaments/${small.id}/registrations`, { teamName: `Студенты ${uniq}`, institution: 'Лицей', speakers: ['Студент Демо', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+await student('POST', `/tournaments/${small.id}/registrations`, { teamName: `Студенты ${uniq}`, institution: 'Лицей', speakers: ['Студент Демо', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok((await payer('POST', `/tournaments/${small.id}/invites/email`, { email: 'student@debate.kz' })).data?.error === 'conflict_of_interest', 'a person registered as a participant cannot be invited to judge')
 
 // someone without an account: the letter asks to sign up with that address
@@ -971,11 +971,11 @@ const oldCode = club.joinCode
 r = await clubB('POST', `/clubs/${clubId}/code`)
 ok(r.data.joinCode !== oldCode && (await outsider('POST', '/clubs/join', { code: oldCode })).status === 404, 'resetting the link stops the old one')
 // registration for a tournament needs a club and a team
-r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `Без клуба ${uniq}`, institution: 'Школа', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `Без клуба ${uniq}`, institution: 'Школа', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.data?.error === 'club_required', 'without a club and a team in the profile you cannot apply to a tournament')
 await outsider('POST', '/clubs/join', { code: r.data ? (await clubA('GET', `/clubs/${clubId}`)).data.joinCode : '' })
 await outsider('PUT', `/clubs/${clubId}/members/${(await outsider('GET', '/auth/me')).data.user.id}/team`, { teamId: beta })
-r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `С клубом ${uniq}`, institution: 'ЕНУ', speakers: ['Клубный Членo', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `С клубом ${uniq}`, institution: 'ЕНУ', speakers: ['Клубный Членo', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 201, 'with a club and a team the application goes through')
 const smallRegs = (await payer('GET', `/tournaments/${small.id}/registrations`)).data
 await payer('PATCH', `/registrations/${smallRegs.find(x => x.teamName === `С клубом ${uniq}`).id}`, { status: 'confirmed' })
@@ -1353,7 +1353,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const school = (await client()('GET', '/tournaments?level=school&limit=100')).data
   const uni = (await client()('GET', '/tournaments?level=university&limit=100')).data
   ok((school.items ?? school).some(x => x.id === apf.id) && (uni.items ?? uni).some(x => x.id === apf.id), 'a mixed tournament shows up under both school and university')
-  r = await student('POST', `/tournaments/${apf.id}/registrations`, { teamName: 'Трое в APF', institution: 'Лицей', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+  r = await student('POST', `/tournaments/${apf.id}/registrations`, { teamName: 'Трое в APF', institution: 'Лицей', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
   ok(r.data?.error === 'wrong_speaker_count', 'an application to an APF tournament names two speakers')
 }
 // ---------- 39. British Parliamentary: four teams per room, places 1–4, the chair's agreed ballot ----------
@@ -1560,6 +1560,24 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   await bpHost.c('PATCH', `/rounds/${bpFinal.id}`, { status: 'completed' })
   const bpBracket = (await client()('GET', `/tournaments/${bp.id}/bracket`)).data
   ok(bpBracket.champion?.id === room.propositionTeamId, 'the BP champion is 1st in the final room')
+}
+// ---------- 41. minors: parents' consent for school and mixed tournaments ----------
+{
+  const host = await newAccount('Согласие Организатор')
+  const mk = async (n, level) => {
+    const t = (await host.c('POST', '/tournaments', { ...tBody(100 + n), name: `Согласие ${n} ${jtag}`, level })).data
+    await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+    return t
+  }
+  const school = await mk(1, 'school'), uni = await mk(2, 'university')
+  const body = name => ({ teamName: name, institution: 'Лицей', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33' })
+  r = await student('POST', `/tournaments/${school.id}/registrations`, body('Без согласия'))
+  ok(r.status === 400 && r.data.error === 'guardian_consent_required', "a school tournament needs the parents' consent")
+  r = await student('POST', `/tournaments/${school.id}/registrations`, { ...body('С согласием'), guardianConsent: true })
+  const saved = r.status === 201 && (await db.query('select guardian_consent_at from team_registrations where id = $1', [r.data.id])).rows[0]?.guardian_consent_at
+  ok(!!saved, 'the confirmation is stored with its time')
+  r = await student('POST', `/tournaments/${uni.id}/registrations`, body('Студенты'))
+  ok(r.status === 201, 'a university tournament does not ask for it')
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

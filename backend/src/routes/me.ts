@@ -136,6 +136,8 @@ const registrationSchema = z.object({
   institution: z.string().trim().min(2).max(150),
   speakers: z.array(z.string().trim().min(3).max(100)).min(2).max(3), // as many as the tournament's format needs
   phone,
+  // school and mixed tournaments: the parents (legal guardians) of speakers under 18 agreed to their data being processed
+  guardianConsent: z.boolean().optional(),
 })
 
 // any verified user can register a team; the organizer confirms later.
@@ -158,8 +160,14 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   if (await prisma.teamRegistration.findUnique({ where: { tournamentId_teamName: { tournamentId: t.id, teamName: data.teamName } } })) {
     throw conflict('team_name_taken')
   }
+  // personal data law: minors take part with their parents' consent; school and mixed tournaments ask the applicant to confirm it
+  const minors = t.level !== 'university'
+  if (minors && data.guardianConsent !== true) throw badRequest('guardian_consent_required')
   const reg = await prisma.teamRegistration.create({
-    data: { tournamentId: t.id, userId: req.user!.id, teamName: data.teamName, institution: data.institution, speakers: data.speakers, contactPhone: data.phone, clubId: membership.clubId, clubTeamId: membership.teamId },
+    data: {
+      tournamentId: t.id, userId: req.user!.id, teamName: data.teamName, institution: data.institution, speakers: data.speakers, contactPhone: data.phone,
+      clubId: membership.clubId, clubTeamId: membership.teamId, ...(minors && { guardianConsentAt: new Date() }),
+    },
   })
   background(notifyNewRegistration(reg.id))
   res.status(201).json({ ...reg, createdAt: toDay(reg.createdAt) })
