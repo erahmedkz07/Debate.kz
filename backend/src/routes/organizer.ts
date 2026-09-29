@@ -7,7 +7,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
-import { announceBreak, cancelBreak } from '../services/playoffs.js'
+import { announceBreak, cancelBreak, categoriesOf } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
@@ -128,6 +128,10 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
     silentRounds: z.number().int().min(0).max(3).optional(),
+    // extra brackets for groups of teams (novices, juniors…), set before the break
+    breakCategories: z.array(z.object({
+      key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+    })).max(3).optional(),
     roomLinks: z.record(z.string().trim().min(1).max(60), httpsUrl).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
   }))
@@ -155,6 +159,19 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     data.maxTeams = maxTeams
   }
   if (rooms) data.rooms = [...new Set(rooms)]
+  if (rest.breakCategories) {
+    if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
+    if (new Set(rest.breakCategories.map(c => c.key)).size !== rest.breakCategories.length) throw badRequest('invalid_break_categories')
+    // BP brackets are rooms of four
+    if (cur.format === 'BP' && rest.breakCategories.some(c => c.size < 4)) throw badRequest('break_too_small')
+    // a removed category no longer marks any team
+    const keys = rest.breakCategories.map(c => c.key)
+    const teams = await prisma.team.findMany({ where: { tournamentId: cur.id, NOT: { categories: { isEmpty: true } } }, select: { id: true, categories: true } })
+    for (const tm of teams) {
+      const left = tm.categories.filter(k => keys.includes(k))
+      if (left.length !== tm.categories.length) await prisma.team.update({ where: { id: tm.id }, data: { categories: left } })
+    }
+  }
   // at least one preliminary round stays open, and the choice is fixed once the break is announced
   if (rest.silentRounds !== undefined) {
     if (rest.silentRounds >= cur.preliminaryRounds) throw badRequest('too_many_silent_rounds')
@@ -270,6 +287,19 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
     })
   })
   res.json(toTeam(team))
+})
+
+// which break categories a team may break in (novices, juniors…): the whole list is replaced
+organizerRouter.put('/teams/:teamId/categories', org, async (req, res) => {
+  const team = await prisma.team.findUnique({ where: { id: param(req, 'teamId') }, include: { tournament: { select: { breakCategories: true, rounds: { select: { kind: true } } } } } })
+  if (!team) throw notFound('team_not_found')
+  await assertCanManage(req.user, team.tournamentId)
+  if (team.tournament.rounds.some(r => r.kind === 'elimination')) throw forbidden('break_already_announced')
+  const { categories } = body(req, z.object({ categories: z.array(z.string()).max(3) }))
+  const known = new Set(categoriesOf(team.tournament).map(c => c.key))
+  if (categories.some(k => !known.has(k))) throw badRequest('invalid_break_categories')
+  const updated = await prisma.team.update({ where: { id: team.id }, data: { categories: [...new Set(categories)] }, include: teamInclude })
+  res.json({ ...toTeam(updated), categories: updated.categories })
 })
 
 organizerRouter.delete('/teams/:teamId', org, async (req, res) => {

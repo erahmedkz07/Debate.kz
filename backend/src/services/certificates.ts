@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto'
 import { prisma } from '../lib/prisma.js'
 import { getStandings } from './tournaments.js'
-import { finalPlaces } from './playoffs.js'
+import { categoryPlaces, finalPlaces } from './playoffs.js'
 
 // Certificates of a finished tournament: one per speaker (team place, break, top-3 speaker)
 // and one per judge. Issued once (idempotent); the random code is printed as a QR and checked publicly.
@@ -24,6 +24,8 @@ export async function ensureCertificates(tournamentId: string) {
   // with playoffs the places come from the bracket (the champion is the winner of the final); without, from the standings
   const teamPlace = (await finalPlaces(tournamentId)) ?? new Map(standings.teams.map(r => [r.team.id, r.rank]))
   const broke = new Set(t.teams.filter(x => x.breakSeed).map(x => x.id))
+  // category brackets (novices…): the team's place there, e.g. "novice champion"
+  const inCategory = await categoryPlaces(tournamentId)
   // the top-3 speakers count only if they actually spoke
   const speakerPlace = new Map(standings.speakers.filter(r => r.rank <= 3 && r.total > 0).map(r => [r.speaker.id, r.rank]))
 
@@ -31,6 +33,7 @@ export async function ensureCertificates(tournamentId: string) {
     ...t.teams.flatMap(team => team.speakers.map(s => ({
       kind: 'speaker', speakerId: s.id, userId: s.userId, name: s.name, teamName: team.name, institution: team.institution?.name ?? null,
       teamPlace: teamPlace.get(team.id) ?? null, inBreak: broke.size ? broke.has(team.id) : (teamPlace.get(team.id) ?? 999) <= t.breakSize, speakerPlace: speakerPlace.get(s.id) ?? null,
+      breakCategory: inCategory.get(team.id)?.category ?? null, categoryPlace: inCategory.get(team.id)?.place ?? null,
     }))),
     ...t.judges.map(j => ({ kind: 'judge', judgeId: j.id, userId: j.userId, name: j.name, institution: j.institution?.name ?? null })),
   ]

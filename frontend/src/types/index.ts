@@ -24,6 +24,7 @@ export interface Tournament {
   preliminaryRounds: number
   breakSize: number
   silentRounds?: number // the last N preliminary rounds keep results hidden until the break
+  breakCategories?: BreakCategory[] // extra brackets (novices, juniors…)
   languages: Lang[]
 }
 
@@ -46,6 +47,8 @@ export interface Team {
   clubTeam?: Ref
   logoUrl?: string // the club team's logo, else the club's
   breakSeed?: number // 1..breakSize once the break is announced
+  breakCategory?: string // the category bracket it broke into (none = the open break)
+  categories?: string[] // break categories the team may break in
   institutionId?: string // organizers only (judge conflicts)
 }
 
@@ -76,9 +79,12 @@ export interface Round {
   kind?: 'elimination'
   teamsInRound?: number
   stage?: PlayoffStage
+  category?: string // a category bracket (novices…): its key and name
+  categoryName?: string
 }
 
 export type PlayoffStage = 'final' | 'semi' | 'quarter' | 'octo'
+export interface BreakCategory { key: string; name: string; size: number }
 
 export interface Debate {
   id: string
@@ -279,6 +285,8 @@ export interface Certificate {
   teamPlace?: number
   inBreak: boolean
   speakerPlace?: number
+  breakCategory?: string // the category bracket the team played in, and its place there
+  categoryPlace?: number
   issuedAt: string
   tournament: { id: string; name: string; city: string; level: TournamentLevel; organizer: string; startDate: string; endDate: string }
 }

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Crown, Medal, Trophy } from 'lucide-react'
-import { getBracket, type Bracket, type BracketDebate } from '@/api'
+import { getBracket, type BracketDebate, type BracketPart } from '@/api'
 import type { Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
@@ -18,18 +18,29 @@ export function PlayoffTab({ id }: { id: string }) {
   if (error) return <ErrorState onRetry={reload} />
   if (loading || !data) return <div className="space-y-3"><Skeleton className="h-24" /><Skeleton className="h-64" /></div>
   if (!data.announced) return <EmptyState icon={<Trophy className="size-7" />} title={t('playoff.empty')} text={t('playoff.emptyText')} />
-  return <BracketView data={data} />
+  return (
+    <div className="space-y-10">
+      <BracketView data={data} format={data.format} />
+      {data.categories.filter(c => c.rounds.length).map(c => (
+        <section key={c.key} aria-label={c.name}>
+          <h2 className="mb-4 text-xl font-extrabold">{t('playoff.categoryBracket', { name: c.name })}</h2>
+          <BracketView data={c} format={data.format} category={c.name} />
+        </section>
+      ))}
+    </div>
+  )
 }
 
-function BracketView({ data }: { data: Bracket }) {
+function BracketView({ data, format, category }: { data: BracketPart; format: string; category?: string }) {
   const { t } = useTranslation()
-  const bp = isBP(data.format)
+  const bp = isBP(format)
   const byId = new Map(data.seeds.map(s => [s.team.id, s]))
+  if (!data.rounds.length) return null
   return (
     <div className="space-y-5">
       {data.champion && (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-accent to-orange-400 p-5 text-navy sm:p-6">
-          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider"><Crown className="size-4" />{t('playoff.champion')}</p>
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider"><Crown className="size-4" />{category ? t('playoff.categoryChampion', { name: category }) : t('playoff.champion')}</p>
           <div className="mt-2 flex items-center gap-3">
             <EntityLogo src={data.champion.logoUrl} name={data.champion.name} />
             <div>
@@ -55,7 +66,7 @@ function BracketView({ data }: { data: Bracket }) {
                 {r.motion && <p className="mb-3 line-clamp-3 text-xs italic text-muted-foreground">«{r.motion}»</p>}
                 <div className="flex flex-col justify-around gap-3" style={{ minHeight: `${Math.max(1, data.rounds[0].teamsInRound / (bp ? 4 : 2)) * 7}rem` }}>
                   {r.debates.length
-                    ? r.debates.map(d => <MatchCard key={d.id} d={d} byId={byId} format={data.format} />)
+                    ? r.debates.map(d => <MatchCard key={d.id} d={d} byId={byId} format={format} />)
                     : Array.from({ length: rooms }, (_, i) => (
                       <Card key={i} className="grid h-24 place-items-center border-dashed p-3 text-center text-xs text-muted-foreground">{t('playoff.pending')}</Card>
                     ))}

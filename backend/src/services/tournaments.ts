@@ -18,6 +18,7 @@ export const toSummary = (t: SummaryRow) => ({
   format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams,
   cover: coverOf(t), organizer: t.organizerName, description: t.description,
   preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, silentRounds: t.silentRounds, languages: t.languages,
+  breakCategories: t.breakCategories as { key: string; name: string; size: number }[],
 })
 
 export const teamInclude = {
@@ -119,7 +120,11 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     motion: r.status === 'draft' && !manager ? '' : r.motion,
     infoSlide: r.status === 'draft' && !manager ? undefined : r.infoSlide ?? undefined,
     status: r.status, date: toDay(r.date),
-    ...(r.kind === 'elimination' && { kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)) }),
+    ...(r.kind === 'elimination' && {
+      kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)),
+      // a category bracket (novices…): its key and name for the round title
+      ...(r.category && { category: r.category, categoryName: (t.breakCategories as { key: string; name: string }[]).find(c => c.key === r.category)?.name }),
+    }),
   }))
   const silent = manager ? new Set<string>() : silentIn(t)
   const debates = t.rounds.filter(r => manager || r.status !== 'draft').flatMap(r => r.debates.map(d => {
@@ -140,7 +145,11 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
     rounds, debates,
-    teams: t.teams.map(team => ({ ...toTeam(team), ...(team.breakSeed && { breakSeed: team.breakSeed }), ...(manager && team.institutionId && { institutionId: team.institutionId }) })),
+    teams: t.teams.map(team => ({
+      ...toTeam(team), ...(team.breakSeed && { breakSeed: team.breakSeed, ...(team.breakCategory && { breakCategory: team.breakCategory }) }),
+      ...(team.categories.length && { categories: team.categories }),
+      ...(manager && team.institutionId && { institutionId: team.institutionId }),
+    })),
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
       hasAccount: !!j.userId, // only judges with an account can send ballots

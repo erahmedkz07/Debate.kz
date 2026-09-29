@@ -7,7 +7,7 @@ import {
   Award, CalendarClock, ChevronRight, Circle, DoorOpen, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -306,6 +306,25 @@ function Teams({ data, reload }: SectionProps) {
                       <div>
                         <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}{team.swing && <Badge variant="outline">{t('dashboard.checkin.swing')}</Badge>}</p>
                         <p className="text-xs text-muted-foreground">{team.institution}</p>
+                        {!team.swing && (data.breakCategories ?? []).length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {(data.breakCategories ?? []).map(c => {
+                              const on = team.categories?.includes(c.key) ?? false
+                              const locked = data.rounds.some(r => r.kind === 'elimination')
+                              return (
+                                <button key={c.key} type="button" disabled={locked || busy === `cat-${team.id}`} aria-pressed={on}
+                                  onClick={async () => {
+                                    const next = on ? (team.categories ?? []).filter(k => k !== c.key) : [...(team.categories ?? []), c.key]
+                                    if (await run(`cat-${team.id}`, () => setTeamCategories(team.id, next))) reload()
+                                  }}
+                                  className={cn('cursor-pointer rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors disabled:cursor-default',
+                                    on ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-primary/50')}>
+                                  {c.name}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -510,7 +529,8 @@ function BreakCard({ data, reload }: SectionProps) {
   const { busy, run } = useAction()
   const elimination = data.rounds.filter(r => r.kind === 'elimination')
   const prelims = data.rounds.filter(r => r.kind !== 'elimination')
-  const seeds = data.teams.filter(x => x.breakSeed).sort((a, b) => a.breakSeed! - b.breakSeed!)
+  const seeds = data.teams.filter(x => x.breakSeed && !x.breakCategory).sort((a, b) => a.breakSeed! - b.breakSeed!)
+  const categorySeeds = (data.breakCategories ?? []).map(c => ({ ...c, teams: data.teams.filter(x => x.breakCategory === c.key).sort((a, b) => a.breakSeed! - b.breakSeed!) }))
   const blocker = data.status !== 'ongoing' ? t('dashboard.break.needOngoing')
     : !prelims.length || prelims.some(r => r.status !== 'completed') ? t('dashboard.break.needPrelims') : null
   const canCancel = elimination.length > 0 && elimination.every(r => r.status === 'draft')
@@ -537,6 +557,22 @@ function BreakCard({ data, reload }: SectionProps) {
         )}
       </div>
       {elimination.length === 0 && blocker && <p className="mt-3 text-xs text-muted-foreground">{blocker}</p>}
+      {elimination.length === 0 && categorySeeds.length > 0 && (
+        <p className="mt-3 text-xs text-muted-foreground">{t('dashboard.categories.alsoBreak', { list: categorySeeds.map(c => `${c.name} (${c.size})`).join(', ') })}</p>
+      )}
+      {categorySeeds.filter(c => c.teams.length).map(c => (
+        <div key={c.key} className="mt-4">
+          <p className="text-sm font-bold">{c.name}</p>
+          <ol className="mt-2 grid gap-2 sm:grid-cols-2">
+            {c.teams.map(s => (
+              <li key={s.id} className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-sm">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-extrabold text-navy">{s.breakSeed}</span>
+                <span className="truncate font-semibold">{s.name}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
       {seeds.length > 0 && (
         <ol className="mt-4 grid gap-2 sm:grid-cols-2">
           {seeds.map(s => (
@@ -971,6 +1007,58 @@ function DetailsCard({ data, reload }: SectionProps) {
 }
 
 // the organizer's own rooms, used by the draw in this order
+// break categories: an extra bracket for a group of teams (novices, juniors…); teams are ticked in the Teams section
+function CategoriesCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const saved = data.breakCategories ?? []
+  const [list, setList] = useState(saved)
+  const [name, setName] = useState('')
+  useEffect(() => setList(data.breakCategories ?? []), [data.breakCategories])
+  const sizes = isBP(data.format) ? [4, 8, 16] : [2, 4, 8, 16]
+  const dirty = JSON.stringify(list) !== JSON.stringify(saved)
+  const add = () => {
+    const n = name.trim()
+    if (n.length < 2 || list.length >= 3) return
+    setList([...list, { key: `c${Date.now().toString(36)}`, name: n, size: sizes[0] }])
+    setName('')
+  }
+  const save = async () => { if (await run('cats', () => updateTournament(data.id, { breakCategories: list }), t('dashboard.teams.saved'))) reload() }
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="flex items-center gap-2 font-bold"><Trophy className="size-4 text-primary" />{t('dashboard.categories.title')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.categories.text')}</p>
+      </div>
+      {list.length > 0 && (
+        <ul className="space-y-2">
+          {list.map((c, i) => (
+            <li key={c.key} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 p-2 text-sm">
+              <span className="min-w-0 flex-1 truncate font-semibold">{c.name}</span>
+              <span className="text-xs text-muted-foreground">{t('dashboard.categories.size')}</span>
+              <Select size="sm" className="w-24" value={String(c.size)} aria-label={`${c.name}: ${t('dashboard.categories.size')}`}
+                onValueChange={v => setList(list.map((x, j) => (j === i ? { ...x, size: Number(v) } : x)))} options={sizes.map(n => ({ value: String(n), label: String(n) }))} />
+              <button type="button" aria-label={t('common.delete')} onClick={() => setList(list.filter((_, j) => j !== i))}
+                className="grid size-8 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger"><X className="size-4" /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {list.length < 3 && (
+        <div className="flex gap-2">
+          <Input value={name} maxLength={40} placeholder={t('dashboard.categories.placeholder')} aria-label={t('dashboard.categories.placeholder')}
+            onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }} />
+          <Button variant="outline" disabled={name.trim().length < 2} onClick={add}><Plus className="size-4" />{t('dashboard.rooms.add')}</Button>
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        {dirty && <Button variant="ghost" onClick={() => setList(saved)}>{t('common.cancel')}</Button>}
+        <Button disabled={!dirty || busy === 'cats'} onClick={save}>{t('common.save')}</Button>
+      </div>
+    </Card>
+  )
+}
+
 // silent rounds: the last N preliminary rounds keep their results hidden from the public until the break
 function SilentCard({ data, reload }: SectionProps) {
   const { t } = useTranslation()
@@ -1116,6 +1204,7 @@ function SettingsSection({ data, reload }: SectionProps) {
         <CoverCard tournamentId={data.id} cover={data.cover} onChanged={reload} />
         {data.status !== 'finished' && <RoomsCard data={data} reload={reload} />}
         {data.status !== 'finished' && !data.rounds.some(r => r.kind === 'elimination') && <SilentCard data={data} reload={reload} />}
+        {data.status !== 'finished' && !data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}
         {/* Pro (more than 20 teams): Kaspi QR payment; otherwise a short note about the free plan */}
         {data.plan === 'pro' ? <PaymentCard tournamentId={data.id} /> : (
           <Card className="flex items-center justify-between gap-4 p-6">

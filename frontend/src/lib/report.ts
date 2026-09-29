@@ -40,11 +40,15 @@ export function buildTables({ details, teams, speakers, bracket }: ReportData, {
 
   if (bracket?.announced) {
     const rows: Cell[][] = []
-    if (bracket.champion) rows.push([t('playoff.champion'), '', bracket.champion.name, ''])
-    for (const r of bracket.rounds) for (const d of r.debates) {
-      const names = d.teams.map(x => `${seedOf.get(x.teamId) ? `(${seedOf.get(x.teamId)}) ` : ''}${teamName(x.teamId)}`)
-      const through = d.ranking ? d.ranking.slice(0, 2).map(s => teamName(d.teams.find(x => x.side === s)?.teamId)).join(', ') : teamName(d.teams.find(x => x.side === d.winner)?.teamId)
-      rows.push([t(`playoff.stages.${r.stage}`), d.room, names.join(' · '), through])
+    // the open bracket, then each category's (novices…)
+    for (const part of [{ name: '', ...bracket }, ...bracket.categories]) {
+      const suffix = part.name ? ` · ${part.name}` : ''
+      if (part.champion) rows.push([part.name ? t('playoff.categoryChampion', { name: part.name }) : t('playoff.champion'), '', part.champion.name, ''])
+      for (const r of part.rounds) for (const d of r.debates) {
+        const names = d.teams.map(x => `${seedOf.get(x.teamId) ? `(${seedOf.get(x.teamId)}) ` : ''}${teamName(x.teamId)}`)
+        const through = d.ranking ? d.ranking.slice(0, 2).map(s => teamName(d.teams.find(x => x.side === s)?.teamId)).join(', ') : teamName(d.teams.find(x => x.side === d.winner)?.teamId)
+        rows.push([`${t(`playoff.stages.${r.stage}`)}${suffix}`, d.room, names.join(' · '), through])
+      }
     }
     tables.push({ key: 'playoffs', title: t('playoff.tab'), header: [t('export.stage'), t('tournament.room'), t('export.teamsInRoom'), t('export.through')], rows })
   }

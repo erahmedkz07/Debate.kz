@@ -1697,5 +1697,55 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     'the organizer reads the average and the comments')
   ok((await judgeClients.get(fj)('GET', `/tournaments/${f.id}/judge-feedback`)).status === 403, 'the judge does not read feedback about themselves')
 }
+// ---------- 46. break categories: a separate bracket for novices ----------
+{
+  const sleep = ms => new Promise(res => setTimeout(res, ms))
+  const host = await newAccount('Категории Организатор')
+  const cat = (await host.c('POST', '/tournaments', { ...tBody(150), name: `Категории ${jtag}`, preliminaryRounds: 2, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${cat.id}`, { moderation: 'approved' })
+  ok((await host.c('PATCH', `/tournaments/${cat.id}`, { breakCategories: [{ key: 'nov', name: 'Новички', size: 2 }, { key: 'nov', name: 'Дубль', size: 2 }] })).data?.error === 'invalid_break_categories', 'category keys are unique')
+  r = await host.c('PATCH', `/tournaments/${cat.id}`, { breakCategories: [{ key: 'nov', name: 'Новички', size: 2 }] })
+  ok(r.status === 200, 'the organizer adds a novice category with a break of two')
+  const names = ['Кат 1', 'Кат 2', 'Кат 3', 'Кат 4', 'Кат 5', 'Кат 6']
+  for (const n of names) await host.c('POST', `/tournaments/${cat.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  for (let i = 1; i <= 3; i++) await addJudge(host.c, cat.id, `Судья Категорий ${i}`)
+  const teams = (await host.c('GET', `/tournaments/${cat.id}`)).data.teams
+  ok((await host.c('PUT', `/teams/${teams[0].id}/categories`, { categories: ['junior'] })).data?.error === 'invalid_break_categories', 'only a known category can be ticked')
+  // every team is a novice: the open break takes the top two, the novice bracket the next two
+  for (const tm of teams) await host.c('PUT', `/teams/${tm.id}/categories`, { categories: ['nov'] })
+  await host.c('PATCH', `/tournaments/${cat.id}`, { status: 'ongoing' })
+  const vote = sheet => {
+    const scores = {}
+    sheet.proposition.speakers.forEach(x => (scores[x.id] = 72)); sheet.opposition.speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: 'proposition', scores, reply: { proposition: 36, opposition: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  const play = async rd => {
+    await host.c('POST', `/rounds/${rd.id}/draw`, { addSwing: false })
+    await host.c('PATCH', `/rounds/${rd.id}`, { motion: 'ЭП отменила бы оценки в школе', status: 'released' })
+    for (const d of (await host.c('GET', `/tournaments/${cat.id}`)).data.debates.filter(x => x.roundId === rd.id)) await panelVote(d.id, vote)
+    return host.c('PATCH', `/rounds/${rd.id}`, { status: 'completed' })
+  }
+  for (const rd of (await host.c('GET', `/tournaments/${cat.id}`)).data.rounds) await play(rd)
+  const table = (await host.c('GET', `/tournaments/${cat.id}/standings`)).data.teams.map(x => x.team.id)
+  r = await host.c('POST', `/tournaments/${cat.id}/break`)
+  const nov = r.data?.categories?.[0]
+  ok(r.status === 201 && r.data.seeds.map(s => s.team.id).join() === table.slice(0, 2).join() && nov?.seeds.map(s => s.team.id).join() === table.slice(2, 4).join(),
+    'the open break takes the top two, the novice bracket the next two novices')
+  ok(r.data.rounds.length === 1 && nov.rounds.length === 1 && nov.rounds[0].name.includes('Новички'), 'each bracket has its own final')
+  ok((await host.c('PUT', `/teams/${teams[0].id}/categories`, { categories: [] })).status === 403, 'categories are fixed once the break is announced')
+  const finals = (await host.c('GET', `/tournaments/${cat.id}`)).data.rounds.filter(x => x.kind === 'elimination')
+  ok(finals.find(x => x.category === 'nov')?.categoryName === 'Новички', 'the novice final is named after its category')
+  for (const rd of finals) ok((await play(rd)).status === 200, `the ${rd.category ? 'novice' : 'open'} final is played`)
+  const br = (await client()('GET', `/tournaments/${cat.id}/bracket`)).data
+  const novChamp = br.categories[0].champion?.id
+  ok(!!br.champion && !!novChamp && novChamp !== br.champion.id && table.slice(2, 4).includes(novChamp), 'the novice champion comes from the novice bracket')
+  ok((await host.c('PATCH', `/tournaments/${cat.id}`, { status: 'finished' })).status === 200, 'the tournament finishes after both finals')
+  let cert
+  for (let i = 0; i < 30 && !cert; i++) {
+    await sleep(200)
+    cert = (await db.query("select c.break_category, c.category_place, c.in_break from certificates c join speakers s on s.id = c.speaker_id where c.tournament_id = $1 and s.team_id = $2 limit 1", [cat.id, novChamp])).rows[0]
+  }
+  ok(cert?.break_category === 'Новички' && cert.category_place === 1 && cert.in_break === true, "the novice champion's certificate says so")
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

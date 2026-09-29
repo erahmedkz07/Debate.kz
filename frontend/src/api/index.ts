@@ -206,6 +206,7 @@ export const updateTournament = (id: string, data: Partial<{
   city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
   silentRounds: number
+  breakCategories: { key: string; name: string; size: number }[]
   coverUrl: string | null
 }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)
@@ -227,15 +228,20 @@ export interface DrawReport { method: DrawMethod | 'bracket'; protectClubs: bool
 // ---------- playoffs ----------
 export interface BracketDebate { id: string; slot: number; room: string; teams: { side: Side; teamId: string }[]; winner?: Side; ranking?: Side[] }
 export interface BracketRound { id: string; number: number; name: string; stage: PlayoffStage; teamsInRound: number; status: Round['status']; motion: string; debates: BracketDebate[] }
-export interface Bracket {
-  format: string; breakSize: number; announced: boolean
+// one bracket: the open break, or a category (novices…)
+export interface BracketPart {
   seeds: { seed: number; team: Team }[]
   rounds: BracketRound[]
-  champion?: Team // after the final
+  champion?: Team // after its final
+}
+export interface Bracket extends BracketPart {
+  format: string; breakSize: number; announced: boolean
+  categories: (BracketPart & { key: string; name: string; size: number })[]
 }
 export const getBracket = (id: string) => http<Bracket>('GET', `/tournaments/${encodeURIComponent(id)}/bracket`)
 export const announceBreak = (id: string) => http<Bracket>('POST', `/tournaments/${encodeURIComponent(id)}/break`)
 export const cancelBreak = (id: string) => http<void>('DELETE', `/tournaments/${encodeURIComponent(id)}/break`)
+export const setTeamCategories = (teamId: string, categories: string[]) => http<Team>('PUT', `/teams/${encodeURIComponent(teamId)}/categories`, { categories })
 
 export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean } = {}) =>
   http<{ debates: Debate[]; report: DrawReport }>('POST', `/rounds/${roundId}/draw`, opts)

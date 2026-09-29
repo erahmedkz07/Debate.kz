@@ -7,9 +7,11 @@ const STAGE_BY_NAME: Record<string, PlayoffStage> = { 'Финал': 'final', 'П
 
 export function useRoundName() {
   const { t } = useTranslation()
-  return (r: { name: string; number?: number; stage?: PlayoffStage }) => {
-    const stage = r.stage ?? STAGE_BY_NAME[r.name]
-    if (stage) return t(`playoff.stages.${stage}`)
+  return (r: { name: string; number?: number; stage?: PlayoffStage; categoryName?: string }) => {
+    // category brackets store "Финал · Новички": the stage is the part before the dot
+    const stage = r.stage ?? STAGE_BY_NAME[r.name.split(' · ')[0]]
+    const category = r.categoryName ?? r.name.split(' · ')[1]
+    if (stage) return category ? `${t(`playoff.stages.${stage}`)} · ${category}` : t(`playoff.stages.${stage}`)
     const n = /^Раунд (\d+)$/.exec(r.name)?.[1]
     return n ? t('ballot.round', { n }) : r.name
   }

@@ -11,11 +11,13 @@ export function useAward() {
     if (c.kind === 'judge') return { title: t('certificate.certificate'), lines: [t('certificate.judge')] }
     const team = c.teamName ?? ''
     const lines = [
-      c.teamPlace && c.teamPlace <= 3 ? t('certificate.teamPlace', { n: c.teamPlace, team })
-        : c.inBreak ? t('certificate.break', { team }) : t('certificate.participant', { team }),
+      c.teamPlace && c.teamPlace <= 3 && !c.breakCategory ? t('certificate.teamPlace', { n: c.teamPlace, team })
+        // a category bracket (novices…): its champion and finalist get it named
+        : c.breakCategory && c.categoryPlace && c.categoryPlace <= 2 ? t('certificate.categoryPlace', { n: c.categoryPlace, team, category: c.breakCategory })
+          : c.inBreak ? t('certificate.break', { team }) : t('certificate.participant', { team }),
       ...(c.speakerPlace ? [t('certificate.speakerPlace', { n: c.speakerPlace })] : []),
     ]
-    const diploma = (c.teamPlace ?? 99) <= 3 || !!c.speakerPlace
+    const diploma = (c.teamPlace ?? 99) <= 3 || !!c.speakerPlace || (!!c.breakCategory && (c.categoryPlace ?? 99) <= 2)
     return { title: diploma ? t('certificate.diploma') : t('certificate.certificate'), lines }
   }
 }
