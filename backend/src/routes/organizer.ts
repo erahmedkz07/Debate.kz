@@ -7,9 +7,14 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
+import { announceBreak, cancelBreak, categoriesOf } from '../services/playoffs.js'
+import { conflictChecker } from '../services/conflicts.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
+
+// video call links: https only (Zoom, Google Meet, Teams…)
+const httpsUrl = z.string().trim().url().max(300).refine(u => u.startsWith('https://'), 'https_only')
 
 export const organizerRouter = Router()
 // any signed-in user; per-tournament rights are checked with assertCanManage / assertOwner
@@ -52,6 +57,7 @@ const createSchema = z.object({
   coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
   preliminaryRounds: z.number().int().min(2).max(8),
   breakSize: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+  silentRounds: z.number().int().min(0).max(3).default(0), // the last N preliminary rounds keep results hidden until the break
   maxTeams: z.number().int().min(4).max(128),
   registrationOpen: z.boolean().default(true),
   requireApproval: z.boolean().default(true),
@@ -60,6 +66,9 @@ const createSchema = z.object({
   paymentReference: z.string().regex(/^DKZ-[A-Z2-9]{6}$/).optional(), // from GET /plans/quote, for tournaments above the free limit
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
+  .refine(v => v.silentRounds < v.preliminaryRounds, { path: ['silentRounds'], message: 'too_many_silent_rounds' })
+  // BP playoffs are rooms of four: the smallest break is one final room
+  .refine(v => v.format !== 'BP' || v.breakSize >= 4, { path: ['breakSize'], message: 'break_too_small' })
 
 organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const d = body(req, createSchema)
@@ -75,7 +84,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const t = await prisma.tournament.create({
     data: {
       name: d.name, city: d.city, startDate: start, endDate: end, level: d.level, format: d.format, description: d.description,
-      coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, maxTeams: d.maxTeams,
+      coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, silentRounds: d.silentRounds, maxTeams: d.maxTeams,
       registrationOpen: d.registrationOpen, requireApproval: d.requireApproval,
       registrationDeadline: d.registrationDeadline ? fromDay(d.registrationDeadline) : null,
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
@@ -118,11 +127,17 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationDeadline: day.nullable().optional(),
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
+    silentRounds: z.number().int().min(0).max(3).optional(),
+    // extra brackets for groups of teams (novices, juniors…), set before the break
+    breakCategories: z.array(z.object({
+      key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+    })).max(3).optional(),
+    roomLinks: z.record(z.string().trim().min(1).max(60), httpsUrl).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
   }))
   const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })
   if (d.status) await assertStageChange(cur.id, d.status)
-  const { startDate, endDate, registrationDeadline, maxTeams, rooms, coverUrl, ...rest } = d
+  const { startDate, endDate, registrationDeadline, maxTeams, rooms, roomLinks, coverUrl, ...rest } = d
   const data: Prisma.TournamentUpdateInput = { ...rest }
 
   // dates: a finished tournament is history and stays as it was
@@ -144,6 +159,25 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     data.maxTeams = maxTeams
   }
   if (rooms) data.rooms = [...new Set(rooms)]
+  if (rest.breakCategories) {
+    if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
+    if (new Set(rest.breakCategories.map(c => c.key)).size !== rest.breakCategories.length) throw badRequest('invalid_break_categories')
+    // BP brackets are rooms of four
+    if (cur.format === 'BP' && rest.breakCategories.some(c => c.size < 4)) throw badRequest('break_too_small')
+    // a removed category no longer marks any team
+    const keys = rest.breakCategories.map(c => c.key)
+    const teams = await prisma.team.findMany({ where: { tournamentId: cur.id, NOT: { categories: { isEmpty: true } } }, select: { id: true, categories: true } })
+    for (const tm of teams) {
+      const left = tm.categories.filter(k => keys.includes(k))
+      if (left.length !== tm.categories.length) await prisma.team.update({ where: { id: tm.id }, data: { categories: left } })
+    }
+  }
+  // at least one preliminary round stays open, and the choice is fixed once the break is announced
+  if (rest.silentRounds !== undefined) {
+    if (rest.silentRounds >= cur.preliminaryRounds) throw badRequest('too_many_silent_rounds')
+    if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
+  }
+  if (roomLinks) data.roomLinks = roomLinks
   if (coverUrl !== undefined && coverUrl !== cur.coverUrl) {
     data.coverUrl = coverUrl
     await removeUploadedCover(cur.coverUrl) // a replaced upload is not kept
@@ -177,7 +211,22 @@ async function assertStageChange(tournamentId: string, to: 'registration' | 'ong
   if (to === 'ongoing' && t._count.teams < 2) throw badRequest('not_enough_teams')
   if (to === 'registration' && t.rounds.some(r => r.status !== 'draft')) throw badRequest('rounds_started')
   if (to === 'finished' && t.rounds.some(r => r.status === 'released')) throw badRequest('round_in_progress')
+  // once the break is announced the tournament ends with its final: the champion is the winner of the final
+  if (to === 'finished' && t.rounds.some(r => r.kind === 'elimination' && r.status !== 'completed')) throw badRequest('playoffs_unfinished')
 }
+
+// ---------- the break (playoffs) ----------
+
+organizerRouter.post('/tournaments/:id/break', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  res.status(201).json(await announceBreak(param(req, 'id')))
+})
+
+organizerRouter.delete('/tournaments/:id/break', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  await cancelBreak(param(req, 'id'))
+  res.status(204).end()
+})
 
 organizerRouter.delete('/tournaments/:id', org, async (req, res) => {
   await assertOwner(req.user, param(req, 'id'))
@@ -240,6 +289,19 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
   res.json(toTeam(team))
 })
 
+// which break categories a team may break in (novices, juniors…): the whole list is replaced
+organizerRouter.put('/teams/:teamId/categories', org, async (req, res) => {
+  const team = await prisma.team.findUnique({ where: { id: param(req, 'teamId') }, include: { tournament: { select: { breakCategories: true, rounds: { select: { kind: true } } } } } })
+  if (!team) throw notFound('team_not_found')
+  await assertCanManage(req.user, team.tournamentId)
+  if (team.tournament.rounds.some(r => r.kind === 'elimination')) throw forbidden('break_already_announced')
+  const { categories } = body(req, z.object({ categories: z.array(z.string()).max(3) }))
+  const known = new Set(categoriesOf(team.tournament).map(c => c.key))
+  if (categories.some(k => !known.has(k))) throw badRequest('invalid_break_categories')
+  const updated = await prisma.team.update({ where: { id: team.id }, data: { categories: [...new Set(categories)] }, include: teamInclude })
+  res.json({ ...toTeam(updated), categories: updated.categories })
+})
+
 organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
   const team = await prisma.team.findUnique({ where: { id: param(req, 'teamId') } })
   if (!team) throw notFound('team_not_found')
@@ -254,6 +316,39 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
 
 // Judges join only through an invite (a link or an email) and judge from their own account: a ballot is theirs alone.
 // A judge added earlier without an account is linked to one by an email invite (see routes/invites.ts).
+
+// what speakers said about the judges: average, count and every comment with its round and team (organizers only)
+organizerRouter.get('/tournaments/:id/judge-feedback', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  const rows = await prisma.judgeFeedback.findMany({
+    where: { judge: { tournamentId: param(req, 'id') } },
+    include: { team: { select: { name: true } }, debate: { select: { room: true, round: { select: { number: true, name: true } } } } },
+    orderBy: { createdAt: 'desc' },
+  })
+  const byJudge = new Map<string, typeof rows>()
+  for (const r of rows) byJudge.set(r.judgeId, [...(byJudge.get(r.judgeId) ?? []), r])
+  res.json([...byJudge].map(([judgeId, list]) => ({
+    judgeId, count: list.length,
+    average: Math.round((list.reduce((s, x) => s + x.score, 0) / list.length) * 10) / 10,
+    items: list.map(x => ({ score: x.score, comment: x.comment ?? undefined, team: x.team.name, round: x.debate.round.name, room: x.debate.room, createdAt: x.createdAt.toISOString() })),
+  })))
+})
+
+// personal conflicts of a judge (relative, former coach…): the whole list is replaced
+organizerRouter.put('/judges/:judgeId/conflicts', org, async (req, res) => {
+  const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
+  if (!judge) throw notFound('judge_not_found')
+  await assertCanManage(req.user, judge.tournamentId)
+  const { teamIds } = body(req, z.object({ teamIds: z.array(z.string()).max(128) }))
+  const ids = [...new Set(teamIds)]
+  const valid = await prisma.team.count({ where: { id: { in: ids }, tournamentId: judge.tournamentId, swing: false } })
+  if (valid !== ids.length) throw badRequest('invalid_team')
+  await prisma.$transaction([
+    prisma.judgeConflict.deleteMany({ where: { judgeId: judge.id } }),
+    prisma.judgeConflict.createMany({ data: ids.map(teamId => ({ judgeId: judge.id, teamId })) }),
+  ])
+  res.json({ judgeId: judge.id, teamIds: ids })
+})
 
 organizerRouter.delete('/judges/:judgeId', org, async (req, res) => {
   const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
@@ -307,7 +402,7 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
   // the report tells the organizer which wishes could not be met (same-club meetings, rematches)
   res.status(201).json({
-    debates: debates.map(toDebate),
+    debates: debates.map(x => toDebate(x, true)),
     report,
   })
 })
@@ -319,12 +414,26 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
   if (debate.round.status === 'completed') throw forbidden('round_completed')
   const d = body(req, z.object({
     room: z.string().trim().min(1).max(60).optional(),
+    onlineUrl: httpsUrl.nullable().optional(), // null removes the link
     swapSides: z.boolean().optional(),
     chairJudgeId: z.string().optional(),
     wingJudgeIds: z.array(z.string()).max(4).optional(), // the non-chair panel, replaced as a whole
   }))
+  // a judge with a conflict (institution, club, personal) never sits in this room
+  const newJudges = [...(d.chairJudgeId ? [d.chairJudgeId] : []), ...(d.wingJudgeIds ?? [])]
+  if (newJudges.length) {
+    const clash = await conflictChecker(debate.round.tournamentId)
+    const room = [debate.propositionTeamId, debate.oppositionTeamId, debate.closingPropositionTeamId, debate.closingOppositionTeamId].filter((x): x is string => !!x)
+    const bad = newJudges.find(id => clash(id, room))
+    if (bad) throw badRequest('judge_conflict', { judgeId: bad })
+  }
   await prisma.$transaction(async tx => {
-    if (d.room) await tx.debate.update({ where: { id: debate.id }, data: { room: d.room } })
+    // a new room brings its own online link (from the tournament's room links) unless a link is given explicitly
+    if (d.room) {
+      const links = (await tx.tournament.findUniqueOrThrow({ where: { id: debate.round.tournamentId }, select: { roomLinks: true } })).roomLinks as Record<string, string>
+      await tx.debate.update({ where: { id: debate.id }, data: { room: d.room, onlineUrl: links[d.room] ?? null } })
+    }
+    if (d.onlineUrl !== undefined) await tx.debate.update({ where: { id: debate.id }, data: { onlineUrl: d.onlineUrl } })
     if (d.swapSides) {
       if (await tx.ballot.count({ where: { debateId: debate.id } })) throw forbidden('ballots_already_submitted')
       // BP: government and opposition swap in both halves of the room
@@ -362,7 +471,7 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
     }
   })
   const x = await prisma.debate.findUniqueOrThrow({ where: { id: debate.id }, include: { judges: { orderBy: { isChair: 'desc' } } } })
-  res.json(toDebate(x))
+  res.json(toDebate(x, true))
 })
 
 // ---------- registrations ----------

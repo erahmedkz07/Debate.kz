@@ -8,6 +8,7 @@ import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 import { sidesOf, teamIdOn, useSides } from '@/lib/formats'
+import { useRoundName } from '@/lib/rounds'
 import { Logo } from '@/components/brand'
 import { Select } from '@/components/ui/select'
 
@@ -36,6 +37,7 @@ export default function Projector() {
   const judge = (jid?: string) => data?.judges.find(j => j.id === jid)?.name ?? '—'
   // the format's sides: two, or four in BP
   const sideNames = useSides(data?.format)
+  const roundName = useRoundName()
   const sideList = sidesOf(data?.format)
 
   // preparation countdown, from a fixed end time so it never drifts
@@ -92,7 +94,7 @@ export default function Projector() {
           <Logo inverted />
           <div>
             <p className="text-lg font-bold">{data.name}</p>
-            <p className="text-sm text-white/60">{round.name}</p>
+            <p className="text-sm text-white/60">{roundName(round)}</p>
           </div>
         </div>
         {left !== null && view !== 'draw' && (
@@ -107,7 +109,7 @@ export default function Projector() {
         {view === 'cover' && (
           <div className="text-center">
             <Presentation className="mx-auto size-16 text-accent" />
-            <p className="mt-6 text-4xl font-extrabold sm:text-6xl">{round.name}</p>
+            <p className="mt-6 text-4xl font-extrabold sm:text-6xl">{roundName(round)}</p>
             <p className="mt-4 text-xl text-white/70 sm:text-2xl">{t('projector.soon')}</p>
           </div>
         )}
@@ -153,7 +155,7 @@ export default function Projector() {
       <footer className="flex flex-wrap items-center justify-center gap-2 px-6 pb-6 opacity-40 transition-opacity hover:opacity-100 focus-within:opacity-100">
         <Link to={manager ? `/dashboard/tournaments/${id}/rounds` : `/tournaments/${id}`} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm hover:bg-white/10"><ArrowLeft className="size-4" />{t('projector.exit')}</Link>
         <Select size="sm" className="w-40 text-foreground" value={round.id} onValueChange={v => { setParams({ round: v }, { replace: true }); setView('cover'); setLeft(null); setRunning(false) }}
-          aria-label={t('dashboard.draw.round')} options={rounds.map(r => ({ value: r.id, label: r.name, hint: t(`tournament.roundStatus.${r.status}`) }))} />
+          aria-label={t('dashboard.draw.round')} options={rounds.map(r => ({ value: r.id, label: roundName(r), hint: t(`tournament.roundStatus.${r.status}`) }))} />
         <Ctl onClick={() => setView('cover')} active={view === 'cover'}><Presentation className="size-4" />{t('projector.cover')}</Ctl>
         <Ctl onClick={reveal} active={view === 'motion'}><Eye className="size-4" />{t('projector.showMotion')}</Ctl>
         <Ctl onClick={() => setView('draw')} active={view === 'draw'}><LayoutList className="size-4" />{t('projector.showDraw')}</Ctl>

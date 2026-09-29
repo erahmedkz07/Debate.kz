@@ -22,6 +22,16 @@ const schema = z.object({
   SMTP_USER: z.preprocess(v => v || undefined, z.string().optional()),
   SMTP_PASS: z.preprocess(v => v || undefined, z.string().optional()),
   MAIL_FROM: z.preprocess(v => v || undefined, z.string().optional()), // "Debate.kz <address>"; defaults to SMTP_USER
+  // where uploads and private files live; required in production (a directory outside the code, included in backups)
+  STORAGE_DIR: z.preprocess(v => v || undefined, z.string().optional()),
+}).superRefine((v, ctx) => {
+  // production refuses to start half-configured: every one of these breaks sign-in, letters or files for real users
+  if (v.NODE_ENV !== 'production') return
+  const need = (ok: boolean, path: string, message: string) => { if (!ok) ctx.addIssue({ code: 'custom', path: [path], message }) }
+  need(v.CLIENT_ORIGIN.startsWith('https://'), 'CLIENT_ORIGIN', 'must be the https:// address of the site (session cookies are HTTPS-only)')
+  need(!/change_me/i.test(v.JWT_SECRET) && v.JWT_SECRET.length >= 48, 'JWT_SECRET', 'must be a fresh random string of 48+ chars')
+  need(!!(v.SMTP_HOST && v.SMTP_USER && v.SMTP_PASS), 'SMTP_HOST', 'real email is required: sign-up needs the confirmation letter')
+  need(!!v.STORAGE_DIR && v.STORAGE_DIR.startsWith('/'), 'STORAGE_DIR', 'must be an absolute path outside the code, e.g. /var/lib/debatekz')
 })
 
 const parsed = schema.safeParse(process.env)

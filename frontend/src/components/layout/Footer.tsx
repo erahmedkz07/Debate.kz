@@ -2,9 +2,11 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Mail, MapPin, Phone } from 'lucide-react'
 import { Logo, OrnamentPattern, TelegramIcon } from '@/components/brand'
+import { SITE } from '@/content/site'
 
 export function Footer() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const year = new Date().getFullYear()
 
   return (
@@ -15,10 +17,12 @@ export function Footer() {
         <div className="space-y-4">
           <Logo inverted />
           <p className="max-w-xs text-sm leading-relaxed text-white/65">{t('footer.about')}</p>
-          <a href="https://t.me/" target="_blank" rel="noreferrer" aria-label="Telegram"
-            className="inline-grid size-10 place-items-center rounded-xl bg-white/10 text-white transition-colors hover:bg-primary">
-            <TelegramIcon className="size-5" />
-          </a>
+          {SITE.telegram && (
+            <a href={SITE.telegram} target="_blank" rel="noreferrer" aria-label="Telegram"
+              className="inline-grid size-10 place-items-center rounded-xl bg-white/10 text-white transition-colors hover:bg-primary">
+              <TelegramIcon className="size-5" />
+            </a>
+          )}
         </div>
 
         <div>
@@ -52,16 +56,21 @@ export function Footer() {
         <div>
           <h3 className="mb-4 font-bold text-white">{t('footer.contacts')}</h3>
           <ul className="space-y-3 text-sm">
-            <li className="flex items-center gap-2.5"><MapPin className="size-4 text-accent" />{t('footer.address')}</li>
-            <li className="flex items-center gap-2.5"><Mail className="size-4 text-accent" />hello@debate.kz</li>
-            <li className="flex items-center gap-2.5"><Phone className="size-4 text-accent" />+7 700 000 00 00</li>
+            {/* only real contacts: an empty detail in content/site.ts is not shown */}
+            <li className="flex items-center gap-2.5"><MapPin className="size-4 text-accent" />{SITE.address[lang] || t('footer.address')}</li>
+            {SITE.email && <li><a className="flex items-center gap-2.5 hover:text-accent" href={`mailto:${SITE.email}`}><Mail className="size-4 text-accent" />{SITE.email}</a></li>}
+            {SITE.phone && <li><a className="flex items-center gap-2.5 hover:text-accent" href={`tel:${SITE.phone.replace(/\s/g, '')}`}><Phone className="size-4 text-accent" />{SITE.phone}</a></li>}
           </ul>
         </div>
       </div>
       <div className="relative border-t border-white/10">
         <div className="container-page flex flex-col gap-2 py-5 text-xs text-white/50 sm:flex-row sm:items-center sm:justify-between">
           <span>© {year} Debate.kz. {t('footer.rights')}</span>
-          <span>{t('footer.madeIn')} 🇰🇿</span>
+          <span className="flex flex-wrap gap-x-4 gap-y-1">
+            <Link className="hover:text-accent" to="/privacy">{t('legal.privacy')}</Link>
+            <Link className="hover:text-accent" to="/terms">{t('legal.terms')}</Link>
+            <span>{t('footer.madeIn')} 🇰🇿</span>
+          </span>
         </div>
       </div>
     </footer>

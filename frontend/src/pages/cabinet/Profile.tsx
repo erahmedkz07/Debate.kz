@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertCircle, Award, Shield, BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
-import { changePassword, createTelegramLink, deleteAccount, getGoogleConfig, getMe, requestPasswordSetup, unlinkGoogle, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
+import { AlertCircle, Award, Shield, BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, Star, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
+import { type MyDebate, changePassword, createTelegramLink, deleteAccount, getGoogleConfig, getMe, requestPasswordSetup, unlinkGoogle, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -22,6 +22,8 @@ import { OrnamentPattern } from '@/components/brand'
 import { ProgressPanel } from '@/components/profile/ProgressPanel'
 import { CertificatesPanel } from '@/components/profile/CertificatesPanel'
 import { MyClub } from '@/components/club/MyClub'
+import { OnlineLink } from '@/components/tournament/OnlineLink'
+import { RateJudgesDialog } from '@/components/tournament/JudgeFeedback'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
 
@@ -257,6 +259,8 @@ export default function Profile() {
   // admins don't compete, so their participant data is not loaded at all
   const regs = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyRegistrations()), [user?.id])
   const debates = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyDebates()), [user?.id])
+  // rating the judges of one of my debates
+  const [rating, setRating] = useState<MyDebate | null>(null)
   const [form, setForm] = useState({ name: user!.name, phone: user!.phone ?? '', institution: user!.institution ?? '', city: user!.city ?? '' })
   const [params, setParams] = useSearchParams()
   // ?tab=club etc. opens a section; a participant without a club lands on "My club" (the club is required to apply)
@@ -386,7 +390,8 @@ export default function Profile() {
           ) : (
             <div className="space-y-3">
               {debates.data.map(d => (
-                <Link key={d.debate.id} to={`/tournaments/${d.tournament.id}?tab=draw`}
+                <div key={d.debate.id}>
+                <Link to={`/tournaments/${d.tournament.id}?tab=draw`}
                   className="group flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20">
                   <span className={cn('grid size-12 shrink-0 place-items-center rounded-xl text-sm font-extrabold',
                     d.place && d.place > 1 ? 'bg-muted' : d.result === 'win' ? 'bg-success-soft text-success' : d.result === 'loss' ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-navy dark:text-accent')}>
@@ -403,15 +408,26 @@ export default function Profile() {
                   </div>
                   {/* BP: the place 1–4 instead of a win or a loss */}
                   <Badge variant={d.place ? (d.place === 1 ? 'success' : 'muted') : d.result === 'win' ? 'success' : d.result === 'loss' ? 'danger' : 'accent'}>
-                    {d.place ? t('ballot.placeN', { n: d.place }) : d.result ? t(`profile.result.${d.result}`) : t('profile.result.upcoming')}
+                    {d.place ? t('ballot.placeN', { n: d.place }) : d.result ? t(`profile.result.${d.result}`) : d.silent ? t('profile.result.silent') : t('profile.result.upcoming')}
                   </Badge>
                   <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </Link>
+                <div className="ml-4 mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+                  {d.debate.onlineUrl && d.round.status !== 'completed' && <OnlineLink url={d.debate.onlineUrl} />}
+                  {d.judges.length > 0 && (
+                    <button type="button" onClick={() => setRating(d)} className="inline-flex cursor-pointer items-center gap-1.5 font-semibold text-primary hover:underline">
+                      <Star className={cn('size-4', d.judges.some(j => j.myScore) && 'fill-accent text-accent')} />
+                      {d.judges.every(j => j.myScore) ? t('feedback.rated') : t('feedback.rate')}
+                    </button>
+                  )}
+                </div>
+                </div>
               ))}
             </div>
           )}
         </TabsContent>
 
+        {rating && <RateJudgesDialog debate={rating} open onOpenChange={o => !o && setRating(null)} onSaved={debates.reload} />}
         <TabsContent value="progress" className="mt-0"><ProgressPanel /></TabsContent>
         <TabsContent value="certificates" className="mt-0"><CertificatesPanel /></TabsContent>
         <TabsContent value="club" className="mt-0"><MyClub /></TabsContent>

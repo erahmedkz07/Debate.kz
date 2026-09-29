@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
 import { requireAuth } from '../middleware/auth.js'
 import { topicsOf } from '../services/topics.js'
+import { hiddenRoundIds } from '../services/silent.js'
 
 // A speaker's progress: every speech of the signed-in user in completed rounds,
 // averaged over the panel, plus the judges' written comments.
@@ -24,11 +25,15 @@ progressRouter.get('/me/progress', requireAuth(), async (req, res) => {
     },
   })
 
+  const hidden = new Set<string>()
+  for (const tid of new Set(scores.map(s => s.ballot.debate.round.tournamentId))) for (const id of await hiddenRoundIds(tid)) hidden.add(id)
+
   // one speech = one debate + position; its score is the panel average
   const speeches = new Map<string, { debateId: string; date: string; tournament: { id: string; name: string }; round: string; roundNo: number; motion: string; position: number; side: string; won: boolean; list: number[] }>()
   const comments: { judge: string; text: string; position: number; score: number; tournament: string; round: string; date: string }[] = []
   for (const s of scores) {
     const d = s.ballot.debate
+    if (hidden.has(d.roundId)) continue // a silent round: revealed with the break
     const key = `${d.id}:${s.position}`
     const entry = speeches.get(key) ?? {
       debateId: d.id, date: toDay(d.round.date), tournament: d.round.tournament, round: d.round.name, roundNo: d.round.number, motion: d.round.motion,

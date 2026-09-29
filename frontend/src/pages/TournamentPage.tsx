@@ -6,13 +6,14 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users,
+  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer,
 } from 'lucide-react'
 import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
 import type { Debate, Round, Side, TournamentDetails } from '@/types'
+import type { TFunction } from 'i18next'
 import { useAsync } from '@/lib/hooks'
 import { breakForecast } from '@/lib/breakForecast'
 import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
@@ -28,6 +29,10 @@ import { EntityLogo } from '@/components/ui/entity-logo'
 import { BackButton } from '@/components/layout/BackButton'
 import { isBP, placeOf, sidesOf, teamIdOn, useFormatName, useSides } from '@/lib/formats'
 import { formatOfTournament } from '@/content/formats'
+import { useRoundName } from '@/lib/rounds'
+import { PlayoffTab } from '@/components/tournament/Bracket'
+import { silentRoundIds } from '@/lib/silent'
+import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -38,6 +43,8 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   const { user } = useAuth()
   const navigate = useNavigate()
   const speakersNeeded = formatOfTournament(tournament.format).score.speakersPerTeam
+  // school and mixed tournaments: speakers may be under 18, their parents' consent is confirmed by the applicant
+  const minors = tournament.level !== 'university'
   const schema = z.object({
     team: z.string().trim().min(2, t('auth.errors.required')),
     institution: z.string().trim().min(2, t('auth.errors.required')),
@@ -45,18 +52,19 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     s2: z.string().trim().min(3, t('auth.errors.name')),
     // the 3rd speaker only in three-speaker formats (WSDC, Karl Popper); APF teams have two
     s3: speakersNeeded === 3 ? z.string().trim().min(3, t('auth.errors.name')) : z.string().optional(),
+    guardian: z.boolean().refine(v => !minors || v, t('tournament.registerDialog.guardianRequired')),
     phone: z.string().trim().regex(phoneRe, t('auth.errors.phone')),
   })
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
     // prefilled from the profile: the club team name and the club's institution
-    values: { team: user?.clubTeam?.name ?? '', institution: user?.institution ?? user?.club?.name ?? '', s1: user?.name ?? '', s2: '', s3: '', phone: user?.phone ?? '' },
+    values: { team: user?.clubTeam?.name ?? '', institution: user?.institution ?? user?.club?.name ?? '', s1: user?.name ?? '', s2: '', s3: '', guardian: false, phone: user?.phone ?? '' },
   })
 
   const onSubmit = async (v: Form) => {
     try {
-      await registerTeam(tournament.id, { teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3 ?? ''].slice(0, speakersNeeded), phone: v.phone })
+      await registerTeam(tournament.id, { teamName: v.team, institution: v.institution, speakers: [v.s1, v.s2, v.s3 ?? ''].slice(0, speakersNeeded), phone: v.phone, ...(minors && { guardianConsent: true }) })
       toast.success(t('tournament.registerDialog.success'))
       reset()
       setOpen(false)
@@ -113,6 +121,15 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
               <Input id="r-phone" type="tel" placeholder="+7 7XX XXX XX XX" aria-invalid={!!errors.phone} {...register('phone')} />
               <FieldError message={errors.phone?.message} />
             </div>
+            {minors && (
+              <div>
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border-2 border-border p-3 text-sm transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary-soft/40">
+                  <input type="checkbox" className="mt-0.5 size-4 shrink-0 cursor-pointer accent-[var(--primary)]" aria-invalid={!!errors.guardian} {...register('guardian')} />
+                  <span className="text-muted-foreground">{t('tournament.registerDialog.guardian')} <Link to="/privacy#s4" target="_blank" className="font-semibold text-primary hover:underline">{t('legal.privacy')}</Link></span>
+                </label>
+                <FieldError message={errors.guardian?.message} />
+              </div>
+            )}
             <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? t('common.loading') : t('tournament.registerDialog.submit')}
             </Button>
@@ -215,6 +232,7 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
 
 function DrawTab({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
+  const roundName = useRoundName()
   const sides = useSides(data.format)
   const released = data.rounds.filter(r => r.status !== 'draft')
   const [roundId, setRoundId] = useState(released.at(-1)?.id)
@@ -239,11 +257,14 @@ function DrawTab({ data }: { data: TournamentDetails }) {
           <button key={r.id} disabled={r.status === 'draft'} onClick={() => setRoundId(r.id)}
             className={cn('cursor-pointer rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-40',
               r.id === round.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:border-primary/50')}>
-            {r.name}
+            {roundName(r)}
           </button>
         ))}
       </div>
       <RoundBanner round={round} />
+      {silentRoundIds(data).has(round.id) && round.status === 'completed' && !data.myRole && (
+        <p className="mt-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentRound')}</p>
+      )}
       {/* desktop table */}
       <Card className="mt-4 hidden overflow-hidden md:block">
         <table className="w-full text-sm">
@@ -304,6 +325,16 @@ function TeamCell({ name, logo, win, place, center }: { name: string; logo?: str
   )
 }
 
+// builds the Excel file from the same data as the printable report
+async function exportXlsx(id: string, t: TFunction, sides: Record<Side, string>, roundName: ReturnType<typeof useRoundName>) {
+  try {
+    const data = await loadReport(id)
+    await downloadXlsx(data, buildTables(data, { t, sides, roundName }))
+  } catch (e) {
+    toast.error(errorMessage(e, t))
+  }
+}
+
 function RoundBanner({ round }: { round: Round }) {
   const { t } = useTranslation()
   return (
@@ -317,8 +348,20 @@ function RoundBanner({ round }: { round: Round }) {
   )
 }
 
-export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format'> }) {
+export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'silentRounds' | 'myRole'> }) {
   const { t } = useTranslation()
+  const sides = useSides(tournament?.format)
+  const roundName = useRoundName()
+  // silent rounds: the public table stops before them (organizers see everything)
+  const silent = tournament && !tournament.myRole ? silentRoundIds(tournament).size : 0
+  const silentNote = silent > 0 && <p className="mb-4 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentNote', { count: silent })}</p>
+  // the results as a file: Excel, or the printable report the browser saves as PDF
+  const exportBar = (
+    <div className="mb-3 flex flex-wrap justify-end gap-2">
+      <Button size="sm" variant="outline" onClick={() => void exportXlsx(id, t, sides, roundName)}><FileSpreadsheet className="size-4" />{t('export.excel')}</Button>
+      <Button asChild size="sm" variant="outline"><a href={`/tournaments/${id}/report`} target="_blank" rel="noopener"><Printer className="size-4" />{t('export.pdf')}</a></Button>
+    </div>
+  )
   const { data, loading, error, reload } = useAsync(() => getStandings(id), [id])
   if (error) return <ErrorState onRetry={reload} />
   if (loading || !data) return <div className="space-y-2">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>
@@ -336,11 +379,13 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
     // prelim rounds that still can change the table
     const done = tournament?.rounds.filter(r => r.status === 'completed' && r.number <= tournament.preliminaryRounds).length ?? 0
     const remaining = tournament ? Math.max(0, tournament.preliminaryRounds - done) : 0
-    const forecast = tournament && tournament.status === 'ongoing' && breakSize > 0 && done > 0 && remaining > 0
+    const forecast = !silent && tournament && tournament.status === 'ongoing' && breakSize > 0 && done > 0 && remaining > 0
       ? breakForecast(data.teams, breakSize, remaining, bp ? 3 : 1) : null
     const look = { safe: 'success', live: 'accent', out: 'muted' } as const
     return (
       <>
+      {exportBar}
+      {silentNote}
       {forecast && (
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
           <p><b>{t('tournament.break.title', { count: breakSize })}</b> · {t('tournament.break.remaining', { count: remaining })}</p>
@@ -387,6 +432,8 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
     )
   }
   return (
+    <>
+    {silentNote}
     <Card className="overflow-x-auto">
       <table className="w-full min-w-[520px] text-sm">
         <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -409,6 +456,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
         </tbody>
       </table>
     </Card>
+    </>
   )
 }
 
@@ -448,7 +496,7 @@ export default function TournamentPage() {
   const { data, loading, error, reload } = useAsync(() => getTournamentById(id), [id])
   // deep links like /tournaments/:id?tab=draw (e.g. from "My debates")
   const [params] = useSearchParams()
-  const tabs = ['overview', 'teams', 'draw', 'results', 'speakers', 'judges']
+  const tabs = ['overview', 'teams', 'draw', 'playoffs', 'results', 'speakers', 'judges']
   const requestedTab = params.get('tab')
 
   if (error instanceof NotFoundError) return <NotFound />
@@ -487,8 +535,9 @@ export default function TournamentPage() {
         <Tabs defaultValue={requestedTab && tabs.includes(requestedTab) ? requestedTab : data.status === 'registration' ? 'overview' : 'draw'}>
           <TabsList>
             <TabsTrigger value="overview">{t('tournament.tabs.overview')}</TabsTrigger>
-            <TabsTrigger value="teams">{t('tournament.tabs.teams')} <span className="ml-1 text-xs opacity-60">{data.teams.length}</span></TabsTrigger>
+            <TabsTrigger value="teams">{t('tournament.tabs.teams')} <span className="ml-1 text-xs opacity-60">{data.teams.filter(x => !x.swing).length}</span></TabsTrigger>
             <TabsTrigger value="draw">{t('tournament.tabs.draw')}</TabsTrigger>
+            {data.rounds.some(r => r.kind === 'elimination') && <TabsTrigger value="playoffs">{t('playoff.tab')}</TabsTrigger>}
             <TabsTrigger value="results">{t('tournament.tabs.results')}</TabsTrigger>
             <TabsTrigger value="speakers">{t('tournament.tabs.speakers')}</TabsTrigger>
             <TabsTrigger value="judges">{t('tournament.tabs.judges')}</TabsTrigger>
@@ -496,8 +545,9 @@ export default function TournamentPage() {
           <TabsContent value="overview"><Overview data={data} /></TabsContent>
           <TabsContent value="teams"><TeamsTab data={data} /></TabsContent>
           <TabsContent value="draw"><DrawTab data={data} /></TabsContent>
+          <TabsContent value="playoffs"><PlayoffTab id={data.id} /></TabsContent>
           <TabsContent value="results"><ResultsTab id={data.id} kind="teams" tournament={data} /></TabsContent>
-          <TabsContent value="speakers"><ResultsTab id={data.id} kind="speakers" /></TabsContent>
+          <TabsContent value="speakers"><ResultsTab id={data.id} kind="speakers" tournament={data} /></TabsContent>
           <TabsContent value="judges"><JudgesTab data={data} /></TabsContent>
         </Tabs>
       </div>

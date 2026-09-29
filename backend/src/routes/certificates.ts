@@ -15,6 +15,7 @@ type Row = Prisma.CertificateGetPayload<{ include: typeof certificateInclude }>
 const shape = (c: Row) => ({
   code: c.code, kind: c.kind, name: c.name, teamName: c.teamName ?? undefined, institution: c.institution ?? undefined,
   teamPlace: c.teamPlace ?? undefined, inBreak: c.inBreak, speakerPlace: c.speakerPlace ?? undefined, issuedAt: toDay(c.issuedAt),
+  ...(c.breakCategory && { breakCategory: c.breakCategory, categoryPlace: c.categoryPlace ?? undefined }),
   tournament: {
     id: c.tournament.id, name: c.tournament.name, city: c.tournament.city, level: c.tournament.level, organizer: c.tournament.organizerName,
     startDate: toDay(c.tournament.startDate), endDate: toDay(c.tournament.endDate),

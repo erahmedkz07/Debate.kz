@@ -2,7 +2,7 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
-import { toDay } from '../lib/dates.js'
+import { toDay, todayKz } from '../lib/dates.js'
 import rateLimit from 'express-rate-limit'
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/errors.js'
 import { env } from '../lib/env.js'
@@ -15,6 +15,7 @@ import { assertSpeakers } from './organizer.js'
 import { background, notifyNewRegistration } from '../services/notify.js'
 import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 import { placeOf, sideLabel, sidesInDebate } from '../services/formats.js'
+import { hiddenRoundIds } from '../services/silent.js'
 
 export const meRouter = Router()
 const mailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
@@ -107,28 +108,60 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
       round: { status: { not: 'draft' } },
       OR: [{ propositionTeamId: { in: teamIds } }, { oppositionTeamId: { in: teamIds } }, { closingPropositionTeamId: { in: teamIds } }, { closingOppositionTeamId: { in: teamIds } }],
     },
-    include: { round: { include: { tournament: true } }, proposition: true, opposition: true, closingProposition: true, closingOpposition: true },
+    include: {
+      round: { include: { tournament: true } }, proposition: true, opposition: true, closingProposition: true, closingOpposition: true,
+      judges: { include: { judge: { select: { id: true, name: true } } }, orderBy: { isChair: 'desc' } },
+      feedback: { where: { userId: req.user!.id }, select: { judgeId: true, score: true, comment: true } },
+    },
     orderBy: [{ round: { date: 'asc' } }, { round: { number: 'asc' } }],
   })
+  const hidden = new Set<string>()
+  for (const tid of new Set(debates.map(d => d.round.tournamentId))) for (const id of await hiddenRoundIds(tid)) hidden.add(id)
   res.json(debates.map(d => {
+    const silent = hidden.has(d.roundId)
     const teams = { proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition }
     const side = sidesInDebate(d).find(x => teamIds.includes(x.teamId))!.side
     const bp = d.ranking.length > 0 || !!d.closingPropositionTeamId
     // BP: the other three teams of the room are the opponents
     const others = sidesInDebate(d).filter(x => x.side !== side).map(x => teams[x.side]!)
     const opponent = { id: others[0].id, name: others.map(o => o.name).join(', ') }
-    const place = placeOf(d, side)
+    const place = silent ? undefined : placeOf(d, side)
     return {
-      debate: { id: d.id, roundId: d.roundId, room: d.room, ballotStatus: d.ballotStatus, winner: d.winner ?? undefined },
+      debate: { id: d.id, roundId: d.roundId, room: d.room, ballotStatus: d.ballotStatus, winner: d.winner ?? undefined, ...(d.onlineUrl && { onlineUrl: d.onlineUrl }) },
       side: sideLabel(side, bp),
       ...(place && { place }),
       tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
       round: { id: d.round.id, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
       opponent: { id: opponent.id, name: opponent.name },
       // 1st place in BP counts as a win, like in the standings
-      result: d.winner ? (d.winner === side ? 'win' : 'loss') : null,
+      result: d.winner && !silent ? (d.winner === side ? 'win' : 'loss') : null,
+      ...(silent && d.winner && { silent: true }),
+      // the panel, with the rating this speaker gave each judge (feedback goes to the organizers only)
+      judges: d.judges.map(j => {
+        const mine = d.feedback.find(f => f.judgeId === j.judgeId)
+        return { id: j.judge.id, name: j.judge.name, isChair: j.isChair, ...(mine && { myScore: mine.score, myComment: mine.comment ?? undefined }) }
+      }),
     }
   }))
+})
+
+// a speaker rates a judge of their own debate once the draw is out; sending again changes the rating
+meRouter.post('/debates/:debateId/feedback', requireAuth(), async (req, res) => {
+  const d = body(req, z.object({ judgeId: z.string(), score: z.number().int().min(1).max(5), comment: z.string().trim().max(500).optional() }))
+  const debate = await prisma.debate.findUnique({ where: { id: param(req, 'debateId') }, include: { round: true, judges: true } })
+  if (!debate) throw notFound('debate_not_found')
+  if (debate.round.status === 'draft') throw badRequest('round_not_released')
+  const teamIds = [debate.propositionTeamId, debate.oppositionTeamId, debate.closingPropositionTeamId, debate.closingOppositionTeamId].filter((x): x is string => !!x)
+  const speaker = await prisma.speaker.findFirst({ where: { userId: req.user!.id, teamId: { in: teamIds } } })
+  if (!speaker) throw forbidden('not_in_debate')
+  if (!debate.judges.some(j => j.judgeId === d.judgeId)) throw badRequest('judge_not_on_panel')
+  const row = { score: d.score, comment: d.comment || null }
+  await prisma.judgeFeedback.upsert({
+    where: { debateId_judgeId_userId: { debateId: debate.id, judgeId: d.judgeId, userId: req.user!.id } },
+    create: { debateId: debate.id, judgeId: d.judgeId, userId: req.user!.id, teamId: speaker.teamId, ...row },
+    update: row,
+  })
+  res.status(201).json({ ok: true })
 })
 
 const registrationSchema = z.object({
@@ -136,6 +169,8 @@ const registrationSchema = z.object({
   institution: z.string().trim().min(2).max(150),
   speakers: z.array(z.string().trim().min(3).max(100)).min(2).max(3), // as many as the tournament's format needs
   phone,
+  // school and mixed tournaments: the parents (legal guardians) of speakers under 18 agreed to their data being processed
+  guardianConsent: z.boolean().optional(),
 })
 
 // any verified user can register a team; the organizer confirms later.
@@ -149,7 +184,7 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   const role = await participationIn(req.user!.id, t.id)
   if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
-  if (t.registrationDeadline && t.registrationDeadline < new Date(toDay(new Date()))) throw forbidden('registration_closed')
+  if (t.registrationDeadline && toDay(t.registrationDeadline) < todayKz()) throw forbidden('registration_closed')
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
   assertSpeakers(t.format, data.speakers)
   // a participant states their club and team in the profile first (organizers and ratings need to know who is from where)
@@ -158,8 +193,14 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   if (await prisma.teamRegistration.findUnique({ where: { tournamentId_teamName: { tournamentId: t.id, teamName: data.teamName } } })) {
     throw conflict('team_name_taken')
   }
+  // personal data law: minors take part with their parents' consent; school and mixed tournaments ask the applicant to confirm it
+  const minors = t.level !== 'university'
+  if (minors && data.guardianConsent !== true) throw badRequest('guardian_consent_required')
   const reg = await prisma.teamRegistration.create({
-    data: { tournamentId: t.id, userId: req.user!.id, teamName: data.teamName, institution: data.institution, speakers: data.speakers, contactPhone: data.phone, clubId: membership.clubId, clubTeamId: membership.teamId },
+    data: {
+      tournamentId: t.id, userId: req.user!.id, teamName: data.teamName, institution: data.institution, speakers: data.speakers, contactPhone: data.phone,
+      clubId: membership.clubId, clubTeamId: membership.teamId, ...(minors && { guardianConsentAt: new Date() }),
+    },
   })
   background(notifyNewRegistration(reg.id))
   res.status(201).json({ ...reg, createdAt: toDay(reg.createdAt) })

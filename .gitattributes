@@ -1,0 +1,6 @@
+# shell scripts and config for the Linux server keep LF endings on every OS
+*.sh text eol=lf
+deploy/cron text eol=lf
+deploy/*.service text eol=lf
+deploy/nginx/*.conf text eol=lf
+deploy/*.example text eol=lf

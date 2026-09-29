@@ -133,6 +133,7 @@ export default function Notifications() {
                             <time className="shrink-0 text-xs text-muted-foreground" dateTime={n.createdAt}>{formatDateTime(n.createdAt)}</time>
                           </span>
                           <span className="mt-0.5 block text-sm text-muted-foreground">{t(`notifications.types.${n.type}.text`, v)}</span>
+                          {typeof n.data?.online === 'string' && <span className="mt-1 block break-all text-xs text-primary">{t('online.link')}: {n.data.online}</span>}
                           {n.recipient && <span className="mt-1 block text-xs text-muted-foreground">→ {n.recipient.name} · {n.recipient.email}</span>}
                         </span>
                         {mode === 'mine' && !n.read && <span className="mt-2 size-2.5 shrink-0 rounded-full bg-primary" aria-label={t('notifications.unread')} />}

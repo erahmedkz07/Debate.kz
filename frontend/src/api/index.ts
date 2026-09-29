@@ -1,12 +1,8 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  Certificate, MotionItem, MotionTopic, SpeakerProgress,
-  AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest,
-  MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
-  AppNotification,
-  AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
-  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem, Side } from '@/types'
+  Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem, Side, PlayoffStage,
+} from '@/types'
 import { ApiError, http, qs, upload } from './http'
 import i18n from '@/lib/i18n'
 
@@ -121,20 +117,30 @@ export const deleteAvatar = () => http<{ user: User }>('DELETE', '/me/avatar').t
 
 export const getMyRegistrations = () => http<(TeamRegistration & { tournament: Tournament })[]>('GET', '/me/registrations')
 
-export const registerTeam = (tournamentId: string, data: { teamName: string; institution: string; speakers: string[]; phone: string }) =>
+export const registerTeam = (tournamentId: string, data: { teamName: string; institution: string; speakers: string[]; phone: string; guardianConsent?: boolean }) =>
   http<TeamRegistration>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/registrations`, data)
 
 export interface MyDebate {
-  debate: Pick<Debate, 'id' | 'roundId' | 'room' | 'ballotStatus' | 'winner'>
+  debate: Pick<Debate, 'id' | 'roundId' | 'room' | 'ballotStatus' | 'winner' | 'onlineUrl'>
   // BP names the opening half explicitly: openingProposition / openingOpposition / closingProposition / closingOpposition
   side: 'proposition' | 'opposition' | 'openingProposition' | 'openingOpposition' | 'closingProposition' | 'closingOpposition'
   place?: number // BP: 1–4
+  silent?: boolean // decided, but in a silent round: the result comes out with the break
+  judges: { id: string; name: string; isChair: boolean; myScore?: number; myComment?: string }[] // the panel and my rating of each
   tournament: { id: string; name: string }
   round: Pick<Round, 'id' | 'number' | 'name' | 'motion' | 'status' | 'date'>
   opponent: { id: string; name: string }
   result: 'win' | 'loss' | null
 }
 export const getMyDebates = () => http<MyDebate[]>('GET', '/me/debates')
+// a speaker rates a judge of their debate (1..5, optional comment); only the organizers read it
+export const rateJudge = (debateId: string, judgeId: string, score: number, comment?: string) =>
+  http<{ ok: true }>('POST', `/debates/${encodeURIComponent(debateId)}/feedback`, { judgeId, score, comment })
+export interface JudgeFeedbackSummary {
+  judgeId: string; count: number; average: number
+  items: { score: number; comment?: string; team: string; round: string; room: string; createdAt: string }[]
+}
+export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackSummary[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/judge-feedback`)
 
 // ---------- judge ----------
 
@@ -187,7 +193,7 @@ export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/to
 
 export interface CreateTournamentInput {
   name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
-  preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
+  preliminaryRounds: number; breakSize: number; silentRounds?: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
@@ -198,6 +204,9 @@ export const updateSchedule = (id: string, items: ScheduleItem[]) => http<Schedu
 export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
   city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
+  roomLinks: Record<string, string>
+  silentRounds: number
+  breakCategories: { key: string; name: string; size: number }[]
   coverUrl: string | null
 }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)
@@ -210,14 +219,33 @@ export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH
 export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${teamId}`)
 
 export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
+export const setJudgeConflicts = (judgeId: string, teamIds: string[]) => http<{ judgeId: string; teamIds: string[] }>('PUT', `/judges/${judgeId}/conflicts`, { teamIds })
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
 export type DrawMethod = 'power' | 'high_low' | 'random'
-export interface DrawReport { method: DrawMethod; protectClubs: boolean; sameClub: number; rematches: number }
+export interface DrawReport { method: DrawMethod | 'bracket'; protectClubs: boolean; sameClub: number; rematches: number; judgeConflicts?: number }
+// ---------- playoffs ----------
+export interface BracketDebate { id: string; slot: number; room: string; teams: { side: Side; teamId: string }[]; winner?: Side; ranking?: Side[] }
+export interface BracketRound { id: string; number: number; name: string; stage: PlayoffStage; teamsInRound: number; status: Round['status']; motion: string; debates: BracketDebate[] }
+// one bracket: the open break, or a category (novices…)
+export interface BracketPart {
+  seeds: { seed: number; team: Team }[]
+  rounds: BracketRound[]
+  champion?: Team // after its final
+}
+export interface Bracket extends BracketPart {
+  format: string; breakSize: number; announced: boolean
+  categories: (BracketPart & { key: string; name: string; size: number })[]
+}
+export const getBracket = (id: string) => http<Bracket>('GET', `/tournaments/${encodeURIComponent(id)}/bracket`)
+export const announceBreak = (id: string) => http<Bracket>('POST', `/tournaments/${encodeURIComponent(id)}/break`)
+export const cancelBreak = (id: string) => http<void>('DELETE', `/tournaments/${encodeURIComponent(id)}/break`)
+export const setTeamCategories = (teamId: string, categories: string[]) => http<Team>('PUT', `/teams/${encodeURIComponent(teamId)}/categories`, { categories })
+
 export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean } = {}) =>
   http<{ debates: Debate[]; report: DrawReport }>('POST', `/rounds/${roundId}/draw`, opts)
-export const updateDebate = (debateId: string, data: Partial<{ room: string; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
+export const updateDebate = (debateId: string, data: Partial<{ room: string; onlineUrl: string | null; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 
 export type OrganizerRegistration = TeamRegistration & { contactPhone: string; user: { id: string; name: string; email: string } }

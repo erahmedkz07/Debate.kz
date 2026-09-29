@@ -23,6 +23,8 @@ export interface Tournament {
   description: string
   preliminaryRounds: number
   breakSize: number
+  silentRounds?: number // the last N preliminary rounds keep results hidden until the break
+  breakCategories?: BreakCategory[] // extra brackets (novices, juniors…)
   languages: Lang[]
 }
 
@@ -44,6 +46,10 @@ export interface Team {
   club?: Ref & { logoUrl?: string } // the club and club team it comes from
   clubTeam?: Ref
   logoUrl?: string // the club team's logo, else the club's
+  breakSeed?: number // 1..breakSize once the break is announced
+  breakCategory?: string // the category bracket it broke into (none = the open break)
+  categories?: string[] // break categories the team may break in
+  institutionId?: string // organizers only (judge conflicts)
 }
 
 export interface Judge {
@@ -54,6 +60,10 @@ export interface Judge {
   rating: number // 1..10
   isChair?: boolean
   hasAccount?: boolean // only judges with an account send ballots; others are invited by email to link one
+  // organizers only: what the draw keeps this judge away from
+  conflictTeamIds?: string[] // personal conflicts (relative, former coach…)
+  clubId?: string // the judge's own club
+  institutionId?: string
 }
 
 export interface Round {
@@ -65,7 +75,16 @@ export interface Round {
   infoSlide?: string
   status: 'draft' | 'released' | 'completed'
   date: string
+  // playoffs: elimination rounds after the break (quarterfinal, semifinal, final)
+  kind?: 'elimination'
+  teamsInRound?: number
+  stage?: PlayoffStage
+  category?: string // a category bracket (novices…): its key and name
+  categoryName?: string
 }
+
+export type PlayoffStage = 'final' | 'semi' | 'quarter' | 'octo'
+export interface BreakCategory { key: string; name: string; size: number }
 
 export interface Debate {
   id: string
@@ -77,6 +96,8 @@ export interface Debate {
   closingPropositionTeamId?: string
   closingOppositionTeamId?: string
   ranking?: Side[]
+  bracketSlot?: number // playoffs: the debate's place in the bracket
+  onlineUrl?: string // online tournaments: the room's video call (its teams, judges and organizers only)
   judgeIds: string[]
   winner?: Side
   ballotStatus: 'pending' | 'submitted' | 'confirmed'
@@ -116,6 +137,7 @@ export interface TournamentDetails extends Tournament {
   registrationOpen?: boolean
   registrationDeadline?: string
   rooms?: string[]
+  roomLinks?: Record<string, string> // room name -> video call link
   pendingRegistrations?: number
   myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]
@@ -263,6 +285,8 @@ export interface Certificate {
   teamPlace?: number
   inBreak: boolean
   speakerPlace?: number
+  breakCategory?: string // the category bracket the team played in, and its place there
+  categoryPlace?: number
   issuedAt: string
   tournament: { id: string; name: string; city: string; level: TournamentLevel; organizer: string; startDate: string; endDate: string }
 }

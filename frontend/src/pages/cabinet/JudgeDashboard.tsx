@@ -6,6 +6,8 @@ import { getJudgeAssignments } from '@/api'
 import type { JudgeAssignment } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { sidesOf, useSides } from '@/lib/formats'
+import { useRoundName } from '@/lib/rounds'
+import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +22,7 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
   const pending = a.debate.ballotStatus === 'pending'
   const done = a.debate.ballotStatus === 'confirmed'
   const names = useSides(a.tournament.format)
+  const roundName = useRoundName()
   // BP: four teams; the chair sends the agreed ballot and the wings read it
   const sideList = sidesOf(a.tournament.format).filter(side => a[side])
   const bp = sideList.length === 4
@@ -30,7 +33,7 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/50 px-5 py-3">
         <div className="flex items-center gap-2 text-sm">
           <Link to={`/tournaments/${a.tournament.id}`} className="font-bold hover:text-primary hover:underline">{a.tournament.name}</Link>
-          <span className="text-muted-foreground">· {a.round.name}</span>
+          <span className="text-muted-foreground">· {roundName(a.round)}</span>
         </div>
         <div className="flex items-center gap-2">
           {a.isChair && <Badge variant="primary"><Star className="size-3" fill="currentColor" />{t('tournament.chair')}</Badge>}
@@ -55,6 +58,7 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <span className="flex items-center gap-3 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5"><DoorOpen className="size-4" />{a.debate.room}</span>
+            <OnlineLink url={a.debate.onlineUrl} />
             <span>{formatDate(a.round.date)}</span>
           </span>
           {done

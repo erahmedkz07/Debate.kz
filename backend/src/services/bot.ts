@@ -110,14 +110,14 @@ async function onNext(chat: string, user: User) {
     const mine = inRoom.find(x => teams[x.side]!.speakers.some(s => s.userId === user.id))!.side
     parts.push([t.nextSpeaker({
       tournament: d.round.tournament.name, round: d.round.name, room: d.room, side: sideLabel(mine, inRoom.length === 4),
-      opponent: inRoom.filter(x => x.side !== mine).map(x => teams[x.side]!.name).join(', '), motion: d.round.motion,
+      opponent: inRoom.filter(x => x.side !== mine).map(x => teams[x.side]!.name).join(', '), motion: d.round.motion, online: d.onlineUrl ?? undefined,
     }), t.open, `/tournaments/${d.round.tournament.id}?tab=draw`])
   }
   for (const j of judging) {
     const d = j.debate
     parts.push([t.nextJudge({
       tournament: d.round.tournament.name, round: d.round.name, room: d.room, chair: j.isChair,
-      ...campNames(d), motion: d.round.motion, submitted: d.ballots.some(b => b.judgeId === j.judgeId),
+      ...campNames(d), motion: d.round.motion, online: d.onlineUrl ?? undefined, submitted: d.ballots.some(b => b.judgeId === j.judgeId),
     }), t.open, `/ballot/${d.id}`])
   }
   for (const o of organizing) parts.push([t.nextOrganizer({ tournament: o.name, count: o._count.registrations }), t.open, `/dashboard/tournaments/${o.id}/registrations`])

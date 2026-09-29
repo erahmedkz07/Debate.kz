@@ -103,6 +103,10 @@ export default function Register() {
             <input type="checkbox" className="mt-0.5 size-4 shrink-0 cursor-pointer accent-[var(--primary)]" aria-invalid={!!errors.consent} {...register('consent')} />
             <span className="text-muted-foreground">{t('auth.consent')}</span>
           </label>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {t('legal.readBefore')} <Link to="/privacy" target="_blank" className="font-semibold text-primary hover:underline">{t('legal.privacy')}</Link>
+            {' · '}<Link to="/terms" target="_blank" className="font-semibold text-primary hover:underline">{t('legal.terms')}</Link>
+          </p>
           <FieldError message={errors.consent?.message} />
         </div>
 
@@ -125,5 +129,9 @@ function GoogleConsentNote() {
   const { t } = useTranslation()
   const { data } = useAsync(getGoogleConfig)
   if (!data?.enabled) return null
-  return <p className="mt-2 text-center text-xs text-muted-foreground">{t('google.consent')}</p>
+  return (
+    <p className="mt-2 text-center text-xs text-muted-foreground">
+      {t('google.consent')} <Link to="/privacy" target="_blank" className="font-semibold text-primary hover:underline">{t('legal.privacy')}</Link>
+    </p>
+  )
 }

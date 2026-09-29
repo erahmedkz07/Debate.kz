@@ -22,6 +22,7 @@ import { Textarea } from '@/components/ui/input'
 import { BackButton } from '@/components/layout/BackButton'
 import { BallotReview } from '@/components/ballot/BallotReview'
 import { SpeechTimer } from '@/components/tools/SpeechTimer'
+import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { formatOfTournament } from '@/content/formats'
 import { BP_POINTS, BP_SIDES, TWO_SIDES } from '@/lib/formats'
 import NotFound from './NotFound'
@@ -303,6 +304,7 @@ export default function Ballot() {
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-navy">{t('ballot.round', { n: data.round.number })}</span>
           <span className="flex items-center gap-1.5 text-white/80"><DoorOpen className="size-4" />{data.debate.room}</span>
+          <OnlineLink url={data.debate.onlineUrl} className="text-accent" />
         </div>
         <h1 className="mt-3 text-xs font-bold uppercase tracking-wider text-white/70">{t('ballot.title')} · {t('ballot.motion')}</h1>
         <p className="mt-1 text-lg font-bold leading-snug sm:text-xl">«{data.round.motion}»</p>

@@ -3,8 +3,10 @@ import { z } from 'zod'
 import type { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { param, query } from '../middleware/validate.js'
-import { getStandings, getTournamentDetails, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
+import { getStandings, getTournamentDetails, isOrganizerOf, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
+import { getBracket } from '../services/playoffs.js'
 import { notFound } from '../lib/errors.js'
+import { hiddenRoundIds } from '../services/silent.js'
 
 export const publicRouter = Router()
 
@@ -44,7 +46,18 @@ publicRouter.get('/tournaments/:id', async (req, res) => {
 publicRouter.get('/tournaments/:id/standings', async (req, res) => {
   const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') }, select: { visible: true, moderation: true } })
   if (!t?.visible || t.moderation !== 'approved') throw notFound('tournament_not_found')
-  res.json(await getStandings(param(req, 'id')))
+  // silent rounds stay out of the public table until the break; organizers see the real one
+  const id = param(req, 'id')
+  res.json(await getStandings(id, (await isOrganizerOf(req.user, id)) ? new Set() : await hiddenRoundIds(id)))
+})
+
+// the playoffs: seeds, elimination rounds and, after the final, the champion
+publicRouter.get('/tournaments/:id/bracket', async (req, res) => {
+  const id = param(req, 'id')
+  const t = await prisma.tournament.findUnique({ where: { id }, select: { visible: true, moderation: true } })
+  const manager = await isOrganizerOf(req.user, id)
+  if (!t || ((!t.visible || t.moderation !== 'approved') && !manager)) throw notFound('tournament_not_found')
+  res.json(await getBracket(id, manager))
 })
 
 publicRouter.get('/cities', async (_req, res) => {
@@ -115,7 +128,7 @@ publicRouter.get('/rating', async (_req, res) => {
   const clubAgg = new Map<string, { club: { id: string; name: string; logoUrl?: string }; city: string; levels: Set<Level>; tournaments: Set<string>; teams: Set<string>; wins: number; debates: number; points: number; speakerAvg: number[] }>()
 
   for (const t of tournaments) {
-    const s = await getStandings(t.id)
+    const s = await getStandings(t.id, await hiddenRoundIds(t.id))
     for (const row of s.teams) {
       if (row.wins + row.losses === 0) continue
       const tm = row.team
