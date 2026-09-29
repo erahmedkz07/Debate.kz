@@ -2059,5 +2059,25 @@
     "count_few": "{{count}} отзыва",
     "count_many": "{{count}} отзывов",
     "count_other": "{{count}} отзыва"
+  },
+  "export": {
+    "excel": "Excel",
+    "pdf": "PDF / печать",
+    "print": "Печать / сохранить PDF",
+    "teams": "Команды",
+    "speakers": "Спикеры",
+    "rounds": "Раунды",
+    "round": "Раунд",
+    "institution": "Школа / вуз",
+    "club": "Клуб",
+    "losses": "Поражения",
+    "seed": "Посев",
+    "speaker": "Спикер",
+    "total": "Сумма",
+    "average": "Среднее",
+    "stage": "Стадия",
+    "teamsInRoom": "Команды",
+    "through": "Прошли дальше",
+    "generated": "Сформировано {{date}}"
   }
 }

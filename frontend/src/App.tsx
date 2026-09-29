@@ -16,6 +16,7 @@ const Login = lazy(() => import('@/pages/auth/Login'))
 const Register = lazy(() => import('@/pages/auth/Register'))
 const Rating = lazy(() => import('@/pages/Rating'))
 const About = lazy(() => import('@/pages/About'))
+const TournamentReport = lazy(() => import('@/pages/TournamentReport'))
 const Privacy = lazy(() => import('@/pages/Legal').then(m => ({ default: m.PrivacyPage })))
 const Terms = lazy(() => import('@/pages/Legal').then(m => ({ default: m.TermsPage })))
 const Pricing = lazy(() => import('@/pages/Pricing'))
@@ -99,6 +100,7 @@ export default function App() {
               </Route>
               {/* the venue screen: no site header, full screen */}
               <Route path="tournaments/:id/projector" element={<Projector />} />
+              <Route path="tournaments/:id/report" element={<TournamentReport />} />
               {/* print views: one certificate, or all certificates of a tournament */}
               <Route path="certificates/:code" element={<CertificatePrint />} />
               <Route path="tournaments/:id/certificates/print" element={<RequireAuth><CertificatePrint /></RequireAuth>} />

@@ -2007,5 +2007,25 @@
     "average": "Орташа баға 5-тен {{avg}} · пікірлер: {{count}}",
     "count_one": "{{count}} пікір",
     "count_other": "{{count}} пікір"
+  },
+  "export": {
+    "excel": "Excel",
+    "pdf": "PDF / басып шығару",
+    "print": "Басып шығару / PDF сақтау",
+    "teams": "Командалар",
+    "speakers": "Спикерлер",
+    "rounds": "Раундтар",
+    "round": "Раунд",
+    "institution": "Мектеп / ЖОО",
+    "club": "Клуб",
+    "losses": "Жеңілістер",
+    "seed": "Себу",
+    "speaker": "Спикер",
+    "total": "Жиыны",
+    "average": "Орташа",
+    "stage": "Кезең",
+    "teamsInRoom": "Командалар",
+    "through": "Әрі қарай өтті",
+    "generated": "Жасалған уақыты {{date}}"
   }
 }

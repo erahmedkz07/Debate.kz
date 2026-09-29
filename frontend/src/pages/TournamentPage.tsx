@@ -6,13 +6,14 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users,
+  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer,
 } from 'lucide-react'
 import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
 import type { Debate, Round, Side, TournamentDetails } from '@/types'
+import type { TFunction } from 'i18next'
 import { useAsync } from '@/lib/hooks'
 import { breakForecast } from '@/lib/breakForecast'
 import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
@@ -31,6 +32,7 @@ import { formatOfTournament } from '@/content/formats'
 import { useRoundName } from '@/lib/rounds'
 import { PlayoffTab } from '@/components/tournament/Bracket'
 import { silentRoundIds } from '@/lib/silent'
+import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -323,6 +325,16 @@ function TeamCell({ name, logo, win, place, center }: { name: string; logo?: str
   )
 }
 
+// builds the Excel file from the same data as the printable report
+async function exportXlsx(id: string, t: TFunction, sides: Record<Side, string>, roundName: ReturnType<typeof useRoundName>) {
+  try {
+    const data = await loadReport(id)
+    await downloadXlsx(data, buildTables(data, { t, sides, roundName }))
+  } catch (e) {
+    toast.error(errorMessage(e, t))
+  }
+}
+
 function RoundBanner({ round }: { round: Round }) {
   const { t } = useTranslation()
   return (
@@ -338,9 +350,18 @@ function RoundBanner({ round }: { round: Round }) {
 
 export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'silentRounds' | 'myRole'> }) {
   const { t } = useTranslation()
+  const sides = useSides(tournament?.format)
+  const roundName = useRoundName()
   // silent rounds: the public table stops before them (organizers see everything)
   const silent = tournament && !tournament.myRole ? silentRoundIds(tournament).size : 0
   const silentNote = silent > 0 && <p className="mb-4 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentNote', { count: silent })}</p>
+  // the results as a file: Excel, or the printable report the browser saves as PDF
+  const exportBar = (
+    <div className="mb-3 flex flex-wrap justify-end gap-2">
+      <Button size="sm" variant="outline" onClick={() => void exportXlsx(id, t, sides, roundName)}><FileSpreadsheet className="size-4" />{t('export.excel')}</Button>
+      <Button asChild size="sm" variant="outline"><a href={`/tournaments/${id}/report`} target="_blank" rel="noopener"><Printer className="size-4" />{t('export.pdf')}</a></Button>
+    </div>
+  )
   const { data, loading, error, reload } = useAsync(() => getStandings(id), [id])
   if (error) return <ErrorState onRetry={reload} />
   if (loading || !data) return <div className="space-y-2">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>
@@ -363,6 +384,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
     const look = { safe: 'success', live: 'accent', out: 'muted' } as const
     return (
       <>
+      {exportBar}
       {silentNote}
       {forecast && (
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
