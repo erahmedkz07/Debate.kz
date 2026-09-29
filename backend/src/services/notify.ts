@@ -5,6 +5,7 @@ import { linkable, sendMessage, telegramEnabled, TelegramError, type InlineButto
 import { asLang, buttonLabel, renderNotification } from './botTexts.js'
 import { getStandings } from './tournaments.js'
 import { campNames, resultOf, sideLabel, sidesInDebate } from './formats.js'
+import { finalPlaces } from './playoffs.js'
 
 // Notifications. Every event lands in the in-app notification centre (type + data, rendered in RU/KZ on the site)
 // and, for people who linked the bot themselves, is also sent to Telegram — the same type rendered by botTexts.ts
@@ -182,18 +183,23 @@ export async function notifyAdminsNewTournament(tournamentId: string) {
 export async function notifyTournamentFinished(tournamentId: string) {
   const t = await prisma.tournament.findUnique({
     where: { id: tournamentId },
-    select: { id: true, name: true, breakSize: true, teams: { where: { swing: false }, select: { id: true, name: true, speakers: { select: { userId: true } } } }, judges: { select: { userId: true } } },
+    select: {
+      id: true, name: true, breakSize: true, judges: { select: { userId: true } },
+      teams: { where: { swing: false }, select: { id: true, name: true, breakSeed: true, speakers: { select: { userId: true } } } },
+    },
   })
   if (!t) return
   const st = await getStandings(tournamentId)
-  const place = new Map(st.teams.map(r => [r.team.id, r.rank]))
+  // after the playoffs the champion is the winner of the final
+  const place = (await finalPlaces(tournamentId)) ?? new Map(st.teams.map(r => [r.team.id, r.rank]))
+  const broke = t.teams.some(x => x.breakSeed)
   for (const team of t.teams) {
     const p = place.get(team.id)
     if (!p) continue
     await notify(team.speakers.map(s => s.userId), 'participant.tournamentFinished',
-      { tournament: t.name, team: team.name, place: p, teams: st.teams.length, inBreak: p <= t.breakSize }, '/me?tab=certificates')
+      { tournament: t.name, team: team.name, place: p, teams: st.teams.length, inBreak: broke ? !!team.breakSeed : p <= t.breakSize }, '/me?tab=certificates')
   }
   await notify(t.judges.map(j => j.userId), 'judge.tournamentFinished', { tournament: t.name }, '/me?tab=certificates')
   await notify(await organizersOf(t.id), 'organizer.tournamentFinished',
-    { tournament: t.name, winner: st.teams[0]?.team.name ?? '', teams: st.teams.length }, `/dashboard/tournaments/${t.id}/results`)
+    { tournament: t.name, winner: t.teams.find(x => place.get(x.id) === 1)?.name ?? '', teams: st.teams.length }, `/dashboard/tournaments/${t.id}/results`)
 }

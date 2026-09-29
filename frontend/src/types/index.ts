@@ -44,6 +44,7 @@ export interface Team {
   club?: Ref & { logoUrl?: string } // the club and club team it comes from
   clubTeam?: Ref
   logoUrl?: string // the club team's logo, else the club's
+  breakSeed?: number // 1..breakSize once the break is announced
 }
 
 export interface Judge {
@@ -65,7 +66,13 @@ export interface Round {
   infoSlide?: string
   status: 'draft' | 'released' | 'completed'
   date: string
+  // playoffs: elimination rounds after the break (quarterfinal, semifinal, final)
+  kind?: 'elimination'
+  teamsInRound?: number
+  stage?: PlayoffStage
 }
+
+export type PlayoffStage = 'final' | 'semi' | 'quarter' | 'octo'
 
 export interface Debate {
   id: string
@@ -77,6 +84,7 @@ export interface Debate {
   closingPropositionTeamId?: string
   closingOppositionTeamId?: string
   ranking?: Side[]
+  bracketSlot?: number // playoffs: the debate's place in the bracket
   judgeIds: string[]
   winner?: Side
   ballotStatus: 'pending' | 'submitted' | 'confirmed'

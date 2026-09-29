@@ -55,6 +55,12 @@ enum TournamentStatus {
   finished
 }
 
+// preliminary rounds make the standings; elimination rounds (the break: quarterfinal, semifinal, final) decide the champion
+enum RoundKind {
+  preliminary
+  elimination
+}
+
 enum RoundStatus {
   draft
   released
@@ -289,6 +295,7 @@ model Team {
   city                 String?
   checkedInAt          DateTime?    @map("checked_in_at") // present at the venue (QR check-in or marked by the organizer)
   swing                Boolean      @default(false) // stand-in team that evens out the draw; never ranked
+  breakSeed            Int?         @map("break_seed") // 1..breakSize once the break is announced; null = did not break
   clubId               String?      @map("club_id") // the club the team came from (ratings, same-club draw rule)
   clubTeamId           String?      @map("club_team_id")
   createdAt            DateTime     @default(now()) @map("created_at")
@@ -347,6 +354,8 @@ model Round {
   motion       String      @default("")
   infoSlide    String?     @map("info_slide")
   status       RoundStatus @default(draft)
+  kind         RoundKind   @default(preliminary)
+  teamsInRound Int?        @map("teams_in_round") // elimination: how many teams are still in (final = 2, BP final = 4)
   date         DateTime    @db.Date
   tournament   Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   debates      Debate[]
@@ -366,6 +375,7 @@ model Debate {
   closingOppositionTeamId  String?       @map("closing_opposition_team_id")
   winner                   Side?
   ranking                  Side[] // BP: the sides from 1st to 4th place (3/2/1/0 team points); empty in two-team formats
+  bracketSlot              Int?          @map("bracket_slot") // elimination: the debate's place in the bracket, 0 at the top
   ballotStatus             BallotStatus  @default(pending) @map("ballot_status")
   round                    Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
   proposition              Team          @relation("PropositionTeam", fields: [propositionTeamId], references: [id], onDelete: Cascade)

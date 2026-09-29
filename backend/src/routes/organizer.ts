@@ -7,6 +7,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
+import { announceBreak, cancelBreak } from '../services/playoffs.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -60,6 +61,8 @@ const createSchema = z.object({
   paymentReference: z.string().regex(/^DKZ-[A-Z2-9]{6}$/).optional(), // from GET /plans/quote, for tournaments above the free limit
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
+  // BP playoffs are rooms of four: the smallest break is one final room
+  .refine(v => v.format !== 'BP' || v.breakSize >= 4, { path: ['breakSize'], message: 'break_too_small' })
 
 organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const d = body(req, createSchema)
@@ -177,7 +180,22 @@ async function assertStageChange(tournamentId: string, to: 'registration' | 'ong
   if (to === 'ongoing' && t._count.teams < 2) throw badRequest('not_enough_teams')
   if (to === 'registration' && t.rounds.some(r => r.status !== 'draft')) throw badRequest('rounds_started')
   if (to === 'finished' && t.rounds.some(r => r.status === 'released')) throw badRequest('round_in_progress')
+  // once the break is announced the tournament ends with its final: the champion is the winner of the final
+  if (to === 'finished' && t.rounds.some(r => r.kind === 'elimination' && r.status !== 'completed')) throw badRequest('playoffs_unfinished')
 }
+
+// ---------- the break (playoffs) ----------
+
+organizerRouter.post('/tournaments/:id/break', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  res.status(201).json(await announceBreak(param(req, 'id')))
+})
+
+organizerRouter.delete('/tournaments/:id/break', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  await cancelBreak(param(req, 'id'))
+  res.status(204).end()
+})
 
 organizerRouter.delete('/tournaments/:id', org, async (req, res) => {
   await assertOwner(req.user, param(req, 'id'))

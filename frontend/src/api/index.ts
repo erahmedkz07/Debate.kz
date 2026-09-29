@@ -1,12 +1,8 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  Certificate, MotionItem, MotionTopic, SpeakerProgress,
-  AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest,
-  MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost,
-  AppNotification,
-  AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding,
-  Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem, Side } from '@/types'
+  Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem, Side, PlayoffStage,
+} from '@/types'
 import { ApiError, http, qs, upload } from './http'
 import i18n from '@/lib/i18n'
 
@@ -215,6 +211,19 @@ export const updateRound = (roundId: string, data: Partial<{ motion: string; inf
   http<Round>('PATCH', `/rounds/${roundId}`, data)
 export type DrawMethod = 'power' | 'high_low' | 'random'
 export interface DrawReport { method: DrawMethod; protectClubs: boolean; sameClub: number; rematches: number }
+// ---------- playoffs ----------
+export interface BracketDebate { id: string; slot: number; room: string; teams: { side: Side; teamId: string }[]; winner?: Side; ranking?: Side[] }
+export interface BracketRound { id: string; number: number; name: string; stage: PlayoffStage; teamsInRound: number; status: Round['status']; motion: string; debates: BracketDebate[] }
+export interface Bracket {
+  format: string; breakSize: number; announced: boolean
+  seeds: { seed: number; team: Team }[]
+  rounds: BracketRound[]
+  champion?: Team // after the final
+}
+export const getBracket = (id: string) => http<Bracket>('GET', `/tournaments/${encodeURIComponent(id)}/bracket`)
+export const announceBreak = (id: string) => http<Bracket>('POST', `/tournaments/${encodeURIComponent(id)}/break`)
+export const cancelBreak = (id: string) => http<void>('DELETE', `/tournaments/${encodeURIComponent(id)}/break`)
+
 export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean } = {}) =>
   http<{ debates: Debate[]; report: DrawReport }>('POST', `/rounds/${roundId}/draw`, opts)
 export const updateDebate = (debateId: string, data: Partial<{ room: string; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>

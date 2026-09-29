@@ -28,6 +28,8 @@ import { EntityLogo } from '@/components/ui/entity-logo'
 import { BackButton } from '@/components/layout/BackButton'
 import { isBP, placeOf, sidesOf, teamIdOn, useFormatName, useSides } from '@/lib/formats'
 import { formatOfTournament } from '@/content/formats'
+import { useRoundName } from '@/lib/rounds'
+import { PlayoffTab } from '@/components/tournament/Bracket'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -215,6 +217,7 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
 
 function DrawTab({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
+  const roundName = useRoundName()
   const sides = useSides(data.format)
   const released = data.rounds.filter(r => r.status !== 'draft')
   const [roundId, setRoundId] = useState(released.at(-1)?.id)
@@ -239,7 +242,7 @@ function DrawTab({ data }: { data: TournamentDetails }) {
           <button key={r.id} disabled={r.status === 'draft'} onClick={() => setRoundId(r.id)}
             className={cn('cursor-pointer rounded-xl border-2 px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-40',
               r.id === round.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:border-primary/50')}>
-            {r.name}
+            {roundName(r)}
           </button>
         ))}
       </div>
@@ -448,7 +451,7 @@ export default function TournamentPage() {
   const { data, loading, error, reload } = useAsync(() => getTournamentById(id), [id])
   // deep links like /tournaments/:id?tab=draw (e.g. from "My debates")
   const [params] = useSearchParams()
-  const tabs = ['overview', 'teams', 'draw', 'results', 'speakers', 'judges']
+  const tabs = ['overview', 'teams', 'draw', 'playoffs', 'results', 'speakers', 'judges']
   const requestedTab = params.get('tab')
 
   if (error instanceof NotFoundError) return <NotFound />
@@ -487,8 +490,9 @@ export default function TournamentPage() {
         <Tabs defaultValue={requestedTab && tabs.includes(requestedTab) ? requestedTab : data.status === 'registration' ? 'overview' : 'draw'}>
           <TabsList>
             <TabsTrigger value="overview">{t('tournament.tabs.overview')}</TabsTrigger>
-            <TabsTrigger value="teams">{t('tournament.tabs.teams')} <span className="ml-1 text-xs opacity-60">{data.teams.length}</span></TabsTrigger>
+            <TabsTrigger value="teams">{t('tournament.tabs.teams')} <span className="ml-1 text-xs opacity-60">{data.teams.filter(x => !x.swing).length}</span></TabsTrigger>
             <TabsTrigger value="draw">{t('tournament.tabs.draw')}</TabsTrigger>
+            {data.rounds.some(r => r.kind === 'elimination') && <TabsTrigger value="playoffs">{t('playoff.tab')}</TabsTrigger>}
             <TabsTrigger value="results">{t('tournament.tabs.results')}</TabsTrigger>
             <TabsTrigger value="speakers">{t('tournament.tabs.speakers')}</TabsTrigger>
             <TabsTrigger value="judges">{t('tournament.tabs.judges')}</TabsTrigger>
@@ -496,6 +500,7 @@ export default function TournamentPage() {
           <TabsContent value="overview"><Overview data={data} /></TabsContent>
           <TabsContent value="teams"><TeamsTab data={data} /></TabsContent>
           <TabsContent value="draw"><DrawTab data={data} /></TabsContent>
+          <TabsContent value="playoffs"><PlayoffTab id={data.id} /></TabsContent>
           <TabsContent value="results"><ResultsTab id={data.id} kind="teams" tournament={data} /></TabsContent>
           <TabsContent value="speakers"><ResultsTab id={data.id} kind="speakers" /></TabsContent>
           <TabsContent value="judges"><JudgesTab data={data} /></TabsContent>

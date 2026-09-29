@@ -3,7 +3,8 @@ import { toDay } from '../lib/dates.js'
 import { forbidden, notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { coverOf } from './covers.js'
-import { BP_POINTS, teamOnSide } from './formats.js'
+import { BP_POINTS, isBP, teamOnSide } from './formats.js'
+import { stageOf } from './stages.js'
 
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
@@ -42,6 +43,7 @@ export const toDebate = (d: DebateRow) => ({
   // British Parliamentary: the closing half and the places 1st–4th
   ...(d.closingPropositionTeamId && { closingPropositionTeamId: d.closingPropositionTeamId, closingOppositionTeamId: d.closingOppositionTeamId ?? undefined }),
   ...(d.ranking.length && { ranking: d.ranking }),
+  ...(d.bracketSlot !== null && { bracketSlot: d.bracketSlot }),
   judgeIds: d.judges.map(j => j.judgeId), winner: d.winner ?? undefined, ballotStatus: d.ballotStatus,
 })
 
@@ -111,6 +113,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     motion: r.status === 'draft' && !manager ? '' : r.motion,
     infoSlide: r.status === 'draft' && !manager ? undefined : r.infoSlide ?? undefined,
     status: r.status, date: toDay(r.date),
+    ...(r.kind === 'elimination' && { kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)) }),
   }))
   const debates = t.rounds.filter(r => manager || r.status !== 'draft').flatMap(r => r.debates.map(toDebate))
   const chairIds = new Set(t.rounds.flatMap(r => r.debates.flatMap(d => d.judges.filter(j => j.isChair).map(j => j.judgeId))))
@@ -127,7 +130,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
     rounds, debates,
-    teams: t.teams.map(toTeam),
+    teams: t.teams.map(team => ({ ...toTeam(team), ...(team.breakSeed && { breakSeed: team.breakSeed }) })),
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
       hasAccount: !!j.userId, // only judges with an account can send ballots
@@ -142,7 +145,8 @@ export async function getStandings(tournamentId: string) {
     // swing teams only fill the draw; they are never ranked
     prisma.team.findMany({ where: { tournamentId, swing: false }, include: teamInclude }),
     prisma.debate.findMany({
-      where: { round: { tournamentId, status: 'completed' }, winner: { not: null } },
+      // the standings are the preliminary rounds; the playoffs decide the champion separately
+      where: { round: { tournamentId, status: 'completed', kind: 'preliminary' }, winner: { not: null } },
       include: { ballots: { include: { scores: true } } },
     }),
   ])

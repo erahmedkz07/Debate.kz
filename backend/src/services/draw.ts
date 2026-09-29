@@ -3,6 +3,7 @@ import { BP_SIDES, isBP, rulesOf } from './formats.js'
 import { prisma } from '../lib/prisma.js'
 import { getStandings } from './tournaments.js'
 import { assignPositions, groupRooms, pairTeams, shuffle, type DrawMethod } from './pairing.js'
+import { eliminationRooms } from './playoffs.js'
 
 const ROOMS = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
 export const DEFAULT_ROOMS = ROOMS
@@ -30,6 +31,17 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   if (hasBallots) throw forbidden('ballots_already_submitted')
 
   const tId = round.tournamentId
+  // the break: the bracket decides who meets whom; no swing teams, no power pairing
+  if (round.kind === 'elimination') {
+    const rooms = await eliminationRooms(roundId)
+    const [teams, judges] = await Promise.all([
+      prisma.team.findMany({ where: { id: { in: rooms.flat() } }, select: { id: true, institutionId: true } }),
+      prisma.judge.findMany({ where: { tournamentId: tId }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
+    ])
+    if (judges.length < rooms.length) throw badRequest('not_enough_judges', { need: rooms.length, have: judges.length, teams: teams.length })
+    await seatJudgesAndSave(round, rooms, teams, judges, true)
+    return { method: 'bracket' as const, protectClubs: false, sameClub: 0, rematches: 0 }
+  }
   const [teams, judges, previous] = await Promise.all([
     prisma.team.findMany({
       where: { tournamentId: tId, swing: false, ...(opts.presentOnly && { checkedInAt: { not: null } }) },
@@ -91,7 +103,17 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     report = { sameClub: result.sameClub, rematches: result.rematches }
   }
 
-  // judge allocation
+  await seatJudgesAndSave(round, pairs, teams, judges, false)
+  return { method, protectClubs, ...report }
+}
+
+type RoundWithTournament = { id: string; tournament: { rooms: string[] } }
+type JudgeRow = { id: string; institutionId: string | null }
+
+// one judge per room: best-rated judges chair, spare judges become wings; a judge never sits with a team of their institution.
+// bracket: elimination debates remember their place in the bracket (the room order)
+async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], teams: { id: string; institutionId: string | null }[], judges: JudgeRow[], bracket: boolean) {
+  const roundId = round.id
   const inst = new Map(teams.map(t => [t.id, t.institutionId]))
   const conflictsWith = (judgeInst: string | null, room: string[]) => !!judgeInst && room.some(id => inst.get(id) === judgeInst)
   const free = [...judges]
@@ -115,12 +137,12 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
         data: {
           roundId, room: roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS), propositionTeamId: pairs[i][0], oppositionTeamId: pairs[i][1],
           closingPropositionTeamId: pairs[i][2] ?? null, closingOppositionTeamId: pairs[i][3] ?? null,
+          bracketSlot: bracket ? i : null,
           judges: { create: panels[i] },
         },
       })
     }
   })
-  return { method, protectClubs, ...report }
 }
 
 // the tournament's stand-in teams (each created once): placeholder speakers so judges can score them; never ranked.

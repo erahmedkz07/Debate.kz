@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, CalendarClock, ChevronRight, Circle, DoorOpen, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  Award, CalendarClock, ChevronRight, Circle, DoorOpen, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -36,7 +36,8 @@ import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
 import { PaymentCard } from '@/components/payments/PaymentCard'
 import { FREE_TEAM_LIMIT } from '@/lib/plans'
 import { EntityLogo } from '@/components/ui/entity-logo'
-import { sidesOf, teamIdOn, useSides } from '@/lib/formats'
+import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
+import { useRoundName } from '@/lib/rounds'
 import { formatOfTournament } from '@/content/formats'
 
 const sections = [
@@ -93,6 +94,7 @@ function useAction() {
 /* ---------- Overview ---------- */
 function Overview({ data }: SectionProps) {
   const { t } = useTranslation()
+  const roundName = useRoundName()
   const done = data.rounds.filter(r => r.status === 'completed').length
   const live = data.debates.filter(d => data.rounds.find(r => r.id === d.roundId)?.status === 'released')
   const submitted = live.filter(d => d.ballotStatus !== 'pending').length
@@ -128,7 +130,7 @@ function Overview({ data }: SectionProps) {
         ))}
       </div>
       <Card className="mt-6 p-6">
-        <h3 className="text-lg font-bold">{t('dashboard.overview.next')}{nextRound && <span className="font-normal text-muted-foreground"> · {nextRound.name}</span>}</h3>
+        <h3 className="text-lg font-bold">{t('dashboard.overview.next')}{nextRound && <span className="font-normal text-muted-foreground"> · {roundName(nextRound)}</span>}</h3>
         <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.overview.checklistHint')}</p>
         <ul className="mt-4 space-y-1">
           {steps.map(s => (
@@ -416,6 +418,7 @@ function Judges({ data, reload }: SectionProps) {
 /* ---------- Rounds ---------- */
 function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean; reload: () => void }) {
   const { t } = useTranslation()
+  const roundName = useRoundName()
   const { busy, run } = useAction()
   const [motion, setMotion] = useState(round.motion)
   useEffect(() => setMotion(round.motion), [round.motion])
@@ -433,8 +436,10 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
     <Card className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="grid size-9 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">{round.number}</span>
-          <p className="font-bold">{round.name}</p>
+          <span className={cn('grid size-9 place-items-center rounded-lg text-sm font-bold', round.kind === 'elimination' ? 'bg-accent text-navy' : 'bg-primary text-primary-foreground')}>
+            {round.kind === 'elimination' ? <Trophy className="size-4" /> : round.number}
+          </span>
+          <p className="font-bold">{roundName(round)}</p>
           <Badge variant={round.status === 'completed' ? 'muted' : round.status === 'released' ? 'accent' : 'outline'}>{t(`tournament.roundStatus.${round.status}`)}</Badge>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -467,22 +472,75 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
 
 function Rounds({ data, reload }: SectionProps) {
   const { t } = useTranslation()
+  const card = (r: Round) => <RoundCard key={r.id} round={r} hasDraw={data.debates.some(d => d.roundId === r.id)} reload={reload} />
   return (
     <>
       <SectionTitle title={t('dashboard.nav.rounds')} />
       <div className="space-y-4">
-        {data.rounds.map(r => <RoundCard key={r.id} round={r} hasDraw={data.debates.some(d => d.roundId === r.id)} reload={reload} />)}
+        {data.rounds.filter(r => r.kind !== 'elimination').map(card)}
+        <BreakCard data={data} reload={reload} />
+        {data.rounds.filter(r => r.kind === 'elimination').map(card)}
       </div>
     </>
   )
 }
 
+// The break: after the preliminary rounds the top teams of the table go to the playoffs.
+// The bracket keeps seeds 1 and 2 apart until the final; the champion is the winner of the final.
+function BreakCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const elimination = data.rounds.filter(r => r.kind === 'elimination')
+  const prelims = data.rounds.filter(r => r.kind !== 'elimination')
+  const seeds = data.teams.filter(x => x.breakSeed).sort((a, b) => a.breakSeed! - b.breakSeed!)
+  const blocker = data.status !== 'ongoing' ? t('dashboard.break.needOngoing')
+    : !prelims.length || prelims.some(r => r.status !== 'completed') ? t('dashboard.break.needPrelims') : null
+  const canCancel = elimination.length > 0 && elimination.every(r => r.status === 'draft')
+  const announce = async () => { if (await run('announce', () => announceBreak(data.id), t('dashboard.break.announcedToast'))) reload() }
+  const cancel = async () => { if (await run('cancel', () => cancelBreak(data.id), t('dashboard.break.cancelledToast'))) reload() }
+  return (
+    <Card className="border-2 border-dashed border-accent p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="grid size-9 place-items-center rounded-lg bg-accent-soft text-navy dark:text-accent"><Trophy className="size-4" /></span>
+          <div>
+            <p className="font-bold">{t('dashboard.break.title', { count: data.breakSize })}</p>
+            <p className="text-xs text-muted-foreground">{t(isBP(data.format) ? 'dashboard.break.hintBP' : 'dashboard.break.hint')}</p>
+          </div>
+        </div>
+        {elimination.length === 0 ? (
+          <Button size="sm" variant="accent" disabled={!!busy || !!blocker} title={blocker ?? undefined} onClick={announce}>
+            {busy === 'announce' ? <Loader2 className="size-4 animate-spin" /> : <Trophy className="size-4" />}{t('dashboard.break.announce')}
+          </Button>
+        ) : canCancel && (
+          <Button size="sm" variant="ghost" disabled={!!busy} onClick={cancel}>
+            {busy === 'cancel' ? <Loader2 className="size-4 animate-spin" /> : <Undo2 className="size-4" />}{t('dashboard.break.cancel')}
+          </Button>
+        )}
+      </div>
+      {elimination.length === 0 && blocker && <p className="mt-3 text-xs text-muted-foreground">{blocker}</p>}
+      {seeds.length > 0 && (
+        <ol className="mt-4 grid gap-2 sm:grid-cols-2">
+          {seeds.map(s => (
+            <li key={s.id} className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-sm">
+              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-extrabold text-primary-foreground">{s.breakSeed}</span>
+              <span className="truncate font-semibold">{s.name}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Card>
+  )
+}
+
 /* ---------- Schedule ---------- */
 // judges needed for a draw: one per room, the same count the backend checks
-function judgesNeeded(data: TournamentDetails, presentOnly = false, addSwing = true) {
+function judgesNeeded(data: TournamentDetails, presentOnly = false, addSwing = true, round?: Round) {
+  const perRoom = isBP(data.format) ? 4 : 2
+  if (round?.kind === 'elimination') return Math.max(1, (round.teamsInRound ?? perRoom) / perRoom)
   let n = data.teams.filter(x => !x.swing && (!presentOnly || x.checkedIn)).length
-  if (n % 2 && addSwing) n++
-  return Math.max(1, Math.ceil(n / 2))
+  if (n % perRoom && addSwing) n += perRoom - (n % perRoom)
+  return Math.max(1, Math.ceil(n / perRoom))
 }
 
 const dayMs = 24 * 60 * 60 * 1000
@@ -544,6 +602,7 @@ function Schedule({ data, reload }: SectionProps) {
 /* ---------- Draw ---------- */
 function Draw({ data, reload }: SectionProps) {
   const { t } = useTranslation()
+  const roundName = useRoundName()
   const sides = useSides(data.format)
   // BP: four teams per room (OG, OO, CG, CO); swapping exchanges the government and opposition halves
   const sideList = sidesOf(data.format)
@@ -567,7 +626,8 @@ function Draw({ data, reload }: SectionProps) {
 
   const present = data.teams.filter(x => x.checkedIn && !x.swing).length
   const protect = protectClubs ?? round.number <= CLUB_PROTECTED_ROUNDS
-  const need = judgesNeeded(data, presentOnly && present > 0, addSwing)
+  const need = judgesNeeded(data, presentOnly && present > 0, addSwing, round)
+  const playoff = round.kind === 'elimination'
   const fewJudges = editable && data.judges.length < need
   const noMotion = !round.motion.trim()
   const generate = async () => {
@@ -588,7 +648,7 @@ function Draw({ data, reload }: SectionProps) {
         action={
           <div className="flex flex-wrap gap-2">
             <Select value={round.id} onValueChange={setRoundId} className="w-44" aria-label={t('dashboard.draw.round')}
-              options={data.rounds.map(r => ({ value: r.id, label: r.name, hint: t(`tournament.roundStatus.${r.status}`) }))} />
+              options={data.rounds.map(r => ({ value: r.id, label: roundName(r), hint: t(`tournament.roundStatus.${r.status}`) }))} />
             {editable && (
               <Button variant="outline" disabled={!!busy} onClick={generate}>
                 {busy === 'generate' ? <Loader2 className="size-4 animate-spin" /> : <Shuffle className="size-4" />}
@@ -602,7 +662,12 @@ function Draw({ data, reload }: SectionProps) {
             )}
           </div>
         } />
-      {editable && (
+      {editable && playoff && (
+        <p className="mb-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">
+          <Trophy className="mt-0.5 size-4 shrink-0" />{t(isBP(data.format) ? 'dashboard.draw.bracketHintBP' : 'dashboard.draw.bracketHint')}
+        </p>
+      )}
+      {editable && !playoff && (
         <div className="mb-4 flex flex-wrap gap-x-6 gap-y-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm">
           <label className="flex cursor-pointer items-center gap-2">
             <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={presentOnly && present > 0} disabled={present === 0} onChange={e => setPresentOnly(e.target.checked)} />
@@ -744,6 +809,7 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
 /* ---------- Ballots ---------- */
 function Ballots({ data }: SectionProps) {
   const { t } = useTranslation()
+  const roundName = useRoundName()
   const active = data.rounds.filter(r => r.status !== 'draft')
   const [roundId, setRoundId] = useState(active.at(-1)?.id ?? '')
   const list = data.debates.filter(d => d.roundId === roundId)
@@ -753,7 +819,7 @@ function Ballots({ data }: SectionProps) {
   return (
     <>
       <SectionTitle title={t('dashboard.nav.ballots')}
-        action={<Select value={roundId} onValueChange={setRoundId} className="w-40" aria-label={t('dashboard.draw.round')} options={active.map(r => ({ value: r.id, label: r.name }))} />} />
+        action={<Select value={roundId} onValueChange={setRoundId} className="w-40" aria-label={t('dashboard.draw.round')} options={active.map(r => ({ value: r.id, label: roundName(r) }))} />} />
       <Card className="mb-4 p-5">
         <div className="flex justify-between text-sm font-semibold"><span>{t('dashboard.ballots.progress', { done, total: list.length })}</span><span className="text-primary">{list.length ? Math.round((done / list.length) * 100) : 0}%</span></div>
         <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-gradient-to-r from-primary to-success transition-all" style={{ width: `${list.length ? (done / list.length) * 100 : 0}%` }} /></div>

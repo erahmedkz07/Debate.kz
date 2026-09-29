@@ -232,7 +232,7 @@ export default function CreateTournament() {
                       const f = formatOfTournament(code)
                       const on = v.format === code
                       return (
-                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => setValue('format', code)}
+                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => { setValue('format', code); if (code === 'BP' && Number(v.breakSize) < 4) setValue('breakSize', 4) }}
                           className={cn('relative cursor-pointer rounded-2xl border-2 p-5 text-left transition-all', on ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
                           {on && <Check className="absolute right-4 top-4 size-5 text-primary" />}
                           <span className={cn('inline-grid h-8 min-w-8 place-items-center rounded-lg bg-gradient-to-br px-2 text-xs font-extrabold text-white', f.accent)}>{f.short}</span>
@@ -252,7 +252,7 @@ export default function CreateTournament() {
                     <div>
                       <Label htmlFor="break">{t('wizard.breakSize')}</Label>
                       <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
-                        options={[2, 4, 8, 16].map(n => ({ value: String(n), label: String(n) }))} />
+                        options={(v.format === 'BP' ? [4, 8, 16] : [2, 4, 8, 16]).map(n => ({ value: String(n), label: String(n) }))} />
                     </div>
                   </div>
                 </>

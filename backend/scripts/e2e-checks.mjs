@@ -1437,5 +1437,129 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const leaders = [withWing.closingPropositionTeamId, withWing.propositionTeamId]
   ok(!leaders.every(id => real.has(id)) || room1.includes(withWing.propositionTeamId), 'power pairing: the round 1 leaders meet in the top room')
 }
+// ---------- 40. the playoffs: break, bracket, champion by the final ----------
+{
+  const sleep = ms => new Promise(res => setTimeout(res, ms))
+  // one full round: draw, motion, every panel votes, completed
+  const details = async (c, id) => (await c('GET', `/tournaments/${id}`)).data
+  const playRound = async (c, tid, roundId, build) => {
+    const drawn = await c('POST', `/rounds/${roundId}/draw`, { addSwing: false })
+    if (drawn.status !== 201) ok(false, `draw ${drawn.status} ${JSON.stringify(drawn.data)}`)
+    await c('PATCH', `/rounds/${roundId}`, { motion: 'ЭП поддерживает четырёхдневную рабочую неделю', status: 'released' })
+    for (const d of (await details(c, tid)).debates.filter(x => x.roundId === roundId)) await panelVote(d.id, build)
+    return c('PATCH', `/rounds/${roundId}`, { status: 'completed' })
+  }
+  // WSDC ballots: `win` decides which side has the higher scores
+  const wsdc = win => sheet => {
+    const hi = win === 'proposition' ? 'proposition' : 'opposition', lo = hi === 'proposition' ? 'opposition' : 'proposition'
+    const scores = {}
+    sheet[hi].speakers.forEach(x => (scores[x.id] = 72)); sheet[lo].speakers.forEach(x => (scores[x.id] = 68))
+    return {
+      winner: hi, scores, reply: { [hi]: 36, [lo]: 34 },
+      replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id },
+    }
+  }
+
+  const host = await newAccount('Плей-офф Организатор')
+  const po = (await host.c('POST', '/tournaments', { ...tBody(95), name: `Плей-офф ${jtag}`, preliminaryRounds: 2, breakSize: 4 })).data
+  await admin('PATCH', `/admin/tournaments/${po.id}`, { moderation: 'approved' })
+  const names = ['Альтаир', 'Вега', 'Сириус', 'Капелла', 'Ригель', 'Денеб', 'Антарес', 'Поллукс']
+  for (const n of names) await host.c('POST', `/tournaments/${po.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  for (let i = 1; i <= 4; i++) await addJudge(host.c, po.id, `Судья Плей-офф ${i}`)
+
+  ok((await host.c('POST', `/tournaments/${po.id}/break`)).data?.error === 'tournament_not_ongoing', 'the break is announced only during the tournament')
+  await host.c('PATCH', `/tournaments/${po.id}`, { status: 'ongoing' })
+  ok((await host.c('POST', `/tournaments/${po.id}/break`)).data?.error === 'preliminaries_unfinished', 'the break waits for every preliminary round')
+  const prelims = (await details(host.c, po.id)).rounds
+  let played = 0
+  for (const pr of prelims) if ((await playRound(host.c, po.id, pr.id, wsdc('proposition'))).status === 200) played++
+  ok(played === 2, 'the preliminary rounds are played')
+  const table = (await client()('GET', `/tournaments/${po.id}/standings`)).data.teams
+
+  r = await host.c('POST', `/tournaments/${po.id}/break`)
+  const seeds = r.data?.seeds ?? []
+  ok(r.status === 201 && seeds.length === 4 && seeds.map(s => s.team.id).join() === table.slice(0, 4).map(x => x.team.id).join(),
+    'the break seeds the top four of the standings 1–4')
+  ok(r.data.rounds.map(x => x.stage).join() === 'semi,final' && r.data.rounds.every(x => x.status === 'draft'), 'a break of four makes a semifinal and a final')
+  ok((await host.c('POST', `/tournaments/${po.id}/break`)).data?.error === 'break_already_announced', 'the break is announced once')
+  ok((await host.c('DELETE', `/tournaments/${po.id}/break`)).status === 204 && (await details(host.c, po.id)).rounds.length === 2, 'the break can be cancelled before it starts')
+  r = await host.c('POST', `/tournaments/${po.id}/break`)
+  ok(r.status === 201, 'and announced again')
+  const seedList = r.data.seeds
+  const seed = n => seedList.find(s => s.seed === n).team.id
+  const [semi, final] = r.data.rounds
+
+  ok((await host.c('POST', `/rounds/${final.id}/draw`)).data?.error === 'previous_round_unfinished', 'the final is drawn after the semifinal')
+  r = await host.c('POST', `/rounds/${semi.id}/draw`)
+  const semis = [...(r.data?.debates ?? [])].sort((a, b) => a.bracketSlot - b.bracketSlot)
+  ok(r.status === 201 && semis.length === 2 && semis[0].propositionTeamId === seed(1) && semis[0].oppositionTeamId === seed(4)
+    && semis[1].propositionTeamId === seed(2) && semis[1].oppositionTeamId === seed(3), 'semifinals: 1 v 4 and 2 v 3, the higher seed is Proposition')
+  ok((await host.c('PATCH', `/tournaments/${po.id}`, { status: 'finished' })).data?.error !== undefined, 'the tournament cannot finish before the final')
+  // the underdogs win both semifinals: seeds 4 and 3 reach the final
+  ok((await playRound(host.c, po.id, semi.id, wsdc('opposition'))).status === 200, 'the semifinals are played')
+  r = await host.c('POST', `/rounds/${final.id}/draw`)
+  const fin = r.data?.debates?.[0]
+  ok(r.status === 201 && r.data.debates.length === 1 && fin.propositionTeamId === seed(3) && fin.oppositionTeamId === seed(4), 'the winners meet in the final (seed 3 v seed 4)')
+  ok((await playRound(host.c, po.id, final.id, wsdc('proposition'))).status === 200, 'the final is played')
+  const after = (await client()('GET', `/tournaments/${po.id}/standings`)).data.teams
+  ok(after.reduce((n, x) => n + x.wins, 0) === 8, 'playoff debates do not change the standings')
+  const bracket = (await client()('GET', `/tournaments/${po.id}/bracket`)).data
+  ok(bracket.champion?.id === seed(3) && bracket.rounds.every(x => x.status === 'completed'), 'the champion is the winner of the final, not the leader of the standings')
+
+  ok((await host.c('PATCH', `/tournaments/${po.id}`, { status: 'finished' })).status === 200, 'after the final the tournament finishes')
+  let certs = []
+  for (let i = 0; i < 30 && certs.length < 24; i++) {
+    await sleep(200)
+    certs = (await db.query("select c.team_place, c.in_break, s.team_id from certificates c join speakers s on s.id = c.speaker_id where c.tournament_id = $1 and c.kind = 'speaker'", [po.id])).rows
+  }
+  const placeOf = id => certs.find(c => c.team_id === id)?.team_place
+  ok(placeOf(seed(3)) === 1 && placeOf(seed(4)) === 2 && placeOf(seed(1)) === 3 && placeOf(seed(2)) === 3, 'certificates: champion 1st, finalist 2nd, semifinalists 3rd')
+  const out = certs.filter(c => !seedList.some(s => s.team.id === c.team_id))
+  ok(out.length === 12 && out.every(c => c.team_place >= 5 && !c.in_break) && certs.filter(c => c.in_break).length === 12, 'teams that did not break are placed 5th and below')
+  const champName = (await details(host.c, po.id)).teams.find(x => x.id === seed(3)).name
+  let owner
+  for (let i = 0; i < 20 && !owner; i++) { await sleep(150); owner = (await notes(host.c)).items.find(n => n.type === 'organizer.tournamentFinished') }
+  ok(owner?.data?.winner === champName, 'the organizers learn the champion (the winner of the final)')
+
+  // British Parliamentary: the final is one room of four; places 1–4 come from its ranking
+  ok((await host.c('POST', '/tournaments', { ...tBody(96), name: `BP мал ${jtag}`, format: 'BP', breakSize: 2 })).status === 400, 'a BP break needs at least four teams')
+  const bpHost = await newAccount('BP Плей-офф')
+  const bp = (await bpHost.c('POST', '/tournaments', { ...tBody(97), name: `BP плей-офф ${jtag}`, format: 'BP', preliminaryRounds: 2, breakSize: 4 })).data
+  await admin('PATCH', `/admin/tournaments/${bp.id}`, { moderation: 'approved' })
+  for (const n of names) await bpHost.c('POST', `/tournaments/${bp.id}/teams`, { name: n, institution: `Вуз ${n}`, speakers: [`${n} А`, `${n} Б`] })
+  for (let i = 1; i <= 2; i++) await addJudge(bpHost.c, bp.id, `BP Судья Плей-офф ${i}`)
+  await bpHost.c('PATCH', `/tournaments/${bp.id}`, { status: 'ongoing' })
+  // BP ballots: the chair scores OG > OO > CG > CO
+  const bpVote = sheet => {
+    const scores = {}
+    ;[['proposition', 80], ['opposition', 76], ['closingProposition', 72], ['closingOpposition', 68]].forEach(([side, v]) => sheet[side].speakers.forEach(x => (scores[x.id] = v)))
+    return { scores }
+  }
+  const bpPanel = async (debateId, build) => {
+    const chairId = (await db.query('select judge_id from debate_judges where debate_id = $1 and is_chair', [debateId])).rows[0].judge_id
+    const c = await judgeAs(chairId)
+    const res = await c('POST', `/ballots/${debateId}`, build((await c('GET', `/ballots/${debateId}`)).data))
+    if (res.status !== 201) ok(false, `BP ballot ${res.status} ${JSON.stringify(res.data)}`)
+  }
+  for (const bpPrelim of (await details(bpHost.c, bp.id)).rounds) {
+    await bpHost.c('POST', `/rounds/${bpPrelim.id}/draw`, { addSwing: false })
+    await bpHost.c('PATCH', `/rounds/${bpPrelim.id}`, { motion: 'ЭП ввела бы налог на роскошь', status: 'released' })
+    for (const d of (await details(bpHost.c, bp.id)).debates.filter(x => x.roundId === bpPrelim.id)) await bpPanel(d.id, bpVote)
+    await bpHost.c('PATCH', `/rounds/${bpPrelim.id}`, { status: 'completed' })
+  }
+  r = await bpHost.c('POST', `/tournaments/${bp.id}/break`)
+  ok(r.status === 201 && r.data.rounds.length === 1 && r.data.rounds[0].stage === 'final' && r.data.rounds[0].teamsInRound === 4, 'a BP break of four is one final room')
+  const bpFinal = r.data.rounds[0]
+  r = await bpHost.c('POST', `/rounds/${bpFinal.id}/draw`)
+  const room = r.data?.debates?.[0]
+  const inRoom = room ? [room.propositionTeamId, room.oppositionTeamId, room.closingPropositionTeamId, room.closingOppositionTeamId] : []
+  const bpSeeds = (await client()('GET', `/tournaments/${bp.id}/bracket`)).data.seeds.map(s => s.team.id)
+  ok(r.status === 201 && new Set(inRoom).size === 4 && inRoom.every(id => bpSeeds.includes(id)), 'the BP final seats the four breaking teams')
+  await bpHost.c('PATCH', `/rounds/${bpFinal.id}`, { motion: 'ЭП отменила бы домашние задания', status: 'released' })
+  await bpPanel(room.id, bpVote)
+  await bpHost.c('PATCH', `/rounds/${bpFinal.id}`, { status: 'completed' })
+  const bpBracket = (await client()('GET', `/tournaments/${bp.id}/bracket`)).data
+  ok(bpBracket.champion?.id === room.propositionTeamId, 'the BP champion is 1st in the final room')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
