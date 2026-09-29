@@ -108,7 +108,11 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
       round: { status: { not: 'draft' } },
       OR: [{ propositionTeamId: { in: teamIds } }, { oppositionTeamId: { in: teamIds } }, { closingPropositionTeamId: { in: teamIds } }, { closingOppositionTeamId: { in: teamIds } }],
     },
-    include: { round: { include: { tournament: true } }, proposition: true, opposition: true, closingProposition: true, closingOpposition: true },
+    include: {
+      round: { include: { tournament: true } }, proposition: true, opposition: true, closingProposition: true, closingOpposition: true,
+      judges: { include: { judge: { select: { id: true, name: true } } }, orderBy: { isChair: 'desc' } },
+      feedback: { where: { userId: req.user!.id }, select: { judgeId: true, score: true, comment: true } },
+    },
     orderBy: [{ round: { date: 'asc' } }, { round: { number: 'asc' } }],
   })
   const hidden = new Set<string>()
@@ -132,8 +136,32 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
       // 1st place in BP counts as a win, like in the standings
       result: d.winner && !silent ? (d.winner === side ? 'win' : 'loss') : null,
       ...(silent && d.winner && { silent: true }),
+      // the panel, with the rating this speaker gave each judge (feedback goes to the organizers only)
+      judges: d.judges.map(j => {
+        const mine = d.feedback.find(f => f.judgeId === j.judgeId)
+        return { id: j.judge.id, name: j.judge.name, isChair: j.isChair, ...(mine && { myScore: mine.score, myComment: mine.comment ?? undefined }) }
+      }),
     }
   }))
+})
+
+// a speaker rates a judge of their own debate once the draw is out; sending again changes the rating
+meRouter.post('/debates/:debateId/feedback', requireAuth(), async (req, res) => {
+  const d = body(req, z.object({ judgeId: z.string(), score: z.number().int().min(1).max(5), comment: z.string().trim().max(500).optional() }))
+  const debate = await prisma.debate.findUnique({ where: { id: param(req, 'debateId') }, include: { round: true, judges: true } })
+  if (!debate) throw notFound('debate_not_found')
+  if (debate.round.status === 'draft') throw badRequest('round_not_released')
+  const teamIds = [debate.propositionTeamId, debate.oppositionTeamId, debate.closingPropositionTeamId, debate.closingOppositionTeamId].filter((x): x is string => !!x)
+  const speaker = await prisma.speaker.findFirst({ where: { userId: req.user!.id, teamId: { in: teamIds } } })
+  if (!speaker) throw forbidden('not_in_debate')
+  if (!debate.judges.some(j => j.judgeId === d.judgeId)) throw badRequest('judge_not_on_panel')
+  const row = { score: d.score, comment: d.comment || null }
+  await prisma.judgeFeedback.upsert({
+    where: { debateId_judgeId_userId: { debateId: debate.id, judgeId: d.judgeId, userId: req.user!.id } },
+    create: { debateId: debate.id, judgeId: d.judgeId, userId: req.user!.id, teamId: speaker.teamId, ...row },
+    update: row,
+  })
+  res.status(201).json({ ok: true })
 })
 
 const registrationSchema = z.object({

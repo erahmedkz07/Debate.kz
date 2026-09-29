@@ -1670,5 +1670,32 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await host.c('PUT', `/judges/${jA}/conflicts`, { teamIds: [] })).status === 200
     && (await host.c('PATCH', `/debates/${deb.id}`, { chairJudgeId: jA })).data?.error !== 'judge_conflict', 'after the conflict is removed the conflict check no longer stops the judge')
 }
+// ---------- 45. judge feedback: speakers rate the judges of their debate, organizers read it ----------
+{
+  const host = await newAccount('Отзывы Организатор')
+  const f = (await host.c('POST', '/tournaments', { ...tBody(140), name: `Отзывы ${jtag}` })).data
+  await admin('PATCH', `/admin/tournaments/${f.id}`, { moderation: 'approved' })
+  for (const n of ['Отзыв 1', 'Отзыв 2']) await host.c('POST', `/tournaments/${f.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  const fj = (await addJudge(host.c, f.id, 'Оцениваемый Судья')).data.id
+  const speaker = await newAccount('Отзыв Спикер')
+  const team = (await host.c('GET', `/tournaments/${f.id}`)).data.teams[0]
+  await db.query('update speakers set user_id = $1 where id = $2', [speaker.id, team.speakers[0].id])
+  const round = (await host.c('GET', `/tournaments/${f.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+  const deb = (await host.c('GET', `/tournaments/${f.id}`)).data.debates[0]
+  ok((await speaker.c('POST', `/debates/${deb.id}/feedback`, { judgeId: fj, score: 5 })).data?.error === 'round_not_released', 'feedback opens once the draw is out')
+  await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП ввела бы обязательное голосование', status: 'released' })
+  ok((await speaker.c('POST', `/debates/${deb.id}/feedback`, { judgeId: fj, score: 6 })).status === 400, 'the score is 1 to 5')
+  const outsider = await newAccount('Чужой Зритель')
+  ok((await outsider.c('POST', `/debates/${deb.id}/feedback`, { judgeId: fj, score: 1 })).data?.error === 'not_in_debate', 'only speakers of the debate rate its judges')
+  ok((await speaker.c('POST', `/debates/${deb.id}/feedback`, { judgeId: fj, score: 3 })).status === 201, 'a speaker rates the judge')
+  ok((await speaker.c('POST', `/debates/${deb.id}/feedback`, { judgeId: fj, score: 4, comment: 'Понятно объяснил решение' })).status === 201, 'and can change the rating')
+  const mine = (await speaker.c('GET', '/me/debates')).data.find(x => x.debate.id === deb.id)
+  ok(mine?.judges?.[0]?.myScore === 4, 'the speaker sees the rating they gave')
+  const fb = (await host.c('GET', `/tournaments/${f.id}/judge-feedback`)).data
+  ok(fb.length === 1 && fb[0].judgeId === fj && fb[0].count === 1 && fb[0].average === 4 && fb[0].items[0].comment === 'Понятно объяснил решение' && fb[0].items[0].team === team.name,
+    'the organizer reads the average and the comments')
+  ok((await judgeClients.get(fj)('GET', `/tournaments/${f.id}/judge-feedback`)).status === 403, 'the judge does not read feedback about themselves')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

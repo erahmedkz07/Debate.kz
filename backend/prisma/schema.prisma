@@ -150,6 +150,7 @@ model User {
   teammateReplies      TeammateReply[]
   safetyReports        SafetyReport[]        @relation("SafetyReporter")
   handledSafetyReports SafetyReport[]        @relation("SafetyHandler")
+  judgeFeedback        JudgeFeedback[]
 
   @@map("users")
 }
@@ -311,6 +312,7 @@ model Team {
   closingPropositionIn Debate[]        @relation("ClosingPropositionTeam")
   closingOppositionIn  Debate[]        @relation("ClosingOppositionTeam")
   judgeConflicts       JudgeConflict[]
+  judgeFeedback        JudgeFeedback[]
 
   @@unique([tournamentId, name])
   @@map("teams")
@@ -344,6 +346,7 @@ model Judge {
   ballots       Ballot[]
   invites       TournamentInvite[]
   conflicts     JudgeConflict[]
+  feedback      JudgeFeedback[]
 
   @@index([tournamentId])
   @@index([userId])
@@ -369,26 +372,27 @@ model Round {
 }
 
 model Debate {
-  id                       String        @id @default(cuid())
-  roundId                  String        @map("round_id")
+  id                       String          @id @default(cuid())
+  roundId                  String          @map("round_id")
   room                     String
-  propositionTeamId        String        @map("proposition_team_id")
-  oppositionTeamId         String        @map("opposition_team_id")
+  propositionTeamId        String          @map("proposition_team_id")
+  oppositionTeamId         String          @map("opposition_team_id")
   // British Parliamentary only: the closing half of the room
-  closingPropositionTeamId String?       @map("closing_proposition_team_id")
-  closingOppositionTeamId  String?       @map("closing_opposition_team_id")
+  closingPropositionTeamId String?         @map("closing_proposition_team_id")
+  closingOppositionTeamId  String?         @map("closing_opposition_team_id")
   winner                   Side?
   ranking                  Side[] // BP: the sides from 1st to 4th place (3/2/1/0 team points); empty in two-team formats
-  bracketSlot              Int?          @map("bracket_slot") // elimination: the debate's place in the bracket, 0 at the top
-  onlineUrl                String?       @map("online_url") // the room\'s video call; shown only to its teams, judges and organizers
-  ballotStatus             BallotStatus  @default(pending) @map("ballot_status")
-  round                    Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
-  proposition              Team          @relation("PropositionTeam", fields: [propositionTeamId], references: [id], onDelete: Cascade)
-  opposition               Team          @relation("OppositionTeam", fields: [oppositionTeamId], references: [id], onDelete: Cascade)
-  closingProposition       Team?         @relation("ClosingPropositionTeam", fields: [closingPropositionTeamId], references: [id], onDelete: Cascade)
-  closingOpposition        Team?         @relation("ClosingOppositionTeam", fields: [closingOppositionTeamId], references: [id], onDelete: Cascade)
+  bracketSlot              Int?            @map("bracket_slot") // elimination: the debate's place in the bracket, 0 at the top
+  onlineUrl                String?         @map("online_url") // the room\'s video call; shown only to its teams, judges and organizers
+  ballotStatus             BallotStatus    @default(pending) @map("ballot_status")
+  round                    Round           @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  proposition              Team            @relation("PropositionTeam", fields: [propositionTeamId], references: [id], onDelete: Cascade)
+  opposition               Team            @relation("OppositionTeam", fields: [oppositionTeamId], references: [id], onDelete: Cascade)
+  closingProposition       Team?           @relation("ClosingPropositionTeam", fields: [closingPropositionTeamId], references: [id], onDelete: Cascade)
+  closingOpposition        Team?           @relation("ClosingOppositionTeam", fields: [closingOppositionTeamId], references: [id], onDelete: Cascade)
   judges                   DebateJudge[]
   ballots                  Ballot[]
+  feedback                 JudgeFeedback[]
 
   @@index([roundId])
   @@map("debates")
@@ -404,6 +408,26 @@ model JudgeConflict {
   @@id([judgeId, teamId])
   @@index([teamId])
   @@map("judge_conflicts")
+}
+
+// a speaker's rating of a judge of their debate (1..5 and an optional comment); only the organizers read it
+model JudgeFeedback {
+  id        String   @id @default(cuid())
+  debateId  String   @map("debate_id")
+  judgeId   String   @map("judge_id")
+  userId    String   @map("user_id")
+  teamId    String   @map("team_id")
+  score     Int
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  debate    Debate   @relation(fields: [debateId], references: [id], onDelete: Cascade)
+  judge     Judge    @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([debateId, judgeId, userId])
+  @@index([judgeId])
+  @@map("judge_feedback")
 }
 
 model DebateJudge {

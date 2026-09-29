@@ -126,12 +126,21 @@ export interface MyDebate {
   side: 'proposition' | 'opposition' | 'openingProposition' | 'openingOpposition' | 'closingProposition' | 'closingOpposition'
   place?: number // BP: 1–4
   silent?: boolean // decided, but in a silent round: the result comes out with the break
+  judges: { id: string; name: string; isChair: boolean; myScore?: number; myComment?: string }[] // the panel and my rating of each
   tournament: { id: string; name: string }
   round: Pick<Round, 'id' | 'number' | 'name' | 'motion' | 'status' | 'date'>
   opponent: { id: string; name: string }
   result: 'win' | 'loss' | null
 }
 export const getMyDebates = () => http<MyDebate[]>('GET', '/me/debates')
+// a speaker rates a judge of their debate (1..5, optional comment); only the organizers read it
+export const rateJudge = (debateId: string, judgeId: string, score: number, comment?: string) =>
+  http<{ ok: true }>('POST', `/debates/${encodeURIComponent(debateId)}/feedback`, { judgeId, score, comment })
+export interface JudgeFeedbackSummary {
+  judgeId: string; count: number; average: number
+  items: { score: number; comment?: string; team: string; round: string; room: string; createdAt: string }[]
+}
+export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackSummary[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/judge-feedback`)
 
 // ---------- judge ----------
 

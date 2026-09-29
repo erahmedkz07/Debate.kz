@@ -7,7 +7,7 @@ import {
   Award, CalendarClock, ChevronRight, Circle, DoorOpen, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -40,6 +40,7 @@ import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { conflictReason } from '@/lib/conflicts'
+import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedback'
 import { formatOfTournament } from '@/content/formats'
 
 const sections = [
@@ -351,6 +352,10 @@ function Judges({ data, reload }: SectionProps) {
   const [email, setEmail] = useState('')
   const [toDelete, setToDelete] = useState<Judge | null>(null)
   const [conflictsOf, setConflictsOf] = useState<Judge | null>(null)
+  // speakers' ratings of the judges (organizers only)
+  const feedback = useAsync(() => getJudgeFeedback(data.id), [data.id])
+  const [readFeedback, setReadFeedback] = useState<Judge | null>(null)
+  const feedbackOf = (id: string) => feedback.data?.find(f => f.judgeId === id)
   const remove = async () => {
     if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
   }
@@ -385,6 +390,11 @@ function Judges({ data, reload }: SectionProps) {
               {j.hasAccount === false
                 ? <button type="button" onClick={() => setLinkFor(j)} className="inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-danger hover:underline"><UserX className="size-3.5" />{t('dashboard.judges.noAccount')}</button>
                 : <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>}
+              {feedbackOf(j.id) && (
+                <button type="button" onClick={() => setReadFeedback(j)} className="mt-0.5 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold hover:underline">
+                  <Stars value={Math.round(feedbackOf(j.id)!.average)} size="size-3.5" />{feedbackOf(j.id)!.average} · {t('feedback.count', { count: feedbackOf(j.id)!.count })}
+                </button>
+              )}
             </div>
             {j.hasAccount === false && (
               <Button variant="outline" size="sm" className="shrink-0" onClick={() => setLinkFor(j)}><Mail className="size-4" />{t('dashboard.judges.linkInvite')}</Button>
@@ -410,6 +420,7 @@ function Judges({ data, reload }: SectionProps) {
         </DialogContent>
       </Dialog>
       <ConflictsDialog judge={conflictsOf} data={data} onClose={() => setConflictsOf(null)} onSaved={() => { setConflictsOf(null); reload() }} />
+      <JudgeFeedbackDialog name={readFeedback?.name ?? ''} summary={readFeedback ? (feedbackOf(readFeedback.id) as JudgeFeedbackSummary) : null} onClose={() => setReadFeedback(null)} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t('dashboard.judges.confirmDelete', { name: toDelete?.name })} description={t('dashboard.judges.deleteHint')}>
           <div className="flex justify-end gap-2">

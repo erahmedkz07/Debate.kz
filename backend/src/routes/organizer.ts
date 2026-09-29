@@ -287,6 +287,23 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
 // Judges join only through an invite (a link or an email) and judge from their own account: a ballot is theirs alone.
 // A judge added earlier without an account is linked to one by an email invite (see routes/invites.ts).
 
+// what speakers said about the judges: average, count and every comment with its round and team (organizers only)
+organizerRouter.get('/tournaments/:id/judge-feedback', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  const rows = await prisma.judgeFeedback.findMany({
+    where: { judge: { tournamentId: param(req, 'id') } },
+    include: { team: { select: { name: true } }, debate: { select: { room: true, round: { select: { number: true, name: true } } } } },
+    orderBy: { createdAt: 'desc' },
+  })
+  const byJudge = new Map<string, typeof rows>()
+  for (const r of rows) byJudge.set(r.judgeId, [...(byJudge.get(r.judgeId) ?? []), r])
+  res.json([...byJudge].map(([judgeId, list]) => ({
+    judgeId, count: list.length,
+    average: Math.round((list.reduce((s, x) => s + x.score, 0) / list.length) * 10) / 10,
+    items: list.map(x => ({ score: x.score, comment: x.comment ?? undefined, team: x.team.name, round: x.debate.round.name, room: x.debate.room, createdAt: x.createdAt.toISOString() })),
+  })))
+})
+
 // personal conflicts of a judge (relative, former coach…): the whole list is replaced
 organizerRouter.put('/judges/:judgeId/conflicts', org, async (req, res) => {
   const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
