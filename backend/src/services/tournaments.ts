@@ -102,7 +102,10 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       schedule: { orderBy: [{ day: 'asc' }, { time: 'asc' }] },
       rounds: { orderBy: { number: 'asc' }, include: { debates: { include: debateInclude, orderBy: { room: 'asc' } } } },
       teams: { include: teamInclude, orderBy: { createdAt: 'asc' } },
-      judges: { include: { institution: true }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] },
+      judges: {
+        include: { institution: true, conflicts: { select: { teamId: true } }, user: { select: { clubMembership: { select: { clubId: true } } } } },
+        orderBy: [{ rating: 'desc' }, { name: 'asc' }],
+      },
       registrations: { where: { status: 'pending' }, select: { id: true } },
     },
   })
@@ -137,10 +140,12 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
     rounds, debates,
-    teams: t.teams.map(team => ({ ...toTeam(team), ...(team.breakSeed && { breakSeed: team.breakSeed }) })),
+    teams: t.teams.map(team => ({ ...toTeam(team), ...(team.breakSeed && { breakSeed: team.breakSeed }), ...(manager && team.institutionId && { institutionId: team.institutionId }) })),
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
       hasAccount: !!j.userId, // only judges with an account can send ballots
+      // organizers: conflicts the draw respects (personal ones and the judge's club)
+      ...(manager && { conflictTeamIds: j.conflicts.map(c => c.teamId), clubId: j.user?.clubMembership?.clubId ?? undefined, institutionId: j.institutionId ?? undefined }),
     })),
   }
 }

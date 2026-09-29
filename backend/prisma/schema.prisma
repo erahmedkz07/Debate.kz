@@ -290,26 +290,27 @@ model ScheduleItem {
 }
 
 model Team {
-  id                   String       @id @default(cuid())
-  tournamentId         String       @map("tournament_id")
+  id                   String          @id @default(cuid())
+  tournamentId         String          @map("tournament_id")
   name                 String
-  institutionId        String?      @map("institution_id")
+  institutionId        String?         @map("institution_id")
   city                 String?
-  checkedInAt          DateTime?    @map("checked_in_at") // present at the venue (QR check-in or marked by the organizer)
-  swing                Boolean      @default(false) // stand-in team that evens out the draw; never ranked
-  breakSeed            Int?         @map("break_seed") // 1..breakSize once the break is announced; null = did not break
-  clubId               String?      @map("club_id") // the club the team came from (ratings, same-club draw rule)
-  clubTeamId           String?      @map("club_team_id")
-  createdAt            DateTime     @default(now()) @map("created_at")
-  tournament           Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  institution          Institution? @relation(fields: [institutionId], references: [id])
-  club                 Club?        @relation(fields: [clubId], references: [id], onDelete: SetNull)
-  clubTeam             ClubTeam?    @relation(fields: [clubTeamId], references: [id], onDelete: SetNull)
+  checkedInAt          DateTime?       @map("checked_in_at") // present at the venue (QR check-in or marked by the organizer)
+  swing                Boolean         @default(false) // stand-in team that evens out the draw; never ranked
+  breakSeed            Int?            @map("break_seed") // 1..breakSize once the break is announced; null = did not break
+  clubId               String?         @map("club_id") // the club the team came from (ratings, same-club draw rule)
+  clubTeamId           String?         @map("club_team_id")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  tournament           Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  institution          Institution?    @relation(fields: [institutionId], references: [id])
+  club                 Club?           @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  clubTeam             ClubTeam?       @relation(fields: [clubTeamId], references: [id], onDelete: SetNull)
   speakers             Speaker[]
-  propositionIn        Debate[]     @relation("PropositionTeam")
-  oppositionIn         Debate[]     @relation("OppositionTeam")
-  closingPropositionIn Debate[]     @relation("ClosingPropositionTeam")
-  closingOppositionIn  Debate[]     @relation("ClosingOppositionTeam")
+  propositionIn        Debate[]        @relation("PropositionTeam")
+  oppositionIn         Debate[]        @relation("OppositionTeam")
+  closingPropositionIn Debate[]        @relation("ClosingPropositionTeam")
+  closingOppositionIn  Debate[]        @relation("ClosingOppositionTeam")
+  judgeConflicts       JudgeConflict[]
 
   @@unique([tournamentId, name])
   @@map("teams")
@@ -342,6 +343,7 @@ model Judge {
   debates       DebateJudge[]
   ballots       Ballot[]
   invites       TournamentInvite[]
+  conflicts     JudgeConflict[]
 
   @@index([tournamentId])
   @@index([userId])
@@ -390,6 +392,18 @@ model Debate {
 
   @@index([roundId])
   @@map("debates")
+}
+
+// a personal conflict set by the organizer: this judge does not judge this team (relative, former coach…)
+model JudgeConflict {
+  judgeId String @map("judge_id")
+  teamId  String @map("team_id")
+  judge   Judge  @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  team    Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([judgeId, teamId])
+  @@index([teamId])
+  @@map("judge_conflicts")
 }
 
 model DebateJudge {

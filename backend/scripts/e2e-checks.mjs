@@ -1635,5 +1635,40 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await host.c('POST', `/tournaments/${q.id}/break`)).status === 201, 'the break is announced (on the real results)')
   ok(wins((await client()('GET', `/tournaments/${q.id}/standings`)).data.teams) === 4, 'after the break the silent round is revealed')
 }
+// ---------- 44. judge conflicts: institution, own club, personal ----------
+{
+  const host = await newAccount('Конфликты Организатор')
+  const k = (await host.c('POST', '/tournaments', { ...tBody(130), name: `Конфликты ${jtag}` })).data
+  await admin('PATCH', `/admin/tournaments/${k.id}`, { moderation: 'approved' })
+  for (const n of ['Кон 1', 'Кон 2', 'Кон 3', 'Кон 4']) await host.c('POST', `/tournaments/${k.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  const teams = (await host.c('GET', `/tournaments/${k.id}`)).data.teams
+  const [jA, jB, jC] = [await addJudge(host.c, k.id, 'Судья Родственник'), await addJudge(host.c, k.id, 'Судья Тренер'), await addJudge(host.c, k.id, 'Судья Свободный')].map(x => x.data.id)
+  // A: a relative of team 1 (personal conflict); B: coaches the club of team 2 (club conflict)
+  ok((await host.c('PUT', `/judges/${jA}/conflicts`, { teamIds: ['nope'] })).data?.error === 'invalid_team', 'a conflict needs a team of this tournament')
+  r = await host.c('PUT', `/judges/${jA}/conflicts`, { teamIds: [teams[0].id] })
+  ok(r.status === 200 && r.data.teamIds.length === 1, 'the organizer marks a personal conflict')
+  const coach = (await db.query('select user_id from judges where id = $1', [jB])).rows[0].user_id
+  const club = (await judgeClients.get(jB)('POST', '/clubs', { name: `Клуб тренера ${jtag}`, city: 'Астана' })).data
+  await db.query('update teams set club_id = $1 where id = $2', [club.id, teams[1].id])
+  ok(!!coach && !!club.id, "the coach's club is the club of team 2")
+  const details = (await host.c('GET', `/tournaments/${k.id}`)).data
+  ok(details.judges.find(j => j.id === jA)?.conflictTeamIds?.[0] === teams[0].id && details.judges.find(j => j.id === jB)?.clubId === club.id, 'organizers see the conflicts')
+  const round = details.rounds[0]
+  const bad = { [jA]: teams[0].id, [jB]: teams[1].id }
+  let clean = 0
+  for (let i = 0; i < 6; i++) {
+    const res = await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false, method: 'random' })
+    const ok1 = res.status === 201 && res.data.report.judgeConflicts === 0
+      && res.data.debates.every(d => d.judgeIds.every(j => !bad[j] || ![d.propositionTeamId, d.oppositionTeamId].includes(bad[j])))
+    if (ok1) clean++
+  }
+  ok(clean === 6, 'every draw keeps judges away from teams they have a conflict with')
+  const deb = (await host.c('GET', `/tournaments/${k.id}`)).data.debates.find(d => [d.propositionTeamId, d.oppositionTeamId].includes(teams[0].id))
+  r = await host.c('PATCH', `/debates/${deb.id}`, { chairJudgeId: jA })
+  ok(r.status === 400 && r.data.error === 'judge_conflict', 'a judge with a conflict cannot be put into that room by hand')
+  // (the judge may still be busy in the other room: that answer is judge_busy_in_round, not a conflict)
+  ok((await host.c('PUT', `/judges/${jA}/conflicts`, { teamIds: [] })).status === 200
+    && (await host.c('PATCH', `/debates/${deb.id}`, { chairJudgeId: jA })).data?.error !== 'judge_conflict', 'after the conflict is removed the conflict check no longer stops the judge')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

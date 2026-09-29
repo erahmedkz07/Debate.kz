@@ -209,11 +209,12 @@ export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH
 export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${teamId}`)
 
 export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
+export const setJudgeConflicts = (judgeId: string, teamIds: string[]) => http<{ judgeId: string; teamIds: string[] }>('PUT', `/judges/${judgeId}/conflicts`, { teamIds })
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
 export type DrawMethod = 'power' | 'high_low' | 'random'
-export interface DrawReport { method: DrawMethod; protectClubs: boolean; sameClub: number; rematches: number }
+export interface DrawReport { method: DrawMethod | 'bracket'; protectClubs: boolean; sameClub: number; rematches: number; judgeConflicts?: number }
 // ---------- playoffs ----------
 export interface BracketDebate { id: string; slot: number; room: string; teams: { side: Side; teamId: string }[]; winner?: Side; ranking?: Side[] }
 export interface BracketRound { id: string; number: number; name: string; stage: PlayoffStage; teamsInRound: number; status: Round['status']; motion: string; debates: BracketDebate[] }

@@ -8,6 +8,7 @@ import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { announceBreak, cancelBreak } from '../services/playoffs.js'
+import { conflictChecker } from '../services/conflicts.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -286,6 +287,22 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
 // Judges join only through an invite (a link or an email) and judge from their own account: a ballot is theirs alone.
 // A judge added earlier without an account is linked to one by an email invite (see routes/invites.ts).
 
+// personal conflicts of a judge (relative, former coach…): the whole list is replaced
+organizerRouter.put('/judges/:judgeId/conflicts', org, async (req, res) => {
+  const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
+  if (!judge) throw notFound('judge_not_found')
+  await assertCanManage(req.user, judge.tournamentId)
+  const { teamIds } = body(req, z.object({ teamIds: z.array(z.string()).max(128) }))
+  const ids = [...new Set(teamIds)]
+  const valid = await prisma.team.count({ where: { id: { in: ids }, tournamentId: judge.tournamentId, swing: false } })
+  if (valid !== ids.length) throw badRequest('invalid_team')
+  await prisma.$transaction([
+    prisma.judgeConflict.deleteMany({ where: { judgeId: judge.id } }),
+    prisma.judgeConflict.createMany({ data: ids.map(teamId => ({ judgeId: judge.id, teamId })) }),
+  ])
+  res.json({ judgeId: judge.id, teamIds: ids })
+})
+
 organizerRouter.delete('/judges/:judgeId', org, async (req, res) => {
   const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
   if (!judge) throw notFound('judge_not_found')
@@ -355,6 +372,14 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
     chairJudgeId: z.string().optional(),
     wingJudgeIds: z.array(z.string()).max(4).optional(), // the non-chair panel, replaced as a whole
   }))
+  // a judge with a conflict (institution, club, personal) never sits in this room
+  const newJudges = [...(d.chairJudgeId ? [d.chairJudgeId] : []), ...(d.wingJudgeIds ?? [])]
+  if (newJudges.length) {
+    const clash = await conflictChecker(debate.round.tournamentId)
+    const room = [debate.propositionTeamId, debate.oppositionTeamId, debate.closingPropositionTeamId, debate.closingOppositionTeamId].filter((x): x is string => !!x)
+    const bad = newJudges.find(id => clash(id, room))
+    if (bad) throw badRequest('judge_conflict', { judgeId: bad })
+  }
   await prisma.$transaction(async tx => {
     // a new room brings its own online link (from the tournament's room links) unless a link is given explicitly
     if (d.room) {

@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, CalendarClock, ChevronRight, Circle, DoorOpen, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  Award, CalendarClock, ChevronRight, Circle, DoorOpen, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -39,6 +39,7 @@ import { EntityLogo } from '@/components/ui/entity-logo'
 import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
+import { conflictReason } from '@/lib/conflicts'
 import { formatOfTournament } from '@/content/formats'
 
 const sections = [
@@ -349,6 +350,7 @@ function Judges({ data, reload }: SectionProps) {
   const [linkFor, setLinkFor] = useState<Judge | null>(null)
   const [email, setEmail] = useState('')
   const [toDelete, setToDelete] = useState<Judge | null>(null)
+  const [conflictsOf, setConflictsOf] = useState<Judge | null>(null)
   const remove = async () => {
     if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
   }
@@ -387,6 +389,9 @@ function Judges({ data, reload }: SectionProps) {
             {j.hasAccount === false && (
               <Button variant="outline" size="sm" className="shrink-0" onClick={() => setLinkFor(j)}><Mail className="size-4" />{t('dashboard.judges.linkInvite')}</Button>
             )}
+            <Button variant="ghost" size="sm" className="shrink-0 px-2" onClick={() => setConflictsOf(j)} title={t('dashboard.conflicts.title', { name: j.name })}>
+              <ShieldAlert className="size-4" />{j.conflictTeamIds?.length ? j.conflictTeamIds.length : ''}
+            </Button>
             <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(j)}>
               <Trash2 className="size-4" />
             </Button>
@@ -404,6 +409,7 @@ function Judges({ data, reload }: SectionProps) {
           </form>
         </DialogContent>
       </Dialog>
+      <ConflictsDialog judge={conflictsOf} data={data} onClose={() => setConflictsOf(null)} onSaved={() => { setConflictsOf(null); reload() }} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t('dashboard.judges.confirmDelete', { name: toDelete?.name })} description={t('dashboard.judges.deleteHint')}>
           <div className="flex justify-end gap-2">
@@ -534,6 +540,47 @@ function BreakCard({ data, reload }: SectionProps) {
   )
 }
 
+// Conflicts of one judge: the organizer ticks the teams this judge must not judge; the institution and the judge's club
+// count automatically and are shown, not editable
+function ConflictsDialog({ judge, data, onClose, onSaved }: { judge: Judge | null; data: TournamentDetails; onClose: () => void; onSaved: () => void }) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const [sel, setSel] = useState<string[]>([])
+  useEffect(() => { if (judge) setSel(judge.conflictTeamIds ?? []) }, [judge])
+  if (!judge) return null
+  const teams = data.teams.filter(x => !x.swing)
+  const save = async () => { if (await run('conflicts', () => setJudgeConflicts(judge.id, sel), t('dashboard.conflicts.saved'))) onSaved() }
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent heading={t('dashboard.conflicts.title', { name: judge.name })} description={t('dashboard.conflicts.text')}>
+        <ul className="max-h-80 space-y-1.5 overflow-y-auto">
+          {teams.map(team => {
+            const auto = conflictReason({ ...judge, conflictTeamIds: [] }, team)
+            const on = sel.includes(team.id)
+            return (
+              <li key={team.id}>
+                <button type="button" disabled={!!auto} aria-pressed={on || !!auto} onClick={() => setSel(s => (s.includes(team.id) ? s.filter(x => x !== team.id) : [...s, team.id]))}
+                  className={cn('flex w-full cursor-pointer items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-default',
+                    on || auto ? 'border-danger/60 bg-danger-soft' : 'border-border hover:border-primary/40')}>
+                  <span className={cn('grid size-5 shrink-0 place-items-center rounded-md border-2', on || auto ? 'border-danger bg-danger text-white' : 'border-border')}>
+                    {(on || auto) && <Check className="size-3.5" />}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-semibold">{team.name}</span>
+                  {auto && <span className="shrink-0 text-xs text-danger">{t(`dashboard.conflicts.auto.${auto}`)}</span>}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="mt-5 flex justify-end gap-2">
+          <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
+          <Button disabled={busy === 'conflicts'} onClick={save}>{busy === 'conflicts' && <Loader2 className="size-4 animate-spin" />}{t('common.save')}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 /* ---------- Schedule ---------- */
 // judges needed for a draw: one per room, the same count the backend checks
 function judgesNeeded(data: TournamentDetails, presentOnly = false, addSwing = true, round?: Round) {
@@ -635,8 +682,15 @@ function Draw({ data, reload }: SectionProps) {
     let report: DrawReport | undefined
     const ok = await run('generate', async () => { report = (await generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing, method, protectClubs: protect })).report }, t('dashboard.draw.generated'))
     // wishes the draw could not meet are said out loud, not hidden
-    if (ok && report && (report.sameClub || report.rematches)) {
-      toast.warning(t('dashboard.draw.compromise'), { description: [report.sameClub ? t('dashboard.draw.sameClubLeft', { count: report.sameClub }) : '', report.rematches ? t('dashboard.draw.rematchesLeft', { count: report.rematches }) : ''].filter(Boolean).join(' '), duration: 10000 })
+    if (ok && report && (report.sameClub || report.rematches || report.judgeConflicts)) {
+      toast.warning(t('dashboard.draw.compromise'), {
+        description: [
+          report.sameClub ? t('dashboard.draw.sameClubLeft', { count: report.sameClub }) : '',
+          report.rematches ? t('dashboard.draw.rematchesLeft', { count: report.rematches }) : '',
+          report.judgeConflicts ? t('dashboard.draw.conflictsLeft', { count: report.judgeConflicts }) : '',
+        ].filter(Boolean).join(' '),
+        duration: 10000,
+      })
     }
     if (ok) reload()
   }
@@ -741,6 +795,9 @@ function Draw({ data, reload }: SectionProps) {
                         options={data.judges.map(j => ({ value: j.id, label: j.name, hint: j.institution || undefined }))} />
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                         {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
+                        {d.judgeIds.some(id => { const j = judge(id); return j && sideList.some(side => conflictReason(j, team(teamIdOn(d, side) ?? ''))) }) && (
+                          <span className="inline-flex items-center gap-1 font-semibold text-danger"><ShieldAlert className="size-3.5" />{t('dashboard.draw.hasConflict')}</span>
+                        )}
                         {editable && d.ballotStatus === 'pending' && (
                           <button type="button" onClick={() => setWingsFor(d)} className="inline-flex cursor-pointer items-center gap-1 font-semibold text-primary hover:underline">
                             <UserPlus className="size-3.5" />{t('dashboard.draw.wings')}

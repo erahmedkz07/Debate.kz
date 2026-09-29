@@ -46,6 +46,7 @@ export interface Team {
   clubTeam?: Ref
   logoUrl?: string // the club team's logo, else the club's
   breakSeed?: number // 1..breakSize once the break is announced
+  institutionId?: string // organizers only (judge conflicts)
 }
 
 export interface Judge {
@@ -56,6 +57,10 @@ export interface Judge {
   rating: number // 1..10
   isChair?: boolean
   hasAccount?: boolean // only judges with an account send ballots; others are invited by email to link one
+  // organizers only: what the draw keeps this judge away from
+  conflictTeamIds?: string[] // personal conflicts (relative, former coach…)
+  clubId?: string // the judge's own club
+  institutionId?: string
 }
 
 export interface Round {
