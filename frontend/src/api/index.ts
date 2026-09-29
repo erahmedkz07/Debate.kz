@@ -121,7 +121,7 @@ export const registerTeam = (tournamentId: string, data: { teamName: string; ins
   http<TeamRegistration>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/registrations`, data)
 
 export interface MyDebate {
-  debate: Pick<Debate, 'id' | 'roundId' | 'room' | 'ballotStatus' | 'winner'>
+  debate: Pick<Debate, 'id' | 'roundId' | 'room' | 'ballotStatus' | 'winner' | 'onlineUrl'>
   // BP names the opening half explicitly: openingProposition / openingOpposition / closingProposition / closingOpposition
   side: 'proposition' | 'opposition' | 'openingProposition' | 'openingOpposition' | 'closingProposition' | 'closingOpposition'
   place?: number // BP: 1–4
@@ -194,6 +194,7 @@ export const updateSchedule = (id: string, items: ScheduleItem[]) => http<Schedu
 export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
   city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
+  roomLinks: Record<string, string>
   coverUrl: string | null
 }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)
@@ -226,7 +227,7 @@ export const cancelBreak = (id: string) => http<void>('DELETE', `/tournaments/${
 
 export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean } = {}) =>
   http<{ debates: Debate[]; report: DrawReport }>('POST', `/rounds/${roundId}/draw`, opts)
-export const updateDebate = (debateId: string, data: Partial<{ room: string; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
+export const updateDebate = (debateId: string, data: Partial<{ room: string; onlineUrl: string | null; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 
 export type OrganizerRegistration = TeamRegistration & { contactPhone: string; user: { id: string; name: string; email: string } }

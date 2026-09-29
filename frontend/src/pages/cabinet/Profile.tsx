@@ -22,6 +22,7 @@ import { OrnamentPattern } from '@/components/brand'
 import { ProgressPanel } from '@/components/profile/ProgressPanel'
 import { CertificatesPanel } from '@/components/profile/CertificatesPanel'
 import { MyClub } from '@/components/club/MyClub'
+import { OnlineLink } from '@/components/tournament/OnlineLink'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
 
@@ -386,7 +387,8 @@ export default function Profile() {
           ) : (
             <div className="space-y-3">
               {debates.data.map(d => (
-                <Link key={d.debate.id} to={`/tournaments/${d.tournament.id}?tab=draw`}
+                <div key={d.debate.id}>
+                <Link to={`/tournaments/${d.tournament.id}?tab=draw`}
                   className="group flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20">
                   <span className={cn('grid size-12 shrink-0 place-items-center rounded-xl text-sm font-extrabold',
                     d.place && d.place > 1 ? 'bg-muted' : d.result === 'win' ? 'bg-success-soft text-success' : d.result === 'loss' ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-navy dark:text-accent')}>
@@ -407,6 +409,8 @@ export default function Profile() {
                   </Badge>
                   <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </Link>
+                {d.debate.onlineUrl && d.round.status !== 'completed' && <OnlineLink url={d.debate.onlineUrl} className="ml-4 mt-2 text-sm" />}
+                </div>
               ))}
             </div>
           )}

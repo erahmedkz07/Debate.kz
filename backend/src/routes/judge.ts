@@ -31,7 +31,7 @@ judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {
     orderBy: [{ debate: { round: { date: 'desc' } } }, { debate: { round: { number: 'desc' } } }],
   })
   res.json(links.map(({ debate: d, isChair }) => ({
-    debate: toDebate(d),
+    debate: toDebate(d, true),
     round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
     tournament: { id: d.round.tournament.id, name: d.round.tournament.name, city: d.round.tournament.city, format: d.round.tournament.format },
     proposition: toTeam(d.proposition),
@@ -100,7 +100,7 @@ judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
     ...(panel && { panel }),
     tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
     round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
-    debate: toDebate(d),
+    debate: toDebate(d, true),
     proposition: toTeam(d.proposition),
     opposition: toTeam(d.opposition),
     ...(d.closingProposition && d.closingOpposition && { closingProposition: toTeam(d.closingProposition), closingOpposition: toTeam(d.closingOpposition) }),

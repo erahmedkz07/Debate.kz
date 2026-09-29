@@ -38,6 +38,7 @@ import { FREE_TEAM_LIMIT } from '@/lib/plans'
 import { EntityLogo } from '@/components/ui/entity-logo'
 import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
+import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { formatOfTournament } from '@/content/formats'
 
 const sections = [
@@ -724,6 +725,7 @@ function Draw({ data, reload }: SectionProps) {
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-36" value={d.room} disabled={!editable} aria-label={t('tournament.room')}
                         onValueChange={v => patch(d, { room: v })} options={rooms.map(r => ({ value: r, label: r }))} />
+                      <OnlineLink url={d.onlineUrl} className="mt-1 text-xs" label={t('online.link')} />
                     </td>
                     <td className="px-4 py-3 font-bold">{team(d.propositionTeamId)?.name}</td>
                     <td className="px-2 py-3">
@@ -905,17 +907,23 @@ function RoomsCard({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
   const saved = data.rooms ?? []
+  const savedLinks = data.roomLinks ?? {}
   const [rooms, setRooms] = useState(saved)
+  // online tournaments: a video call link per room (optional, https)
+  const [links, setLinks] = useState<Record<string, string>>(savedLinks)
   const [draft, setDraft] = useState('')
   useEffect(() => setRooms(data.rooms ?? []), [data.rooms])
-  const dirty = JSON.stringify(rooms) !== JSON.stringify(saved)
+  useEffect(() => setLinks(data.roomLinks ?? {}), [data.roomLinks])
+  const cleanLinks: Record<string, string> = Object.fromEntries(rooms.map(r => [r, (links[r] ?? '').trim()] as const).filter(([, v]) => v))
+  const badLink = Object.values(cleanLinks).some(v => !/^https:\/\/\S+\.\S+/.test(v))
+  const dirty = JSON.stringify(rooms) !== JSON.stringify(saved) || JSON.stringify(cleanLinks) !== JSON.stringify(savedLinks)
   const needed = Math.ceil(data.maxTeams / 2)
   const add = () => {
     const v = draft.trim()
     if (v && !rooms.includes(v) && rooms.length < 64) setRooms([...rooms, v])
     setDraft('')
   }
-  const save = async () => { if (await run('rooms', () => updateTournament(data.id, { rooms }), t('dashboard.rooms.saved'))) reload() }
+  const save = async () => { if (await run('rooms', () => updateTournament(data.id, { rooms, roomLinks: cleanLinks }), t('dashboard.rooms.saved'))) reload() }
   return (
     <Card className="space-y-4 p-6">
       <div>
@@ -925,13 +933,18 @@ function RoomsCard({ data, reload }: SectionProps) {
       {rooms.length === 0
         ? <p className="rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">{t('dashboard.rooms.empty')}</p>
         : (
-          <ul className="flex flex-wrap gap-2">
+          <ul className="space-y-2">
             {rooms.map((r, i) => (
-              <li key={r} className="flex items-center gap-1.5 rounded-full border border-border bg-muted/50 py-1 pl-3 pr-1 text-sm font-medium">
-                <span className="text-xs text-muted-foreground">{i + 1}.</span>{r}
+              <li key={r} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 p-2 text-sm sm:flex-nowrap">
+                <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}.</span>
+                <span className="min-w-0 flex-1 truncate font-medium sm:w-40 sm:flex-none">{r}</span>
+                <Input className="h-9 min-w-0 flex-[2] basis-full text-sm sm:basis-auto" inputMode="url" value={links[r] ?? ''} maxLength={300}
+                  placeholder={t('dashboard.rooms.linkPlaceholder')} aria-label={`${r}: ${t('dashboard.rooms.linkPlaceholder')}`}
+                  aria-invalid={!!links[r]?.trim() && !/^https:\/\/\S+\.\S+/.test(links[r].trim())}
+                  onChange={e => setLinks({ ...links, [r]: e.target.value })} />
                 <button type="button" aria-label={t('common.delete')} onClick={() => setRooms(rooms.filter(x => x !== r))}
-                  className="grid size-6 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger">
-                  <X className="size-3.5" />
+                  className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger">
+                  <X className="size-4" />
                 </button>
               </li>
             ))}
@@ -943,9 +956,10 @@ function RoomsCard({ data, reload }: SectionProps) {
         <Button variant="outline" disabled={!draft.trim()} onClick={add}><Plus className="size-4" />{t('dashboard.rooms.add')}</Button>
       </div>
       {rooms.length > 0 && rooms.length < needed && <p className="text-xs text-muted-foreground">{t('dashboard.rooms.need', { count: needed })}</p>}
+      <p className={cn('text-xs', badLink ? 'text-danger' : 'text-muted-foreground')}>{t(badLink ? 'dashboard.rooms.linkInvalid' : 'dashboard.rooms.linkHint')}</p>
       <div className="flex justify-end gap-2">
-        {dirty && <Button variant="ghost" onClick={() => setRooms(saved)}>{t('common.cancel')}</Button>}
-        <Button disabled={!dirty || busy === 'rooms'} onClick={save}>{t('common.save')}</Button>
+        {dirty && <Button variant="ghost" onClick={() => { setRooms(saved); setLinks(savedLinks) }}>{t('common.cancel')}</Button>}
+        <Button disabled={!dirty || badLink || busy === 'rooms'} onClick={save}>{t('common.save')}</Button>
       </div>
     </Card>
   )

@@ -97,11 +97,11 @@ export async function notifyRoundReleased(roundId: string) {
       // BP: the three other teams of the room
       const opponent = inRoom.filter(x => x.side !== side).map(x => teams[x.side]!.name).join(', ')
       await notify(teams[side]!.speakers.map(s => s.userId), 'participant.drawReleased',
-        { tournament: t.name, round: round.name, room: d.room, side: sideLabel(side, bp), opponent, motion: round.motion }, `/tournaments/${t.id}?tab=draw`)
+        { tournament: t.name, round: round.name, room: d.room, side: sideLabel(side, bp), opponent, motion: round.motion, ...(d.onlineUrl && { online: d.onlineUrl }) }, `/tournaments/${t.id}?tab=draw`)
     }
     for (const j of d.judges) {
       await notify([j.judge.userId], 'judge.assigned',
-        { tournament: t.name, round: round.name, room: d.room, chair: j.isChair, ...campNames(d), motion: round.motion }, `/ballot/${d.id}`)
+        { tournament: t.name, round: round.name, room: d.room, chair: j.isChair, ...campNames(d), motion: round.motion, ...(d.onlineUrl && { online: d.onlineUrl }) }, `/ballot/${d.id}`)
     }
   }
 }

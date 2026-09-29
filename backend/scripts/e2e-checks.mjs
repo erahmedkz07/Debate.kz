@@ -1579,5 +1579,30 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   r = await student('POST', `/tournaments/${uni.id}/registrations`, body('Студенты'))
   ok(r.status === 201, 'a university tournament does not ask for it')
 }
+// ---------- 42. online rooms: a video call link per room, only for the debate's people ----------
+{
+  const host = await newAccount('Онлайн Организатор')
+  const on = (await host.c('POST', '/tournaments', { ...tBody(110), name: `Онлайн ${jtag}` })).data
+  await admin('PATCH', `/admin/tournaments/${on.id}`, { moderation: 'approved' })
+  ok((await host.c('PATCH', `/tournaments/${on.id}`, { roomLinks: { 'Зал А': 'http://zoom.us/j/1' } })).status === 400, 'room links must be https')
+  const links = { 'Зал А': 'https://zoom.us/j/111', 'Зал Б': 'https://meet.google.com/abc-defg-hij' }
+  r = await host.c('PATCH', `/tournaments/${on.id}`, { rooms: ['Зал А', 'Зал Б'], roomLinks: links })
+  ok(r.status === 200, 'the organizer saves a link for each room')
+  for (const n of ['Онлайн 1', 'Онлайн 2']) await host.c('POST', `/tournaments/${on.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  const oj = await addJudge(host.c, on.id, 'Онлайн Судья')
+  const round = (await host.c('GET', `/tournaments/${on.id}`)).data.rounds[0]
+  r = await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+  const deb = r.data?.debates?.[0]
+  ok(deb?.room === 'Зал А' && deb.onlineUrl === links['Зал А'], "the draw gives each debate its room's link")
+  await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП перевела бы школы на онлайн-обучение', status: 'released' })
+  const pub = (await client()('GET', `/tournaments/${on.id}`)).data.debates.find(x => x.id === deb.id)
+  ok(pub && pub.onlineUrl === undefined, 'the public page never shows the link')
+  const mine = (await judgeClients.get(oj.data.id)('GET', '/judge/assignments')).data.find(a => a.debate.id === deb.id)
+  ok(mine?.debate.onlineUrl === links['Зал А'], "the judge sees the room's link")
+  r = await host.c('PATCH', `/debates/${deb.id}`, { room: 'Зал Б' })
+  ok(r.data?.onlineUrl === links['Зал Б'], 'moving the debate to another room brings that room\'s link')
+  r = await host.c('PATCH', `/debates/${deb.id}`, { onlineUrl: null })
+  ok(r.status === 200 && r.data.onlineUrl === undefined, 'the organizer can remove a link')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

@@ -85,6 +85,7 @@ export interface Debate {
   closingOppositionTeamId?: string
   ranking?: Side[]
   bracketSlot?: number // playoffs: the debate's place in the bracket
+  onlineUrl?: string // online tournaments: the room's video call (its teams, judges and organizers only)
   judgeIds: string[]
   winner?: Side
   ballotStatus: 'pending' | 'submitted' | 'confirmed'
@@ -124,6 +125,7 @@ export interface TournamentDetails extends Tournament {
   registrationOpen?: boolean
   registrationDeadline?: string
   rooms?: string[]
+  roomLinks?: Record<string, string> // room name -> video call link
   pendingRegistrations?: number
   myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]

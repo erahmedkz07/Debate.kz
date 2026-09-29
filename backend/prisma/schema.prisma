@@ -208,6 +208,7 @@ model Tournament {
   moderation           ModerationStatus @default(pending) // public only after admin approval
   moderationNote       String?          @map("moderation_note")
   rooms                String[]         @default([]) // organizer's own room names for the draw; empty = default list
+  roomLinks            Json             @default("{}") @map("room_links") // online tournaments: room name -> video call link (https)
   checkinCode          String?          @map("checkin_code") // shown as a QR at the venue; teams scan it to mark themselves present
   createdAt            DateTime         @default(now()) @map("created_at")
   updatedAt            DateTime         @updatedAt @map("updated_at")
@@ -376,6 +377,7 @@ model Debate {
   winner                   Side?
   ranking                  Side[] // BP: the sides from 1st to 4th place (3/2/1/0 team points); empty in two-team formats
   bracketSlot              Int?          @map("bracket_slot") // elimination: the debate's place in the bracket, 0 at the top
+  onlineUrl                String?       @map("online_url") // the room\'s video call; shown only to its teams, judges and organizers
   ballotStatus             BallotStatus  @default(pending) @map("ballot_status")
   round                    Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
   proposition              Team          @relation("PropositionTeam", fields: [propositionTeamId], references: [id], onDelete: Cascade)

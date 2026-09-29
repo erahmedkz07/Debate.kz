@@ -38,13 +38,15 @@ export const toTeam = (t: TeamRow) => ({
 const debateInclude = { judges: { orderBy: { isChair: 'desc' } } } satisfies Prisma.DebateInclude
 type DebateRow = Prisma.DebateGetPayload<{ include: typeof debateInclude }>
 
-export const toDebate = (d: DebateRow) => ({
+// withLink: the online room link, for the debate's own people and organizers only (never on the public page)
+export const toDebate = (d: DebateRow, withLink = false) => ({
   id: d.id, roundId: d.roundId, room: d.room, propositionTeamId: d.propositionTeamId, oppositionTeamId: d.oppositionTeamId,
   // British Parliamentary: the closing half and the places 1st–4th
   ...(d.closingPropositionTeamId && { closingPropositionTeamId: d.closingPropositionTeamId, closingOppositionTeamId: d.closingOppositionTeamId ?? undefined }),
   ...(d.ranking.length && { ranking: d.ranking }),
   ...(d.bracketSlot !== null && { bracketSlot: d.bracketSlot }),
   judgeIds: d.judges.map(j => j.judgeId), winner: d.winner ?? undefined, ballotStatus: d.ballotStatus,
+  ...(withLink && d.onlineUrl && { onlineUrl: d.onlineUrl }),
 })
 
 // ---------- permissions ----------
@@ -115,7 +117,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     status: r.status, date: toDay(r.date),
     ...(r.kind === 'elimination' && { kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)) }),
   }))
-  const debates = t.rounds.filter(r => manager || r.status !== 'draft').flatMap(r => r.debates.map(toDebate))
+  const debates = t.rounds.filter(r => manager || r.status !== 'draft').flatMap(r => r.debates.map(d => toDebate(d, manager)))
   const chairIds = new Set(t.rounds.flatMap(r => r.debates.flatMap(d => d.judges.filter(j => j.isChair).map(j => j.judgeId))))
 
   return {
@@ -125,7 +127,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       visible: t.visible, plan: t.plan, paid: t.paid, moderation: t.moderation, moderationNote: t.moderationNote ?? undefined,
       registrationOpen: t.registrationOpen,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
-      rooms: t.rooms, pendingRegistrations: t.registrations.length,
+      rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, pendingRegistrations: t.registrations.length,
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),

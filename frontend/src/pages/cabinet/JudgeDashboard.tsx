@@ -7,6 +7,7 @@ import type { JudgeAssignment } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { sidesOf, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
+import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { useAsync } from '@/lib/hooks'
 import { cn, formatDate } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -57,6 +58,7 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <span className="flex items-center gap-3 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5"><DoorOpen className="size-4" />{a.debate.room}</span>
+            <OnlineLink url={a.debate.onlineUrl} />
             <span>{formatDate(a.round.date)}</span>
           </span>
           {done

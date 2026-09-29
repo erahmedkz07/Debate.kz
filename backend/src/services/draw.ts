@@ -107,7 +107,7 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   return { method, protectClubs, ...report }
 }
 
-type RoundWithTournament = { id: string; tournament: { rooms: string[] } }
+type RoundWithTournament = { id: string; tournament: { rooms: string[]; roomLinks: unknown } }
 type JudgeRow = { id: string; institutionId: string | null }
 
 // one judge per room: best-rated judges chair, spare judges become wings; a judge never sits with a team of their institution.
@@ -130,6 +130,8 @@ async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], 
     if (j) panels[room].push({ judgeId: j.id, isChair: false })
   }
 
+  // online tournaments: each room brings its video call link
+  const links = (round.tournament.roomLinks ?? {}) as Record<string, string>
   await prisma.$transaction(async tx => {
     await tx.debate.deleteMany({ where: { roundId } })
     for (let i = 0; i < pairs.length; i++) {
@@ -138,6 +140,7 @@ async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], 
           roundId, room: roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS), propositionTeamId: pairs[i][0], oppositionTeamId: pairs[i][1],
           closingPropositionTeamId: pairs[i][2] ?? null, closingOppositionTeamId: pairs[i][3] ?? null,
           bracketSlot: bracket ? i : null,
+          onlineUrl: links[roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS)] ?? null,
           judges: { create: panels[i] },
         },
       })

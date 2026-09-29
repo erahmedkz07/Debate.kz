@@ -12,6 +12,9 @@ import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
+// video call links: https only (Zoom, Google Meet, Teams…)
+const httpsUrl = z.string().trim().url().max(300).refine(u => u.startsWith('https://'), 'https_only')
+
 export const organizerRouter = Router()
 // any signed-in user; per-tournament rights are checked with assertCanManage / assertOwner
 const org = requireAuth()
@@ -121,11 +124,12 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationDeadline: day.nullable().optional(),
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
+    roomLinks: z.record(z.string().trim().min(1).max(60), httpsUrl).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
   }))
   const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })
   if (d.status) await assertStageChange(cur.id, d.status)
-  const { startDate, endDate, registrationDeadline, maxTeams, rooms, coverUrl, ...rest } = d
+  const { startDate, endDate, registrationDeadline, maxTeams, rooms, roomLinks, coverUrl, ...rest } = d
   const data: Prisma.TournamentUpdateInput = { ...rest }
 
   // dates: a finished tournament is history and stays as it was
@@ -147,6 +151,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     data.maxTeams = maxTeams
   }
   if (rooms) data.rooms = [...new Set(rooms)]
+  if (roomLinks) data.roomLinks = roomLinks
   if (coverUrl !== undefined && coverUrl !== cur.coverUrl) {
     data.coverUrl = coverUrl
     await removeUploadedCover(cur.coverUrl) // a replaced upload is not kept
@@ -325,7 +330,7 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
   // the report tells the organizer which wishes could not be met (same-club meetings, rematches)
   res.status(201).json({
-    debates: debates.map(toDebate),
+    debates: debates.map(x => toDebate(x, true)),
     report,
   })
 })
@@ -337,12 +342,18 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
   if (debate.round.status === 'completed') throw forbidden('round_completed')
   const d = body(req, z.object({
     room: z.string().trim().min(1).max(60).optional(),
+    onlineUrl: httpsUrl.nullable().optional(), // null removes the link
     swapSides: z.boolean().optional(),
     chairJudgeId: z.string().optional(),
     wingJudgeIds: z.array(z.string()).max(4).optional(), // the non-chair panel, replaced as a whole
   }))
   await prisma.$transaction(async tx => {
-    if (d.room) await tx.debate.update({ where: { id: debate.id }, data: { room: d.room } })
+    // a new room brings its own online link (from the tournament's room links) unless a link is given explicitly
+    if (d.room) {
+      const links = (await tx.tournament.findUniqueOrThrow({ where: { id: debate.round.tournamentId }, select: { roomLinks: true } })).roomLinks as Record<string, string>
+      await tx.debate.update({ where: { id: debate.id }, data: { room: d.room, onlineUrl: links[d.room] ?? null } })
+    }
+    if (d.onlineUrl !== undefined) await tx.debate.update({ where: { id: debate.id }, data: { onlineUrl: d.onlineUrl } })
     if (d.swapSides) {
       if (await tx.ballot.count({ where: { debateId: debate.id } })) throw forbidden('ballots_already_submitted')
       // BP: government and opposition swap in both halves of the room
@@ -380,7 +391,7 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
     }
   })
   const x = await prisma.debate.findUniqueOrThrow({ where: { id: debate.id }, include: { judges: { orderBy: { isChair: 'desc' } } } })
-  res.json(toDebate(x))
+  res.json(toDebate(x, true))
 })
 
 // ---------- registrations ----------

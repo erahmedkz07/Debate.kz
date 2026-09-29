@@ -119,7 +119,7 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
     const opponent = { id: others[0].id, name: others.map(o => o.name).join(', ') }
     const place = placeOf(d, side)
     return {
-      debate: { id: d.id, roundId: d.roundId, room: d.room, ballotStatus: d.ballotStatus, winner: d.winner ?? undefined },
+      debate: { id: d.id, roundId: d.roundId, room: d.room, ballotStatus: d.ballotStatus, winner: d.winner ?? undefined, ...(d.onlineUrl && { onlineUrl: d.onlineUrl }) },
       side: sideLabel(side, bp),
       ...(place && { place }),
       tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
