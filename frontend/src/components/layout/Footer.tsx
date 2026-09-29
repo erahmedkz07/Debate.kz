@@ -60,7 +60,6 @@ export function Footer() {
             <li className="flex items-center gap-2.5"><MapPin className="size-4 text-accent" />{SITE.address[lang] || t('footer.address')}</li>
             {SITE.email && <li><a className="flex items-center gap-2.5 hover:text-accent" href={`mailto:${SITE.email}`}><Mail className="size-4 text-accent" />{SITE.email}</a></li>}
             {SITE.phone && <li><a className="flex items-center gap-2.5 hover:text-accent" href={`tel:${SITE.phone.replace(/\s/g, '')}`}><Phone className="size-4 text-accent" />{SITE.phone}</a></li>}
-            <li><Link className="hover:text-accent" to="/safety">{t('safety.title')}</Link></li>
           </ul>
         </div>
       </div>
