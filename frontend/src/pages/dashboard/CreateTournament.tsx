@@ -47,6 +47,7 @@ export default function CreateTournament() {
     description: z.string().optional(),
     prelims: z.coerce.number().int().min(2).max(8),
     breakSize: z.coerce.number().int().min(2).max(16),
+    silent: z.coerce.number().int().min(0).max(3),
     maxTeams: z.coerce.number().int().min(4).max(128),
     regOpen: z.boolean(),
     regDeadline: z.string().optional(),
@@ -58,7 +59,7 @@ export default function CreateTournament() {
 
   const { register, handleSubmit, trigger, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, city: '', startDate: '', endDate: '', regDeadline: '' },
+    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, silent: 0, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, city: '', startDate: '', endDate: '', regDeadline: '' },
   })
   const v = watch()
   // tournaments cannot start in the past
@@ -94,7 +95,7 @@ export default function CreateTournament() {
     try {
       const created = await createTournament({
         name: f.name.trim(), city: f.city, startDate: f.startDate, endDate: f.endDate, level: f.level,
-        description: f.description?.trim() ?? '', preliminaryRounds: Number(f.prelims), breakSize: Number(f.breakSize),
+        description: f.description?.trim() ?? '', preliminaryRounds: Number(f.prelims), breakSize: Number(f.breakSize), silentRounds: Math.min(Number(f.silent), Number(f.prelims) - 1),
         maxTeams: Number(f.maxTeams), registrationOpen: f.regOpen, requireApproval: f.approval,
         registrationDeadline: f.regDeadline || undefined,
         languages: [...(f.langKz ? ['kz' as const] : []), ...(f.langRu ? ['ru' as const] : [])],
@@ -246,13 +247,19 @@ export default function CreateTournament() {
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="prelims">{t('wizard.prelims')}</Label>
-                      <Select id="prelims" value={String(v.prelims)} onValueChange={n => setValue('prelims', Number(n))}
+                      <Select id="prelims" value={String(v.prelims)} onValueChange={n => { setValue('prelims', Number(n)); if (Number(v.silent) >= Number(n)) setValue('silent', Number(n) - 1) }}
                         options={[2, 3, 4, 5, 6, 7, 8].map(n => ({ value: String(n), label: String(n) }))} />
                     </div>
                     <div>
                       <Label htmlFor="break">{t('wizard.breakSize')}</Label>
                       <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
                         options={(v.format === 'BP' ? [4, 8, 16] : [2, 4, 8, 16]).map(n => ({ value: String(n), label: String(n) }))} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Label htmlFor="silent">{t('wizard.silent')}</Label>
+                      <Select id="silent" value={String(v.silent)} onValueChange={n => setValue('silent', Number(n))}
+                        options={[0, 1, 2, 3].filter(n => n < Number(v.prelims)).map(n => ({ value: String(n), label: n ? t('wizard.silentN', { count: n }) : t('wizard.silentNone') }))} />
+                      <p className="mt-1 text-xs text-muted-foreground">{t('wizard.silentHint')}</p>
                     </div>
                   </div>
                 </>

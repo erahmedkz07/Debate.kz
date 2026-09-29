@@ -30,6 +30,7 @@ import { isBP, placeOf, sidesOf, teamIdOn, useFormatName, useSides } from '@/lib
 import { formatOfTournament } from '@/content/formats'
 import { useRoundName } from '@/lib/rounds'
 import { PlayoffTab } from '@/components/tournament/Bracket'
+import { silentRoundIds } from '@/lib/silent'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -259,6 +260,9 @@ function DrawTab({ data }: { data: TournamentDetails }) {
         ))}
       </div>
       <RoundBanner round={round} />
+      {silentRoundIds(data).has(round.id) && round.status === 'completed' && !data.myRole && (
+        <p className="mt-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentRound')}</p>
+      )}
       {/* desktop table */}
       <Card className="mt-4 hidden overflow-hidden md:block">
         <table className="w-full text-sm">
@@ -332,8 +336,11 @@ function RoundBanner({ round }: { round: Round }) {
   )
 }
 
-export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format'> }) {
+export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'silentRounds' | 'myRole'> }) {
   const { t } = useTranslation()
+  // silent rounds: the public table stops before them (organizers see everything)
+  const silent = tournament && !tournament.myRole ? silentRoundIds(tournament).size : 0
+  const silentNote = silent > 0 && <p className="mb-4 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentNote', { count: silent })}</p>
   const { data, loading, error, reload } = useAsync(() => getStandings(id), [id])
   if (error) return <ErrorState onRetry={reload} />
   if (loading || !data) return <div className="space-y-2">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>
@@ -351,11 +358,12 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
     // prelim rounds that still can change the table
     const done = tournament?.rounds.filter(r => r.status === 'completed' && r.number <= tournament.preliminaryRounds).length ?? 0
     const remaining = tournament ? Math.max(0, tournament.preliminaryRounds - done) : 0
-    const forecast = tournament && tournament.status === 'ongoing' && breakSize > 0 && done > 0 && remaining > 0
+    const forecast = !silent && tournament && tournament.status === 'ongoing' && breakSize > 0 && done > 0 && remaining > 0
       ? breakForecast(data.teams, breakSize, remaining, bp ? 3 : 1) : null
     const look = { safe: 'success', live: 'accent', out: 'muted' } as const
     return (
       <>
+      {silentNote}
       {forecast && (
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
           <p><b>{t('tournament.break.title', { count: breakSize })}</b> · {t('tournament.break.remaining', { count: remaining })}</p>
@@ -402,6 +410,8 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
     )
   }
   return (
+    <>
+    {silentNote}
     <Card className="overflow-x-auto">
       <table className="w-full min-w-[520px] text-sm">
         <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -424,6 +434,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
         </tbody>
       </table>
     </Card>
+    </>
   )
 }
 
@@ -514,7 +525,7 @@ export default function TournamentPage() {
           <TabsContent value="draw"><DrawTab data={data} /></TabsContent>
           <TabsContent value="playoffs"><PlayoffTab id={data.id} /></TabsContent>
           <TabsContent value="results"><ResultsTab id={data.id} kind="teams" tournament={data} /></TabsContent>
-          <TabsContent value="speakers"><ResultsTab id={data.id} kind="speakers" /></TabsContent>
+          <TabsContent value="speakers"><ResultsTab id={data.id} kind="speakers" tournament={data} /></TabsContent>
           <TabsContent value="judges"><JudgesTab data={data} /></TabsContent>
         </Tabs>
       </div>

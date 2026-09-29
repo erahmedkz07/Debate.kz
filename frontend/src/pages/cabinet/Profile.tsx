@@ -405,7 +405,7 @@ export default function Profile() {
                   </div>
                   {/* BP: the place 1–4 instead of a win or a loss */}
                   <Badge variant={d.place ? (d.place === 1 ? 'success' : 'muted') : d.result === 'win' ? 'success' : d.result === 'loss' ? 'danger' : 'accent'}>
-                    {d.place ? t('ballot.placeN', { n: d.place }) : d.result ? t(`profile.result.${d.result}`) : t('profile.result.upcoming')}
+                    {d.place ? t('ballot.placeN', { n: d.place }) : d.result ? t(`profile.result.${d.result}`) : d.silent ? t('profile.result.silent') : t('profile.result.upcoming')}
                   </Badge>
                   <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </Link>

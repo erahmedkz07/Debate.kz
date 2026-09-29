@@ -1604,5 +1604,36 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   r = await host.c('PATCH', `/debates/${deb.id}`, { onlineUrl: null })
   ok(r.status === 200 && r.data.onlineUrl === undefined, 'the organizer can remove a link')
 }
+// ---------- 43. silent rounds: results hidden from the public until the break ----------
+{
+  const host = await newAccount('Тихие Организатор')
+  const q = (await host.c('POST', '/tournaments', { ...tBody(120), name: `Тихие ${jtag}`, preliminaryRounds: 2, breakSize: 2, silentRounds: 1 })).data
+  ok(q.silentRounds === 1, 'the organizer makes the last preliminary round silent')
+  ok((await host.c('PATCH', `/tournaments/${q.id}`, { silentRounds: 2 })).data?.error === 'too_many_silent_rounds', 'at least one preliminary round stays open')
+  await admin('PATCH', `/admin/tournaments/${q.id}`, { moderation: 'approved' })
+  for (const n of ['Тихие 1', 'Тихие 2', 'Тихие 3', 'Тихие 4']) await host.c('POST', `/tournaments/${q.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  for (let i = 1; i <= 2; i++) await addJudge(host.c, q.id, `Тихий Судья ${i}`)
+  await host.c('PATCH', `/tournaments/${q.id}`, { status: 'ongoing' })
+  const vote = sheet => {
+    const scores = {}
+    sheet.proposition.speakers.forEach(x => (scores[x.id] = 72)); sheet.opposition.speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: 'proposition', scores, reply: { proposition: 36, opposition: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  const [r1, r2] = (await host.c('GET', `/tournaments/${q.id}`)).data.rounds
+  for (const rd of [r1, r2]) {
+    await host.c('POST', `/rounds/${rd.id}/draw`, { addSwing: false })
+    await host.c('PATCH', `/rounds/${rd.id}`, { motion: 'ЭП запретила бы домашние задания', status: 'released' })
+    for (const d of (await host.c('GET', `/tournaments/${q.id}`)).data.debates.filter(x => x.roundId === rd.id)) await panelVote(d.id, vote)
+    await host.c('PATCH', `/rounds/${rd.id}`, { status: 'completed' })
+  }
+  const wins = rows => rows.reduce((n, x) => n + x.wins, 0)
+  ok(wins((await client()('GET', `/tournaments/${q.id}/standings`)).data.teams) === 2, 'the public table counts only the open round')
+  ok(wins((await host.c('GET', `/tournaments/${q.id}/standings`)).data.teams) === 4, 'the organizer sees the full table')
+  const pubDebates = (await client()('GET', `/tournaments/${q.id}`)).data.debates
+  ok(pubDebates.filter(x => x.roundId === r2.id).every(x => x.winner === undefined) && pubDebates.filter(x => x.roundId === r1.id).every(x => x.winner),
+    "the public draw hides who won a silent round")
+  ok((await host.c('POST', `/tournaments/${q.id}/break`)).status === 201, 'the break is announced (on the real results)')
+  ok(wins((await client()('GET', `/tournaments/${q.id}/standings`)).data.teams) === 4, 'after the break the silent round is revealed')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

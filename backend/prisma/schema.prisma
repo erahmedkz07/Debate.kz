@@ -198,6 +198,7 @@ model Tournament {
   description          String           @default("")
   preliminaryRounds    Int              @map("preliminary_rounds")
   breakSize            Int              @map("break_size")
+  silentRounds         Int              @default(0) @map("silent_rounds") // the last N preliminary rounds keep their results hidden until the break
   languages            String[]
   plan                 Plan             @default(free)
   paid                 Boolean          @default(true)

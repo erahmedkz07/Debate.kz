@@ -125,6 +125,7 @@ export interface MyDebate {
   // BP names the opening half explicitly: openingProposition / openingOpposition / closingProposition / closingOpposition
   side: 'proposition' | 'opposition' | 'openingProposition' | 'openingOpposition' | 'closingProposition' | 'closingOpposition'
   place?: number // BP: 1–4
+  silent?: boolean // decided, but in a silent round: the result comes out with the break
   tournament: { id: string; name: string }
   round: Pick<Round, 'id' | 'number' | 'name' | 'motion' | 'status' | 'date'>
   opponent: { id: string; name: string }
@@ -183,7 +184,7 @@ export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/to
 
 export interface CreateTournamentInput {
   name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
-  preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
+  preliminaryRounds: number; breakSize: number; silentRounds?: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
@@ -195,6 +196,7 @@ export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
   city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
+  silentRounds: number
   coverUrl: string | null
 }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)

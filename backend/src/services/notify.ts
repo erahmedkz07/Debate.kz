@@ -6,6 +6,7 @@ import { asLang, buttonLabel, renderNotification } from './botTexts.js'
 import { getStandings } from './tournaments.js'
 import { campNames, resultOf, sideLabel, sidesInDebate } from './formats.js'
 import { finalPlaces } from './playoffs.js'
+import { hiddenRoundIds } from './silent.js'
 
 // Notifications. Every event lands in the in-app notification centre (type + data, rendered in RU/KZ on the site)
 // and, for people who linked the bot themselves, is also sent to Telegram — the same type rendered by botTexts.ts
@@ -121,6 +122,8 @@ export async function notifyRoundCompleted(roundId: string) {
     },
   })
   if (!round) return
+  // a silent round: the results come out with the break, not now
+  if ((await hiddenRoundIds(round.tournament.id)).has(round.id)) return
   for (const d of round.debates) {
     const teams = { proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition }
     for (const { side } of sidesInDebate(d)) {

@@ -56,6 +56,7 @@ const createSchema = z.object({
   coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
   preliminaryRounds: z.number().int().min(2).max(8),
   breakSize: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+  silentRounds: z.number().int().min(0).max(3).default(0), // the last N preliminary rounds keep results hidden until the break
   maxTeams: z.number().int().min(4).max(128),
   registrationOpen: z.boolean().default(true),
   requireApproval: z.boolean().default(true),
@@ -64,6 +65,7 @@ const createSchema = z.object({
   paymentReference: z.string().regex(/^DKZ-[A-Z2-9]{6}$/).optional(), // from GET /plans/quote, for tournaments above the free limit
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
+  .refine(v => v.silentRounds < v.preliminaryRounds, { path: ['silentRounds'], message: 'too_many_silent_rounds' })
   // BP playoffs are rooms of four: the smallest break is one final room
   .refine(v => v.format !== 'BP' || v.breakSize >= 4, { path: ['breakSize'], message: 'break_too_small' })
 
@@ -81,7 +83,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const t = await prisma.tournament.create({
     data: {
       name: d.name, city: d.city, startDate: start, endDate: end, level: d.level, format: d.format, description: d.description,
-      coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, maxTeams: d.maxTeams,
+      coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, silentRounds: d.silentRounds, maxTeams: d.maxTeams,
       registrationOpen: d.registrationOpen, requireApproval: d.requireApproval,
       registrationDeadline: d.registrationDeadline ? fromDay(d.registrationDeadline) : null,
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
@@ -124,6 +126,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationDeadline: day.nullable().optional(),
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
+    silentRounds: z.number().int().min(0).max(3).optional(),
     roomLinks: z.record(z.string().trim().min(1).max(60), httpsUrl).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
   }))
@@ -151,6 +154,11 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     data.maxTeams = maxTeams
   }
   if (rooms) data.rooms = [...new Set(rooms)]
+  // at least one preliminary round stays open, and the choice is fixed once the break is announced
+  if (rest.silentRounds !== undefined) {
+    if (rest.silentRounds >= cur.preliminaryRounds) throw badRequest('too_many_silent_rounds')
+    if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
+  }
   if (roomLinks) data.roomLinks = roomLinks
   if (coverUrl !== undefined && coverUrl !== cur.coverUrl) {
     data.coverUrl = coverUrl

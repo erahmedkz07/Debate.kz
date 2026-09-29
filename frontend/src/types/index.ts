@@ -23,6 +23,7 @@ export interface Tournament {
   description: string
   preliminaryRounds: number
   breakSize: number
+  silentRounds?: number // the last N preliminary rounds keep results hidden until the break
   languages: Lang[]
 }
 

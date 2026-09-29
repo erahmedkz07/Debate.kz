@@ -903,6 +903,23 @@ function DetailsCard({ data, reload }: SectionProps) {
 }
 
 // the organizer's own rooms, used by the draw in this order
+// silent rounds: the last N preliminary rounds keep their results hidden from the public until the break
+function SilentCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const set = async (n: number) => { if (await run('silent', () => updateTournament(data.id, { silentRounds: n }), t('dashboard.teams.saved'))) reload() }
+  return (
+    <Card className="space-y-3 p-6">
+      <div>
+        <h3 className="font-bold">{t('wizard.silent')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t('wizard.silentHint')}</p>
+      </div>
+      <Select className="w-full sm:w-64" value={String(data.silentRounds ?? 0)} disabled={busy === 'silent'} onValueChange={n => set(Number(n))} aria-label={t('wizard.silent')}
+        options={[0, 1, 2, 3].filter(n => n < data.preliminaryRounds).map(n => ({ value: String(n), label: n ? t('wizard.silentN', { count: n }) : t('wizard.silentNone') }))} />
+    </Card>
+  )
+}
+
 function RoomsCard({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
@@ -1030,6 +1047,7 @@ function SettingsSection({ data, reload }: SectionProps) {
         </Card>
         <CoverCard tournamentId={data.id} cover={data.cover} onChanged={reload} />
         {data.status !== 'finished' && <RoomsCard data={data} reload={reload} />}
+        {data.status !== 'finished' && !data.rounds.some(r => r.kind === 'elimination') && <SilentCard data={data} reload={reload} />}
         {/* Pro (more than 20 teams): Kaspi QR payment; otherwise a short note about the free plan */}
         {data.plan === 'pro' ? <PaymentCard tournamentId={data.id} /> : (
           <Card className="flex items-center justify-between gap-4 p-6">

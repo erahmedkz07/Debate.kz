@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js'
 import { coverOf } from './covers.js'
 import { BP_POINTS, isBP, teamOnSide } from './formats.js'
 import { stageOf } from './stages.js'
+import { silentIn } from './silent.js'
 
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
@@ -16,7 +17,7 @@ export const toSummary = (t: SummaryRow) => ({
   id: t.id, name: t.name, city: t.city, startDate: toDay(t.startDate), endDate: toDay(t.endDate),
   format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams,
   cover: coverOf(t), organizer: t.organizerName, description: t.description,
-  preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
+  preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, silentRounds: t.silentRounds, languages: t.languages,
 })
 
 export const teamInclude = {
@@ -117,7 +118,11 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     status: r.status, date: toDay(r.date),
     ...(r.kind === 'elimination' && { kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)) }),
   }))
-  const debates = t.rounds.filter(r => manager || r.status !== 'draft').flatMap(r => r.debates.map(d => toDebate(d, manager)))
+  const silent = manager ? new Set<string>() : silentIn(t)
+  const debates = t.rounds.filter(r => manager || r.status !== 'draft').flatMap(r => r.debates.map(d => {
+    const x = toDebate(d, manager)
+    return silent.has(r.id) ? { ...x, winner: undefined, ranking: undefined } : x
+  }))
   const chairIds = new Set(t.rounds.flatMap(r => r.debates.flatMap(d => d.judges.filter(j => j.isChair).map(j => j.judgeId))))
 
   return {
@@ -142,13 +147,14 @@ export async function getTournamentDetails(id: string, viewer?: User) {
 
 // ---------- standings (computed from real ballots) ----------
 
-export async function getStandings(tournamentId: string) {
+// hide: rounds whose results the reader may not see yet (silent rounds, see services/silent.ts)
+export async function getStandings(tournamentId: string, hide: Set<string> = new Set()) {
   const [teams, debates] = await Promise.all([
     // swing teams only fill the draw; they are never ranked
     prisma.team.findMany({ where: { tournamentId, swing: false }, include: teamInclude }),
     prisma.debate.findMany({
       // the standings are the preliminary rounds; the playoffs decide the champion separately
-      where: { round: { tournamentId, status: 'completed', kind: 'preliminary' }, winner: { not: null } },
+      where: { round: { tournamentId, status: 'completed', kind: 'preliminary', id: { notIn: [...hide] } }, winner: { not: null } },
       include: { ballots: { include: { scores: true } } },
     }),
   ])
