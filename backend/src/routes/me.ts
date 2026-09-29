@@ -2,7 +2,7 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
-import { toDay } from '../lib/dates.js'
+import { toDay, todayKz } from '../lib/dates.js'
 import rateLimit from 'express-rate-limit'
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/errors.js'
 import { env } from '../lib/env.js'
@@ -149,7 +149,7 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   const role = await participationIn(req.user!.id, t.id)
   if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
-  if (t.registrationDeadline && t.registrationDeadline < new Date(toDay(new Date()))) throw forbidden('registration_closed')
+  if (t.registrationDeadline && toDay(t.registrationDeadline) < todayKz()) throw forbidden('registration_closed')
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
   assertSpeakers(t.format, data.speakers)
   // a participant states their club and team in the profile first (organizers and ratings need to know who is from where)

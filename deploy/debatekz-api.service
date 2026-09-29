@@ -1,0 +1,35 @@
+# systemd unit for the Debate.kz API. Install:
+#   sudo cp deploy/debatekz-api.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now debatekz-api
+[Unit]
+Description=Debate.kz API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=debatekz
+Group=debatekz
+WorkingDirectory=/opt/debatekz/backend
+EnvironmentFile=/etc/debatekz/api.env
+ExecStart=/usr/bin/node dist/index.js
+# crash -> back in 3 s; a crash loop stops after 10 tries in 5 min (then healthcheck alerts)
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=300
+StartLimitBurst=10
+# graceful shutdown: the app closes the server and the DB pool on SIGTERM
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# hardening: the service writes only to its data dir
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/debatekz
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
