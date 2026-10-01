@@ -16,7 +16,7 @@ export function AdminAnalytics() {
   if (loading || !data) return <Skeleton className="h-96" />
   const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const region = (code: string) => regionByCode(code)?.[lang] ?? t(`analytics.region.${code === 'unknown' ? 'unknown' : 'other'}`)
-  const month = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString(lang === 'kz' ? 'kk-KZ' : 'ru-RU', { month: 'short', year: '2-digit' })
+  const month = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString(lang === 'kz' ? 'kk-KZ' : 'ru-RU', { month: 'short' }).replace('.', '') + ` ’${m.slice(2, 4)}`
   const d = data
 
   const kpis = [

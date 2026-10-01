@@ -1445,7 +1445,7 @@
         },
         "strike": {
           "title": "Страйк: {{limit}}-ден {{count}}",
-          "text": "«{{tournament}}». {{limit}} страйкта жаңа турнир құруға болмайды."
+          "text": "«{{tournament}}»: {{reason}}. {{limit}} страйкта жаңа турнир құруға болмайды."
         },
         "motionsMissing": {
           "title": "Раунд тақырыптарын толтырыңыз",
