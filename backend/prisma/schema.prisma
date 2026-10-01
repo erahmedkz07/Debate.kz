@@ -199,7 +199,6 @@ model Tournament {
   description          String           @default("")
   preliminaryRounds    Int              @map("preliminary_rounds")
   breakSize            Int              @map("break_size")
-  silentRounds         Int              @default(0) @map("silent_rounds") // the last N preliminary rounds keep their results hidden until the break
   breakCategories      Json             @default("[]") @map("break_categories") // [{ key, name, size }]: extra brackets (novices, juniors…)
   languages            String[]
   plan                 Plan             @default(free)
@@ -365,6 +364,7 @@ model Round {
   infoSlide    String?     @map("info_slide")
   status       RoundStatus @default(draft)
   kind         RoundKind   @default(preliminary)
+  silent       Boolean     @default(false) // a closed round: results hidden from the public until the break (or until opened)
   teamsInRound Int?        @map("teams_in_round") // elimination: how many teams are still in (final = 2, BP final = 4)
   category     String? // elimination: the break category of this bracket (null = open)
   date         DateTime    @db.Date

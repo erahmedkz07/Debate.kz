@@ -17,7 +17,7 @@ export const toSummary = (t: SummaryRow) => ({
   id: t.id, name: t.name, city: t.city, startDate: toDay(t.startDate), endDate: toDay(t.endDate),
   format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams,
   cover: coverOf(t), organizer: t.organizerName, description: t.description,
-  preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, silentRounds: t.silentRounds, languages: t.languages,
+  preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
   breakCategories: t.breakCategories as { key: string; name: string; size: number }[],
 })
 
@@ -119,7 +119,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     id: r.id, tournamentId: r.tournamentId, number: r.number, name: r.name,
     motion: r.status === 'draft' && !manager ? '' : r.motion,
     infoSlide: r.status === 'draft' && !manager ? undefined : r.infoSlide ?? undefined,
-    status: r.status, date: toDay(r.date),
+    status: r.status, date: toDay(r.date), ...(r.silent && { silent: true }),
     ...(r.kind === 'elimination' && {
       kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)),
       // a category bracket (novices…): its key and name for the round title

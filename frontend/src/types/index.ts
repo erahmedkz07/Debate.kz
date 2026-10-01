@@ -23,7 +23,6 @@ export interface Tournament {
   description: string
   preliminaryRounds: number
   breakSize: number
-  silentRounds?: number // the last N preliminary rounds keep results hidden until the break
   breakCategories?: BreakCategory[] // extra brackets (novices, juniors…)
   languages: Lang[]
 }
@@ -75,6 +74,7 @@ export interface Round {
   infoSlide?: string
   status: 'draft' | 'released' | 'completed'
   date: string
+  silent?: boolean // a closed round: results hidden from the public until the break
   // playoffs: elimination rounds after the break (quarterfinal, semifinal, final)
   kind?: 'elimination'
   teamsInRound?: number

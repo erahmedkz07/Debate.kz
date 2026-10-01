@@ -57,7 +57,6 @@ const createSchema = z.object({
   coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
   preliminaryRounds: z.number().int().min(2).max(8),
   breakSize: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
-  silentRounds: z.number().int().min(0).max(3).default(0), // the last N preliminary rounds keep results hidden until the break
   maxTeams: z.number().int().min(4).max(128),
   registrationOpen: z.boolean().default(true),
   requireApproval: z.boolean().default(true),
@@ -66,7 +65,6 @@ const createSchema = z.object({
   paymentReference: z.string().regex(/^DKZ-[A-Z2-9]{6}$/).optional(), // from GET /plans/quote, for tournaments above the free limit
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
-  .refine(v => v.silentRounds < v.preliminaryRounds, { path: ['silentRounds'], message: 'too_many_silent_rounds' })
   // BP playoffs are rooms of four: the smallest break is one final room
   .refine(v => v.format !== 'BP' || v.breakSize >= 4, { path: ['breakSize'], message: 'break_too_small' })
 
@@ -84,7 +82,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const t = await prisma.tournament.create({
     data: {
       name: d.name, city: d.city, startDate: start, endDate: end, level: d.level, format: d.format, description: d.description,
-      coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, silentRounds: d.silentRounds, maxTeams: d.maxTeams,
+      coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, maxTeams: d.maxTeams,
       registrationOpen: d.registrationOpen, requireApproval: d.requireApproval,
       registrationDeadline: d.registrationDeadline ? fromDay(d.registrationDeadline) : null,
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
@@ -127,7 +125,6 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationDeadline: day.nullable().optional(),
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
-    silentRounds: z.number().int().min(0).max(3).optional(),
     // extra brackets for groups of teams (novices, juniors…), set before the break
     breakCategories: z.array(z.object({
       key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
@@ -171,11 +168,6 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
       const left = tm.categories.filter(k => keys.includes(k))
       if (left.length !== tm.categories.length) await prisma.team.update({ where: { id: tm.id }, data: { categories: left } })
     }
-  }
-  // at least one preliminary round stays open, and the choice is fixed once the break is announced
-  if (rest.silentRounds !== undefined) {
-    if (rest.silentRounds >= cur.preliminaryRounds) throw badRequest('too_many_silent_rounds')
-    if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
   }
   if (roomLinks) data.roomLinks = roomLinks
   if (coverUrl !== undefined && coverUrl !== cur.coverUrl) {
@@ -371,7 +363,9 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
     motion: z.string().trim().max(500).optional(),
     infoSlide: z.string().trim().max(2000).optional(),
     status: z.enum(['released', 'completed']).optional(),
+    silent: z.boolean().optional(), // closed round: results hidden from the public until the break
   }))
+  if (d.silent !== undefined && round.kind !== 'preliminary') throw badRequest('playoff_round_not_silent')
   if (round.status === 'completed' && (d.motion !== undefined || d.infoSlide !== undefined)) throw forbidden('round_completed')
   if (d.status) {
     if (nextStatus[round.status as keyof typeof nextStatus] !== d.status) throw badRequest('invalid_status_transition')

@@ -193,7 +193,7 @@ export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/to
 
 export interface CreateTournamentInput {
   name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
-  preliminaryRounds: number; breakSize: number; silentRounds?: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
+  preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
@@ -205,7 +205,6 @@ export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
   city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
-  silentRounds: number
   breakCategories: { key: string; name: string; size: number }[]
   coverUrl: string | null
 }>) =>
@@ -221,7 +220,7 @@ export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${tea
 export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
 export const setJudgeConflicts = (judgeId: string, teamIds: string[]) => http<{ judgeId: string; teamIds: string[] }>('PUT', `/judges/${judgeId}/conflicts`, { teamIds })
 
-export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
+export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed'; silent: boolean }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
 export type DrawMethod = 'power' | 'high_low' | 'random'
 export interface DrawReport { method: DrawMethod | 'bracket'; protectClubs: boolean; sameClub: number; rematches: number; judgeConflicts?: number }

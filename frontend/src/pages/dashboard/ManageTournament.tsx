@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, CalendarClock, ChevronRight, Circle, DoorOpen, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  Award, CalendarClock, ChevronRight, Circle, DoorOpen, Eye, EyeOff, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
@@ -468,6 +468,7 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
     if (await run('release', () => updateRound(round.id, { motion, status: 'released' }), t('dashboard.rounds.released'))) reload()
   }
   const complete = async () => { if (await run('complete', () => updateRound(round.id, { status: 'completed' }), t('dashboard.rounds.completedToast'))) reload() }
+  const setSilent = async (silent: boolean) => { if (await run('silent', () => updateRound(round.id, { silent }), t(silent ? 'dashboard.rounds.closedToast' : 'dashboard.rounds.openedToast'))) reload() }
 
   return (
     <Card className="p-5">
@@ -503,6 +504,21 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
         <Textarea id={`m-${round.id}`} rows={2} value={motion} disabled={round.status === 'completed'} onChange={e => setMotion(e.target.value)} placeholder={t('dashboard.rounds.motionPlaceholder')} />
         {blocker && <p className="mt-2 text-xs text-muted-foreground">{blocker}</p>}
       </div>
+      {round.kind !== 'elimination' && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
+          <span className="text-sm font-semibold">{t('dashboard.rounds.visibility')}</span>
+          <div className="inline-flex rounded-xl bg-muted p-1" role="radiogroup" aria-label={t('dashboard.rounds.visibility')}>
+            {([false, true] as const).map(v => (
+              <button key={String(v)} type="button" role="radio" aria-checked={!!round.silent === v} disabled={!!busy} onClick={() => !!round.silent !== v && setSilent(v)}
+                className={cn('flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition-all',
+                  !!round.silent === v ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
+                {v ? <EyeOff className="size-4" /> : <Eye className="size-4" />}{t(v ? 'dashboard.rounds.closed' : 'dashboard.rounds.open')}
+              </button>
+            ))}
+          </div>
+          <p className="w-full text-xs text-muted-foreground">{t('dashboard.rounds.visibilityHint')}</p>
+        </div>
+      )}
     </Card>
   )
 }
@@ -1059,23 +1075,6 @@ function CategoriesCard({ data, reload }: SectionProps) {
   )
 }
 
-// silent rounds: the last N preliminary rounds keep their results hidden from the public until the break
-function SilentCard({ data, reload }: SectionProps) {
-  const { t } = useTranslation()
-  const { busy, run } = useAction()
-  const set = async (n: number) => { if (await run('silent', () => updateTournament(data.id, { silentRounds: n }), t('dashboard.teams.saved'))) reload() }
-  return (
-    <Card className="space-y-3 p-6">
-      <div>
-        <h3 className="font-bold">{t('wizard.silent')}</h3>
-        <p className="mt-1 text-sm text-muted-foreground">{t('wizard.silentHint')}</p>
-      </div>
-      <Select className="w-full sm:w-64" value={String(data.silentRounds ?? 0)} disabled={busy === 'silent'} onValueChange={n => set(Number(n))} aria-label={t('wizard.silent')}
-        options={[0, 1, 2, 3].filter(n => n < data.preliminaryRounds).map(n => ({ value: String(n), label: n ? t('wizard.silentN', { count: n }) : t('wizard.silentNone') }))} />
-    </Card>
-  )
-}
-
 function RoomsCard({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
@@ -1203,7 +1202,6 @@ function SettingsSection({ data, reload }: SectionProps) {
         </Card>
         <CoverCard tournamentId={data.id} cover={data.cover} onChanged={reload} />
         {data.status !== 'finished' && <RoomsCard data={data} reload={reload} />}
-        {data.status !== 'finished' && !data.rounds.some(r => r.kind === 'elimination') && <SilentCard data={data} reload={reload} />}
         {data.status !== 'finished' && !data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}
         {/* Pro (more than 20 teams): Kaspi QR payment; otherwise a short note about the free plan */}
         {data.plan === 'pro' ? <PaymentCard tournamentId={data.id} /> : (
