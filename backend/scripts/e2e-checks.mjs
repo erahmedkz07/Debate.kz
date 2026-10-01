@@ -942,6 +942,15 @@ const clubId = r.data.id
 ok(r.status === 201, 'a verified user creates a club and becomes its member')
 ok((await clubA('POST', '/clubs', { name: `Второй ${uniq}`, city: 'Астана' })).data?.error === 'already_in_club', 'one person is in one club only')
 ok((await clubB('POST', '/clubs', { name: `Клуб ${uniq}`, city: 'Астана' })).data?.error === 'club_exists', 'club names are unique within a city')
+// against fake clubs: a new club waits for an admin
+ok(r.status === 201 && (await clubA('GET', `/clubs/${clubId}`)).data.status === 'pending', 'a new club waits for an admin')
+ok(!(await client()('GET', '/clubs')).data.some(c => c.id === clubId) && (await client()('GET', `/clubs/${clubId}`)).status === 404, 'an unchecked club is not in the catalogue and not open to outsiders')
+ok((await admin('GET', '/admin/clubs')).data.find(c => c.id === clubId)?.status === 'pending', 'the admins see it in the queue')
+ok((await admin('PATCH', `/admin/clubs/${clubId}`, { status: 'rejected' })).data?.error === 'reason_required', 'rejecting needs a reason')
+await admin('PATCH', `/admin/clubs/${clubId}`, { status: 'rejected', note: 'Укажите учебное заведение полностью' })
+ok((await clubA('GET', `/clubs/${clubId}`)).data.moderationNote === 'Укажите учебное заведение полностью' && (await notes(clubA)).items.some(n => n.type === 'participant.clubRejected'), 'members learn why it was rejected')
+ok((await clubA('PATCH', `/clubs/${clubId}`, { institution: 'Евразийский национальный университет' })).data?.status === 'pending', 'after a fix the club goes back to the admins')
+ok((await admin('PATCH', `/admin/clubs/${clubId}`, { status: 'approved' })).status === 200 && (await client()('GET', '/clubs')).data.some(c => c.id === clubId), 'an approved club is in the catalogue')
 let club = (await clubA('GET', `/clubs/${clubId}`)).data
 ok(club.isMember && /^[A-Z2-9]{8}$/.test(club.joinCode) && club.log.some(l => l.action === 'created'), 'members see the join code and the club log')
 ok((await client()('GET', `/clubs/${clubId}`)).data.joinCode === undefined, 'outsiders do not see the join code')
@@ -977,6 +986,26 @@ await outsider('POST', '/clubs/join', { code: r.data ? (await clubA('GET', `/clu
 await outsider('PUT', `/clubs/${clubId}/members/${(await outsider('GET', '/auth/me')).data.user.id}/team`, { teamId: beta })
 r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `С клубом ${uniq}`, institution: 'ЕНУ', speakers: ['Клубный Членo', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 201, 'with a club and a team the application goes through')
+{
+  // a club no admin has approved cannot send a team, and duplicates are merged, fakes reported and removed
+  const fake = await newAccount('Фейк Клубов')
+  const fc = (await fake.c('POST', '/clubs', { name: `Клуб ${uniq} дубль`, city: 'Астана' })).data
+  await fake.c('POST', `/clubs/${fc.id}/teams`, { name: 'Дубль', join: true })
+  r = await fake.c('POST', `/tournaments/${small.id}/registrations`, { teamName: `Дубль ${uniq}`, institution: 'Школа', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
+  ok(r.data?.error === 'club_not_verified', 'a team of an unchecked club cannot apply to a tournament')
+  ok((await outsider('POST', `/clubs/${fc.id}/report`, { reason: 'Это дубль клуба' })).status === 201
+    && (await outsider('POST', `/clubs/${fc.id}/report`, { reason: 'Ещё раз' })).data?.error === 'already_reported', 'a person reports a fake club once')
+  ok((await admin('GET', '/admin/clubs')).data.find(c => c.id === fc.id)?.reports.length === 1, 'the admins see the report')
+  r = await admin('POST', `/admin/clubs/${fc.id}/merge`, { intoId: clubId })
+  const merged = (await client()('GET', `/clubs/${clubId}`)).data
+  ok(r.status === 200 && merged.members.some(m => m.id === fake.id) && merged.teams.some(t => t.name === 'Дубль') && (await client()('GET', `/clubs/${fc.id}`)).status === 404,
+    'merging moves the members and teams of the duplicate into the real club')
+  const gone = await newAccount('Удалённый Клуб')
+  const gc = (await gone.c('POST', '/clubs', { name: `Пустышка ${uniq}`, city: 'Астана' })).data
+  ok((await admin('DELETE', `/admin/clubs/${gc.id}`, { reason: 'Фейковый клуб' })).status === 204
+    && (await notes(gone.c)).items.some(n => n.type === 'participant.clubDeleted') && (await gone.c('GET', '/me/club')).data.club === undefined, 'an admin removes a fake club and its members are told')
+  ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'club.merge'), 'club decisions go to the audit log')
+}
 const smallRegs = (await payer('GET', `/tournaments/${small.id}/registrations`)).data
 await payer('PATCH', `/registrations/${smallRegs.find(x => x.teamName === `С клубом ${uniq}`).id}`, { status: 'confirmed' })
 const smallTeams = (await payer('GET', `/tournaments/${small.id}`)).data.teams
@@ -1094,6 +1123,7 @@ for (const [c, n] of [[reqClubOwner, 'ro'], [applicant, 'ap']]) {
   await c('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
 }
 const rClub = (await reqClubOwner('POST', '/clubs', { name: `Заявочный ${uniq}`, city: 'Астана' })).data.id
+await admin('PATCH', `/admin/clubs/${rClub}`, { status: 'approved' }) // checked: it is in the catalogue
 const rTeam = (await reqClubOwner('POST', `/clubs/${rClub}/teams`, { name: 'Основа', join: true })).data.id
 ok((await client()('POST', `/clubs/${rClub}/requests`, {})).status === 401, 'a guest cannot ask to join')
 r = await applicant('POST', `/clubs/${rClub}/requests`, { message: 'Хочу в клуб, говорю вторым спикером' })
@@ -1279,6 +1309,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   // club and team logos
   const owner = await newAccount('Логотип Клуба')
   const club = (await owner.c('POST', '/clubs', { name: `Клуб логотипов ${jtag}`, city: 'Астана' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
   const sess = cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: owner.email, password: 'secret123' }) }), 'dkz_token')
   const png = await sharpR({ create: { width: 300, height: 200, channels: 3, background: '#009bc9' } }).png().toBuffer()
   const up = async (url, file, cookie = sess) => {

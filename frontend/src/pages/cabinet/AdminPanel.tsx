@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, Ban, Check, CheckCircle2, CircleDollarSign, Clock, CreditCard, ExternalLink, Eye, EyeOff, Gavel, History, LayoutDashboard, LayoutGrid, LifeBuoy, Search, ShieldCheck, Trash2, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
+import { AlertTriangle, Ban, Check, Shield, CheckCircle2, CircleDollarSign, Clock, CreditCard, ExternalLink, Eye, EyeOff, Gavel, History, LayoutDashboard, LayoutGrid, LifeBuoy, Search, ShieldCheck, Trash2, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
 import { adminDeleteTournament, getAdminActions, getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { AdminTournament, Role, User } from '@/types'
@@ -11,6 +11,7 @@ import { useAsync } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange, formatDateTime } from '@/lib/utils'
 import { Avatar } from '@/components/auth/UserMenu'
 import { AdminPayments } from '@/components/payments/AdminPayments'
+import { AdminClubs } from '@/components/admin/AdminClubs'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -383,6 +384,9 @@ export default function AdminPanel() {
   const [tab, setTab] = useState(params.get('tab') ?? 'overview')
   useEffect(() => { if (data) setList(data) }, [data])
   const pending = list.filter(x => x.moderation === 'pending').length
+  // clubs waiting for a decision or reported
+  const stats = useAsync(getAdminStats)
+  const clubQueue = (stats.data?.pendingClubs ?? 0) + (stats.data?.clubReports ?? 0)
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
@@ -396,6 +400,10 @@ export default function AdminPanel() {
               <Trophy className="size-4" />{t('nav.tournaments')}
               {pending > 0 && <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy" title={t('moderation.pending')}>{pending}</span>}
             </SideTabsTrigger>
+            <SideTabsTrigger value="clubs">
+              <Shield className="size-4" />{t('admin.clubs.tab')}
+              {clubQueue > 0 && <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy">{clubQueue}</span>}
+            </SideTabsTrigger>
             <SideTabsTrigger value="users"><Users className="size-4" />{t('admin.users')}</SideTabsTrigger>
             <SideTabsTrigger value="payments"><CreditCard className="size-4" />{t('payment.admin.tab')}</SideTabsTrigger>
             <SideTabsTrigger value="log"><History className="size-4" />{t('admin.log.tab')}</SideTabsTrigger>
@@ -405,6 +413,7 @@ export default function AdminPanel() {
               <>
                 <TabsContent value="overview" className="mt-0"><Overview tournaments={list} setTab={setTab} /></TabsContent>
                 <TabsContent value="tournaments" className="mt-0"><TournamentsTab list={list} setList={setList} /></TabsContent>
+                <TabsContent value="clubs" className="mt-0"><AdminClubs onChange={stats.reload} /></TabsContent>
                 <TabsContent value="users" className="mt-0"><UsersTab /></TabsContent>
                 <TabsContent value="payments" className="mt-0"><AdminPayments /></TabsContent>
                 <TabsContent value="log" className="mt-0"><LogTab /></TabsContent>

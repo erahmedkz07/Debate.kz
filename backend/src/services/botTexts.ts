@@ -167,6 +167,11 @@ const N: Record<Lang, Record<string, Render>> = {
     'organizer.tournamentFinished': d => `🏁 Турнир ${q(d.tournament)} завершён. Победитель — ${b(d.winner)} (команд: ${s(d.teams)}). Участники и судьи получили сертификаты.`,
     'admin.tournamentPending': d => `🆕 Турнир ждёт проверки${d.pro ? ' · Pro' : ''}: ${q(d.tournament)} (${s(d.city)}), владелец — ${s(d.owner)}.`,
     'admin.safetyReport': () => '🛡 Новое сообщение о поведении. Подробности — только на сайте.',
+    'admin.clubPending': d => `🆕 Новый клуб ждёт проверки: ${q(d.club)} (${s(d.city)}), создал(а) ${s(d.owner)}.`,
+    'admin.clubReported': d => `⚠️ Жалоба на клуб ${q(d.club)} (${s(d.city)}). Подробности — в админ-панели.`,
+    'participant.clubApproved': d => `✅ Клуб ${q(d.club)} проверен: он в каталоге и может подавать заявки на турниры.`,
+    'participant.clubRejected': d => `❌ Клуб ${q(d.club)} не прошёл проверку. Причина: ${s(d.reason)}\nИсправьте данные клуба — он снова уйдёт на проверку.`,
+    'participant.clubDeleted': d => `🗑 Клуб ${q(d.club)} удалён администратором. Причина: ${s(d.reason)}`,
     'admin.paymentClaimed': d => `💳 Оплата Pro: ${q(d.tournament)}, ${s(Number(d.amount).toLocaleString('ru-RU'))} ₸, код ${b(d.reference)}. Чек приложен — проверьте поступление в Kaspi.`,
   },
   kz: {
@@ -197,6 +202,11 @@ const N: Record<Lang, Record<string, Render>> = {
     'organizer.tournamentFinished': d => `🏁 ${q(d.tournament)} турнирі аяқталды. Жеңімпаз — ${b(d.winner)} (командалар: ${s(d.teams)}). Қатысушылар мен төрешілер сертификат алды.`,
     'admin.tournamentPending': d => `🆕 Турнир тексеруді күтуде${d.pro ? ' · Pro' : ''}: ${q(d.tournament)} (${s(d.city)}), иесі — ${s(d.owner)}.`,
     'admin.safetyReport': () => '🛡 Мінез-құлық туралы жаңа өтініш. Толығырақ — тек сайтта.',
+    'admin.clubPending': d => `🆕 Жаңа клуб тексеруді күтуде: ${q(d.club)} (${s(d.city)}), құрған — ${s(d.owner)}.`,
+    'admin.clubReported': d => `⚠️ ${q(d.club)} клубына шағым (${s(d.city)}). Толығы — әкімші панелінде.`,
+    'participant.clubApproved': d => `✅ ${q(d.club)} клубы тексерілді: ол каталогта және турнирлерге өтінім бере алады.`,
+    'participant.clubRejected': d => `❌ ${q(d.club)} клубы тексеруден өтпеді. Себебі: ${s(d.reason)}\nКлуб деректерін түзетіңіз — ол қайта тексеруге кетеді.`,
+    'participant.clubDeleted': d => `🗑 ${q(d.club)} клубын әкімші жойды. Себебі: ${s(d.reason)}`,
     'admin.paymentClaimed': d => `💳 Pro төлемі: ${q(d.tournament)}, ${s(Number(d.amount).toLocaleString('ru-RU'))} ₸, коды ${b(d.reference)}. Чек тіркелген — Kaspi-дағы түсімді тексеріңіз.`,
   },
 }

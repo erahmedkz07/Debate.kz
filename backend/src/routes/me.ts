@@ -188,8 +188,10 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
   assertSpeakers(t.format, data.speakers)
   // a participant states their club and team in the profile first (organizers and ratings need to know who is from where)
-  const membership = await prisma.clubMember.findUnique({ where: { userId: req.user!.id } })
+  const membership = await prisma.clubMember.findUnique({ where: { userId: req.user!.id }, include: { club: { select: { status: true } } } })
   if (!membership?.teamId) throw badRequest('club_required')
+  // against fake clubs: only a club an admin approved can send teams
+  if (membership.club.status !== 'approved') throw badRequest('club_not_verified')
   if (await prisma.teamRegistration.findUnique({ where: { tournamentId_teamName: { tournamentId: t.id, teamName: data.teamName } } })) {
     throw conflict('team_name_taken')
   }

@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Building2, Check, Clock, MapPin, Send, Settings, Users, X } from 'lucide-react'
-import { cancelClubRequest, getClub, NotFoundError, requestToJoinClub } from '@/api'
+import { AlertTriangle, Building2, Check, Clock, Flag, MapPin, Send, Settings, ShieldCheck, Users, X } from 'lucide-react'
+import { cancelClubRequest, getClub, NotFoundError, reportClub, requestToJoinClub } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
@@ -19,6 +19,7 @@ import { Textarea } from '@/components/ui/input'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import NotFound from './NotFound'
 import { EntityLogo } from '@/components/ui/entity-logo'
+import { cn } from '@/lib/utils'
 
 // Public club page: who the club is, its teams and members. Anyone can ask to join the club
 // (only the club: its members then decide the team). The club is managed in the profile ("My club").
@@ -31,6 +32,9 @@ export default function ClubPage() {
   const [asking, setAsking] = useState(false)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  // "this club is fake / a duplicate"
+  const [reporting, setReporting] = useState(false)
+  const [reason, setReason] = useState('')
   if (error instanceof NotFoundError) return <NotFound />
   if (error) return <div className="container-page py-20"><ErrorState onRetry={reload} /></div>
   if (loading && !data) return <div className="container-page space-y-4 py-10"><Skeleton className="h-40" /><Skeleton className="h-72" /></div>
@@ -45,6 +49,10 @@ export default function ClubPage() {
   const send = async () => {
     setBusy(true)
     try { await requestToJoinClub(data.id, message.trim()); toast.success(t('club.request.sent')); setAsking(false); setMessage(''); reload() } catch (e) { toast.error(errorMessage(e, t)) } finally { setBusy(false) }
+  }
+  const report = async () => {
+    setBusy(true)
+    try { await reportClub(data.id, reason.trim()); toast.success(t('club.report.sent')); setReporting(false); setReason('') } catch (e) { toast.error(errorMessage(e, t)) } finally { setBusy(false) }
   }
   const cancel = async () => {
     try { await cancelClubRequest(data.myRequest!); toast(t('club.request.cancelled')); reload() } catch (e) { toast.error(errorMessage(e, t)) }
@@ -63,7 +71,7 @@ export default function ClubPage() {
     </div>
   ) : user?.club ? (
     <p className="text-sm text-muted-foreground">{t('club.inOtherClub', { name: user.club.name })}</p>
-  ) : user?.role === 'admin' ? null : (
+  ) : user?.role === 'admin' || data.status !== 'approved' ? null : (
     <Button onClick={openAsk}><Send className="size-4" />{t('club.request.ask')}</Button>
   )
 
@@ -76,9 +84,23 @@ export default function ClubPage() {
           {data.institution && <span className="flex items-center gap-1.5"><Building2 className="size-4 text-primary" />{data.institution}</span>}
           <span className="flex items-center gap-1.5"><Users className="size-4 text-primary" />{t('club.membersCount', { count: data.members.length })} · {t('club.teamsCount', { count: data.teams.length })}</span>
         </div>
-        <div className="mt-6">{action}</div>
+        <div className="mt-6 flex flex-wrap items-center gap-4">
+          {action}
+          {data.status === 'approved' && <span className="inline-flex items-center gap-1 text-xs font-semibold text-success"><ShieldCheck className="size-4" />{t('club.verified')}</span>}
+          {user && !data.isMember && user.role !== 'admin' && (
+            <button type="button" onClick={() => setReporting(true)} className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-danger hover:underline">
+              <Flag className="size-3.5" />{t('club.report.button')}
+            </button>
+          )}
+        </div>
       </PageHeader>
       <div className="container-page space-y-8 py-10">
+        {data.status && data.status !== 'approved' && (
+          <p className={cn('flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm', data.status === 'rejected' ? 'border-danger/40 bg-danger-soft' : 'border-accent bg-accent-soft')}>
+            {data.status === 'rejected' ? <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" /> : <Clock className="mt-0.5 size-4 shrink-0" />}
+            <span>{data.status === 'rejected' ? t('club.rejectedNote', { reason: data.moderationNote ?? '' }) : t('club.pendingNote')}</span>
+          </p>
+        )}
         <section>
           <h2 className="mb-4 text-xl font-bold">{t('club.teams')}</h2>
           {data.teams.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('club.noTeams')} /> : (
@@ -117,6 +139,15 @@ export default function ClubPage() {
           <div className="mt-4 flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
             <Button disabled={busy} onClick={send}><Send className="size-4" />{t('club.request.send')}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={reporting} onOpenChange={setReporting}>
+        <DialogContent heading={t('club.report.title', { name: data.name })} description={t('club.report.text')}>
+          <Textarea rows={3} maxLength={500} value={reason} onChange={e => setReason(e.target.value)} placeholder={t('club.report.placeholder')} aria-label={t('club.report.title', { name: data.name })} autoFocus />
+          <div className="mt-5 flex justify-end gap-2">
+            <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button variant="danger" disabled={busy || reason.trim().length < 5} onClick={report}><Flag className="size-4" />{t('club.report.send')}</Button>
           </div>
         </DialogContent>
       </Dialog>

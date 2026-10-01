@@ -152,6 +152,8 @@ model User {
   handledSafetyReports SafetyReport[]        @relation("SafetyHandler")
   judgeFeedback        JudgeFeedback[]
 
+  clubReports ClubReport[]
+
   @@map("users")
 }
 
@@ -677,15 +679,34 @@ model Club {
   description     String            @default("")
   joinCode        String            @unique @map("join_code") // /clubs/join/<code>
   logoUrl         String?           @map("logo_url") // /uploads/logos/…, re-encoded square WebP
+  status          ClubStatus        @default(pending)
+  moderationNote  String?           @map("moderation_note") // why it was rejected
+  reviewedAt      DateTime?         @map("reviewed_at")
   createdAt       DateTime          @default(now()) @map("created_at")
   teams           ClubTeam[]
   members         ClubMember[]
   logs            ClubLog[]
   requests        ClubJoinRequest[]
+  reports         ClubReport[]
   tournamentTeams Team[]
 
   @@unique([name, city])
   @@map("clubs")
+}
+
+// "this club is fake / a duplicate": a signed-in user tells the admins
+model ClubReport {
+  id         String    @id @default(cuid())
+  clubId     String    @map("club_id")
+  userId     String    @map("user_id")
+  reason     String
+  createdAt  DateTime  @default(now()) @map("created_at")
+  resolvedAt DateTime? @map("resolved_at")
+  club       Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("club_reports")
 }
 
 model ClubTeam {
@@ -750,6 +771,13 @@ model News {
 }
 
 // a request to join a club from its public page; any member accepts (choosing the team) or declines it
+// a new club waits for an admin: only an approved club appears in the catalogue and can apply to tournaments
+enum ClubStatus {
+  pending
+  approved
+  rejected
+}
+
 enum ClubRequestStatus {
   pending
   accepted

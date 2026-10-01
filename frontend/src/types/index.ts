@@ -424,6 +424,8 @@ export interface ClubDetails {
   description: string
   createdAt: string
   logoUrl?: string
+  status?: 'pending' | 'approved' | 'rejected' // a new club waits for an admin
+  moderationNote?: string // why it was rejected (members and admins)
   teams: { id: string; name: string; logoUrl?: string; members: ClubMemberInfo[] }[]
   members: ClubMemberInfo[]
   isMember: boolean

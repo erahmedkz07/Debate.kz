@@ -270,11 +270,24 @@ export const revokeInvite = (tournamentId: string, inviteId: string) => http<voi
 // ---------- admin ----------
 
 export const getAdminStats = () =>
-  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number }>('GET', '/admin/stats')
+  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number; pendingClubs: number; clubReports: number }>('GET', '/admin/stats')
 export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/tournaments')
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
+// clubs for the admins: moderation, duplicates, reports
+export interface AdminClub {
+  id: string; name: string; city: string; institution?: string; logoUrl?: string
+  status: 'pending' | 'approved' | 'rejected'; moderationNote?: string; createdAt: string; createdBy?: string
+  members: number; teams: number; tournamentTeams: number
+  reports: { id: string; reason: string; by: string; createdAt: string }[]
+}
+export const getAdminClubs = () => http<AdminClub[]>('GET', '/admin/clubs')
+export const reviewClub = (id: string, status: 'approved' | 'rejected', note?: string) => http<{ id: string; status: string }>('PATCH', `/admin/clubs/${id}`, { status, note })
+export const mergeClub = (id: string, intoId: string) => http<{ id: string }>('POST', `/admin/clubs/${id}/merge`, { intoId })
+export const adminDeleteClub = (id: string, reason: string) => http<void>('DELETE', `/admin/clubs/${id}`, { reason })
+export const resolveClubReport = (id: string) => http<{ ok: true }>('POST', `/admin/club-reports/${id}/resolve`)
+export const reportClub = (id: string, reason: string) => http<{ ok: true }>('POST', `/clubs/${encodeURIComponent(id)}/report`, { reason })
 // ---------- certificates & check-in ----------
 export const verifyCertificate = (code: string) => or404(http<Certificate>('GET', `/certificates/${encodeURIComponent(code)}`))
 export const getMyCertificates = () => http<Certificate[]>('GET', '/me/certificates')

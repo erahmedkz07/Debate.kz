@@ -288,7 +288,7 @@ If you really want to reset to demo data: npm run db:seed:force`)
     const inst = tm.institution!
     let c = clubs.get(inst.id)
     if (!c) {
-      const club = await prisma.club.create({ data: { name: inst.name, city: tm.city ?? tm.tournament.city, institution: inst.name, description: `Дебатный клуб: ${inst.name}.`, joinCode: joinCode() } })
+      const club = await prisma.club.create({ data: { name: inst.name, city: tm.city ?? tm.tournament.city, institution: inst.name, description: `Дебатный клуб: ${inst.name}.`, joinCode: joinCode(), status: 'approved' } })
       c = { id: club.id, teams: new Map() }
       clubs.set(inst.id, c)
     }
