@@ -326,6 +326,12 @@ export interface AdminClub {
   members: number; teams: number; tournamentTeams: number
   reports: { id: string; reason: string; by: string; createdAt: string }[]
 }
+// organizer strikes: abandoned tournaments and last-minute cancellations
+export interface StrikeItem { id: string; tournament: string; reason: 'abandoned' | 'late_cancel'; createdAt: string; lifted: boolean; note?: string }
+export interface AdminStrike extends StrikeItem { user: { id: string; name: string; email: string } }
+export const getMyStrikes = () => http<{ limit: number; active: number; items: StrikeItem[] }>('GET', '/me/strikes')
+export const getAdminStrikes = () => http<AdminStrike[]>('GET', '/admin/strikes')
+export const liftStrike = (id: string, note: string) => http<{ ok: true }>('POST', `/admin/strikes/${id}/lift`, { note })
 export const getAdminClubs = () => http<AdminClub[]>('GET', '/admin/clubs')
 export const reviewClub = (id: string, status: 'approved' | 'rejected', note?: string) => http<{ id: string; status: string }>('PATCH', `/admin/clubs/${id}`, { status, note })
 export const mergeClub = (id: string, intoId: string) => http<{ id: string }>('POST', `/admin/clubs/${id}/merge`, { intoId })

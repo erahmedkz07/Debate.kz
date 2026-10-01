@@ -17,6 +17,7 @@ import { participationIn, publicWhere, summaryInclude, toSummary } from '../serv
 import { placeOf, sideLabel, sidesInDebate } from '../services/formats.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { onApplication } from '../services/selection.js'
+import { STRIKE_LIMIT } from '../services/watchdog.js'
 
 export const meRouter = Router()
 const mailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
@@ -165,6 +166,15 @@ meRouter.post('/debates/:debateId/feedback', requireAuth(), async (req, res) => 
     update: row,
   })
   res.status(201).json({ ok: true })
+})
+
+// my strikes as an organizer (abandoned tournaments, last-minute cancellations): 3 active ones block new tournaments
+meRouter.get('/me/strikes', requireAuth(), async (req, res) => {
+  const rows = await prisma.organizerStrike.findMany({ where: { userId: req.user!.id }, orderBy: { createdAt: 'desc' } })
+  res.json({
+    limit: STRIKE_LIMIT, active: rows.filter(r => !r.liftedAt).length,
+    items: rows.map(r => ({ id: r.id, tournament: r.tournamentName, reason: r.reason, createdAt: r.createdAt.toISOString(), lifted: !!r.liftedAt, note: r.liftedNote ?? undefined })),
+  })
 })
 
 const registrationSchema = z.object({

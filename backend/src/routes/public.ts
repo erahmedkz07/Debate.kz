@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { param, query } from '../middleware/validate.js'
-import { getStandings, getTournamentDetails, isOrganizerOf, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
+import { getStandings, getTournamentDetails, isOrganizerOf, isPublic, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 import { getBracket } from '../services/playoffs.js'
 import { notFound } from '../lib/errors.js'
 import { hiddenRoundIds } from '../services/silent.js'
@@ -48,8 +48,8 @@ publicRouter.get('/tournaments/:id', async (req, res) => {
 })
 
 publicRouter.get('/tournaments/:id/standings', async (req, res) => {
-  const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') }, select: { visible: true, moderation: true } })
-  if (!t?.visible || t.moderation !== 'approved') throw notFound('tournament_not_found')
+  const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') }, select: { visible: true, moderation: true, abandonedAt: true } })
+  if (!t || !isPublic(t)) throw notFound('tournament_not_found')
   // silent rounds stay out of the public table until the break; organizers see the real one
   const id = param(req, 'id')
   res.json(await getStandings(id, (await isOrganizerOf(req.user, id)) ? new Set() : await hiddenRoundIds(id)))
@@ -63,17 +63,17 @@ publicRouter.get('/people/:id', async (req, res) => {
 // selection: how many applied for how many places, and the lottery order after the draw
 publicRouter.get('/tournaments/:id/selection', async (req, res) => {
   const id = param(req, 'id')
-  const t = await prisma.tournament.findUnique({ where: { id }, select: { visible: true, moderation: true } })
-  if (!t || ((!t.visible || t.moderation !== 'approved') && !(await isOrganizerOf(req.user, id)))) throw notFound('tournament_not_found')
+  const t = await prisma.tournament.findUnique({ where: { id }, select: { visible: true, moderation: true, abandonedAt: true } })
+  if (!t || (!isPublic(t) && !(await isOrganizerOf(req.user, id)))) throw notFound('tournament_not_found')
   res.json(await selectionOf(id))
 })
 
 // the playoffs: seeds, elimination rounds and, after the final, the champion
 publicRouter.get('/tournaments/:id/bracket', async (req, res) => {
   const id = param(req, 'id')
-  const t = await prisma.tournament.findUnique({ where: { id }, select: { visible: true, moderation: true } })
+  const t = await prisma.tournament.findUnique({ where: { id }, select: { visible: true, moderation: true, abandonedAt: true } })
   const manager = await isOrganizerOf(req.user, id)
-  if (!t || ((!t.visible || t.moderation !== 'approved') && !manager)) throw notFound('tournament_not_found')
+  if (!t || (!isPublic(t) && !manager)) throw notFound('tournament_not_found')
   res.json(await getBracket(id, manager))
 })
 

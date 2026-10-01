@@ -163,6 +163,7 @@ model User {
 
   clubReports       ClubReport[]
   tournamentReviews TournamentReview[]
+  strikes OrganizerStrike[]
 
   @@map("users")
 }
@@ -211,6 +212,9 @@ model Tournament {
   selectionMode        SelectionMode    @default(manual) @map("selection_mode")
   clubQuota            Int?             @map("club_quota") // at most this many teams from one club (null: no limit)
   lotteryAt            DateTime?        @map("lottery_at") // when the selection lottery was drawn
+  abandonedAt       DateTime?     @map("abandoned_at") // archived: not finished 7 days after the end
+  remindedMotionsAt DateTime?     @map("reminded_motions_at")
+  finishReminders   Int           @default(0) @map("finish_reminders") // 1: "finish it", 2: "the archive in 2 days"
   coverUrl             String?          @map("cover_url")
   organizerName        String           @map("organizer_name")
   description          String           @default("")
@@ -436,6 +440,22 @@ model JudgeConflict {
 // a speaker's rating of a judge of their debate (1..5 and an optional comment); only the organizers read it
 // a participant's or judge's rating of a finished tournament (1..5, optional comment); public, shown without names
 // "best speaker" / "best judge" the organizer chose (from the site's suggestions); a diploma after the finish
+// a strike for an organizer: an abandoned tournament or a last-minute cancellation; 3 active ones block new tournaments
+model OrganizerStrike {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  tournamentId   String?   @map("tournament_id")
+  tournamentName String    @map("tournament_name")
+  reason         String // abandoned | late_cancel
+  createdAt      DateTime  @default(now()) @map("created_at")
+  liftedAt       DateTime? @map("lifted_at")
+  liftedNote     String?   @map("lifted_note")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("organizer_strikes")
+}
+
 model TournamentAward {
   id           String     @id @default(cuid())
   tournamentId String     @map("tournament_id")

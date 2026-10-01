@@ -341,6 +341,7 @@ export interface MyTournament extends Tournament {
   moderation: ModerationStatus
   moderationNote?: string
   myRole: OrganizerRole
+  abandoned?: boolean // not finished 7 days after the end: archived, hidden from the public
 }
 
 export interface InvitePreview {

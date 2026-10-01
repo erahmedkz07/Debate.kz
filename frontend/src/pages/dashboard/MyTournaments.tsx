@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { CalendarDays, ExternalLink, MapPin, Plus, Settings2, Users } from 'lucide-react'
-import { getMyTournaments } from '@/api'
+import { Archive, CalendarDays, ExternalLink, MapPin, Plus, Settings2, ShieldAlert, Users } from 'lucide-react'
+import { getMyStrikes, getMyTournaments } from '@/api'
 import { useAsync } from '@/lib/hooks'
 import { formatDateRange } from '@/lib/utils'
 import { Badge, StatusDot } from '@/components/ui/badge'
@@ -14,6 +14,9 @@ import { ModerationBadge } from '@/components/tournament/ModerationBadge'
 export default function MyTournaments() {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(getMyTournaments)
+  const strikes = useAsync(getMyStrikes)
+  const s = strikes.data
+  const activeStrikes = s?.items.filter(x => !x.lifted) ?? []
 
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
@@ -23,6 +26,16 @@ export default function MyTournaments() {
           <p className="mt-1 text-muted-foreground">{t('dashboard.myTournamentsText')}</p>
         </div>
       </div>
+
+      {s && s.active > 0 && (
+        <div className={`mt-6 rounded-2xl border p-4 text-sm ${s.active >= s.limit ? 'border-danger/40 bg-danger-soft' : 'border-accent bg-accent-soft'}`}>
+          <p className="flex items-center gap-2 font-bold"><ShieldAlert className="size-4" />{t(s.active >= s.limit ? 'strikes.blockedTitle' : 'strikes.bannerTitle', { count: s.active, limit: s.limit })}</p>
+          <ul className="mt-2 list-disc space-y-0.5 pl-6 text-muted-foreground">
+            {activeStrikes.map(x => <li key={x.id}>«{x.tournament}» — {t(`strikes.reason.${x.reason}`)}</li>)}
+          </ul>
+          <p className="mt-2 text-muted-foreground">{t('strikes.bannerText', { limit: s.limit })}</p>
+        </div>
+      )}
 
       <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <Link to="/dashboard/tournaments/new"
@@ -49,6 +62,7 @@ export default function MyTournaments() {
                 </div>
                 <div className="flex flex-1 flex-col p-5">
                   <h2 className="font-bold leading-snug">{item.name}</h2>
+                  {item.abandoned && <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-muted p-2 text-xs text-muted-foreground"><Archive className="size-3.5 shrink-0" />{t('strikes.archivedCard')}</p>}
                   {item.moderation === 'rejected' && item.moderationNote && <p className="mt-2 rounded-lg bg-danger-soft p-2 text-xs text-danger">{item.moderationNote}</p>}
                   <div className="mt-3 space-y-1.5 text-sm text-muted-foreground">
                     <p className="flex items-center gap-2"><CalendarDays className="size-4 text-primary" />{formatDateRange(item.startDate, item.endDate)}</p>

@@ -84,7 +84,9 @@ export async function assertOwner(user: User | undefined, tournamentId: string) 
 }
 
 // Public listing: approved by an admin and not hidden
-export const publicWhere = { visible: true, moderation: 'approved' as const }
+export const publicWhere = { visible: true, moderation: 'approved' as const, abandonedAt: null } // an abandoned tournament is archived
+// the same rule for one loaded tournament
+export const isPublic = (t: { visible: boolean; moderation: string; abandonedAt: Date | null }) => t.visible && t.moderation === 'approved' && !t.abandonedAt
 
 // One person cannot be both a judge/organizer and a speaker in the same tournament
 export async function participationIn(userId: string, tournamentId: string) {
@@ -116,7 +118,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     },
   })
   const manager = await isOrganizerOf(viewer, id)
-  if (!t || ((!t.visible || t.moderation !== 'approved') && !manager)) throw notFound('tournament_not_found')
+  if (!t || (!isPublic(t) && !manager)) throw notFound('tournament_not_found')
   const link = manager ? await organizerLink(viewer, id) : null
 
   // the public never sees unreleased motions or draws

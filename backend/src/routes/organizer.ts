@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
-import { fromDay, toDay } from '../lib/dates.js'
+import { fromDay, toDay, todayKz } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
@@ -12,6 +12,7 @@ import { conflictChecker } from '../services/conflicts.js'
 import { institutionIdFor } from '../services/institutions.js'
 import { confirmRegistration, fillFromWaitlist, runLottery } from '../services/selection.js'
 import { awardCandidates, issueAwardCertificates, setAward } from '../services/awards.js'
+import { activeStrikes, giveStrike, LATE_CANCEL_DAYS, STRIKE_LIMIT } from '../services/watchdog.js'
 import { REGION_CODES, regionOfCity } from '../lib/regions.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
@@ -47,6 +48,7 @@ organizerRouter.get('/organizer/tournaments', org, async (req, res) => {
   })
   res.json(rows.map(t => ({
     ...toSummary(t), moderation: t.moderation, moderationNote: t.moderationNote ?? undefined, myRole: t.organizers[0]?.role,
+    ...(t.abandonedAt && { abandoned: true }),
   })))
 })
 
@@ -80,9 +82,12 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const isAdmin = req.user!.role === 'admin'
   if (!isAdmin) {
     const active = await prisma.tournament.count({
-      where: { status: { not: 'finished' }, moderation: { not: 'rejected' }, organizers: { some: { userId: req.user!.id, role: 'owner' } } },
+      where: { status: { not: 'finished' }, moderation: { not: 'rejected' }, abandonedAt: null, organizers: { some: { userId: req.user!.id, role: 'owner' } } },
     })
     if (active >= ACTIVE_TOURNAMENT_LIMIT) throw badRequest('tournament_limit_reached')
+    // 3 active strikes (abandoned tournaments, last-minute cancellations): no new tournaments until an admin lifts one
+    const strikes = await activeStrikes(req.user!.id)
+    if (strikes >= STRIKE_LIMIT) throw forbidden('too_many_strikes')
   }
   const pro = planFor(d.maxTeams) === 'pro'
   const start = fromDay(d.startDate), end = fromDay(d.endDate)
@@ -199,7 +204,12 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
         await tx.round.update({ where: { id: r.id }, data: { date: r.number <= half ? start : end } })
       }
     }
-    return tx.tournament.update({ where: { id: cur.id }, data, include: summaryInclude })
+    // new dates: the reminders start over; finishing an archived (abandoned) tournament brings it back (the strike stays)
+    const watch = {
+      ...((data.startDate || data.endDate) && { remindedMotionsAt: null, finishReminders: 0 }),
+      ...(d.status === 'finished' && cur.abandonedAt && { abandonedAt: null }),
+    }
+    return tx.tournament.update({ where: { id: cur.id }, data: { ...data, ...watch }, include: summaryInclude })
   })
   // the results are final: certificates exist at once (profiles, printing and the public QR check all see them)
   // and everyone who took part learns the result and where the certificate is
@@ -261,7 +271,13 @@ organizerRouter.delete('/tournaments/:id/break', org, async (req, res) => {
 
 organizerRouter.delete('/tournaments/:id', org, async (req, res) => {
   await assertOwner(req.user, param(req, 'id'))
-  await prisma.tournament.delete({ where: { id: param(req, 'id') } })
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { _count: { select: { teams: { where: { swing: false } } } }, organizers: { where: { role: 'owner' } } } })
+  // deleting a tournament teams already got places in, less than 3 days before the start (or after it): a strike
+  const late = t.status !== 'finished' && t._count.teams > 0
+    && fromDay(todayKz()).getTime() >= t.startDate.getTime() - LATE_CANCEL_DAYS * 86_400_000
+  await prisma.tournament.delete({ where: { id: t.id } })
+  const owner = t.organizers[0]?.userId
+  if (late && owner && req.user!.role !== 'admin') await giveStrike(owner, t, 'late_cancel')
   res.status(204).end()
 })
 

@@ -9,6 +9,7 @@ import { env } from '../lib/env.js'
 import { summaryInclude, toSummary } from '../services/tournaments.js'
 import { background, notify, notifyModeration } from '../services/notify.js'
 import type { User } from '../generated/prisma/client.js'
+import { runWatchdog } from '../services/watchdog.js'
 
 export const adminRouter = Router()
 adminRouter.use('/admin', requireAuth('admin'))
@@ -196,6 +197,31 @@ adminRouter.post('/admin/club-reports/:id/resolve', async (req, res) => {
   await prisma.clubReport.update({ where: { id: r.id }, data: { resolvedAt: new Date() } })
   await logAction(req.user!, 'club.reportResolved', { type: 'club', id: r.clubId, label: r.club.name }, r.reason)
   res.json({ ok: true })
+})
+
+// ---------- organizer strikes ----------
+
+adminRouter.get('/admin/strikes', async (_req, res) => {
+  const rows = await prisma.organizerStrike.findMany({ include: { user: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 300 })
+  res.json(rows.map(r => ({
+    id: r.id, user: r.user, tournament: r.tournamentName, reason: r.reason, createdAt: r.createdAt.toISOString(),
+    lifted: !!r.liftedAt, note: r.liftedNote ?? undefined,
+  })))
+})
+
+adminRouter.post('/admin/strikes/:id/lift', async (req, res) => {
+  const { note } = body(req, z.object({ note: z.string().trim().min(3).max(500) }))
+  const r = await prisma.organizerStrike.findUnique({ where: { id: param(req, 'id') }, include: { user: true } })
+  if (!r) throw notFound('strike_not_found')
+  await prisma.organizerStrike.update({ where: { id: r.id }, data: { liftedAt: new Date(), liftedNote: note } })
+  await logAction(req.user!, 'user.strikeLifted', { type: 'user', id: r.userId, label: r.user.name }, `${r.tournamentName}: ${note}`)
+  res.json({ ok: true })
+})
+
+adminRouter.post('/admin/watchdog/run', async (req, res) => {
+  const { today } = body(req, z.object({ today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }))
+  // a pretend date only in the e2e run: in production the watchdog always uses today
+  res.json(await runWatchdog(env.NODE_ENV === 'test' && today ? today : undefined))
 })
 
 adminRouter.get('/admin/users', async (_req, res) => {

@@ -1979,5 +1979,71 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const team2 = (await client()('GET', `/tournaments/${done}`)).data.teams.find(x => x.id === champ.id)
   ok(team2.speakers.find(s => s.id === sp.id)?.userId === undefined, 'and the links disappear')
 }
+// ---------- 53. strikes and reminders: abandoned tournaments, last-minute cancellations ----------
+{
+  const host = await newAccount('Страйк Организатор')
+  const mk = async (n, start, end) => {
+    const t = (await host.c('POST', '/tournaments', { ...tBody(200 + n), name: `Страйк ${n} ${jtag}` })).data
+    await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+    if (start) await db.query('update tournaments set start_date = $2, end_date = $3 where id = $1', [t.id, start, end ?? start])
+    return t
+  }
+  const team = (t, i) => host.c('POST', `/tournaments/${t.id}/teams`, { name: `Страйк команда ${i}`, institution: 'Школа', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+  const run = today => admin('POST', '/admin/watchdog/run', { today })
+  const mine = async type => (await notes(host.c)).items.filter(n => n.type === type && n.data.tournament?.includes(jtag))
+  // the watchdog on pretend dates (e2e only): no motions 2 days before the start; a tournament that ended 2 days ago
+  const soon = await mk(1, '2020-01-03', '2020-01-04')
+  const old = await mk(2, '2019-12-29', '2019-12-30')
+  await run('2020-01-01')
+  await run('2020-01-01')
+  ok((await mine('organizer.motionsMissing')).length === 1, 'reminder: motions are missing 3 days before the start (once)')
+  ok((await mine('organizer.finishReminder')).length === 1, 'reminder: the tournament ended but is not finished')
+  await run('2020-01-04')
+  ok((await mine('organizer.archiveWarning')).some(n => n.data.days === 2), 'warning: 2 days left before the archive and a strike')
+  await run('2020-01-06')
+  const mineList = (await host.c('GET', '/organizer/tournaments')).data
+  ok(mineList.find(x => x.id === old.id)?.abandoned === true && !mineList.find(x => x.id === soon.id)?.abandoned, '7 days after the end the tournament goes to the archive')
+  ok((await client()('GET', `/tournaments/${old.id}`)).status === 404 && (await host.c('GET', `/tournaments/${old.id}`)).status === 200, 'an archived tournament is hidden from the public, the organizer still sees it')
+  let s = (await host.c('GET', '/me/strikes')).data
+  ok(s.active === 1 && s.items[0].reason === 'abandoned' && (await mine('organizer.strike')).length === 1, 'and the owner gets a strike')
+
+  // deleting a tournament with teams less than 3 days before the start: a strike; without teams or early: none
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const late = await mk(3, today)
+  await team(late, 1)
+  await host.c('DELETE', `/tournaments/${late.id}`)
+  const empty = await mk(4, today)
+  await host.c('DELETE', `/tournaments/${empty.id}`)
+  const early = await mk(5)
+  await team(early, 2)
+  await host.c('DELETE', `/tournaments/${early.id}`)
+  s = (await host.c('GET', '/me/strikes')).data
+  ok(s.active === 2 && s.items[0].reason === 'late_cancel', 'a last-minute cancellation with teams is a strike; an empty or early one is not')
+  const late2 = await mk(6, today)
+  await team(late2, 3)
+  await host.c('DELETE', `/tournaments/${late2.id}`)
+  let r = await host.c('POST', '/tournaments', { ...tBody(207), name: `Страйк 7 ${jtag}` })
+  ok(r.status === 403 && r.data.error === 'too_many_strikes', '3 strikes: no new tournaments')
+  ok((await host.c('GET', '/me/debates')).status === 200 && (await host.c('GET', '/me/registrations')).status === 200, 'but the account works as before')
+  ok((await notes(admin)).items.some(n => n.type === 'admin.strikeLimit' && n.data.tournament?.includes(jtag)), 'admins learn about the third strike')
+
+  // the admin sees and lifts a strike, with a reason for the log
+  const list = (await admin('GET', '/admin/strikes')).data.filter(x => x.user.id === host.id)
+  ok(list.length === 3 && list.every(x => !x.lifted), 'the admin sees the strikes')
+  ok((await host.c('GET', '/admin/strikes')).status === 403, 'only admins see everyone')
+  ok((await admin('POST', `/admin/strikes/${list[0].id}/lift`, { note: '' })).status === 400, 'lifting needs a reason')
+  await admin('POST', `/admin/strikes/${list[0].id}/lift`, { note: 'Турнир перенесли из-за погоды' })
+  s = (await host.c('GET', '/me/strikes')).data
+  ok(s.active === 2 && s.items.some(x => x.lifted && x.note), 'a lifted strike stays in the history')
+  r = await host.c('POST', '/tournaments', { ...tBody(208), name: `Страйк 8 ${jtag}` })
+  ok(r.status === 201, 'and the person can create tournaments again')
+
+  // finishing an archived tournament brings it back (the strike stays)
+  for (const i of [4, 5]) await team(old, i)
+  await host.c('PATCH', `/tournaments/${old.id}`, { status: 'ongoing' })
+  r = await host.c('PATCH', `/tournaments/${old.id}`, { status: 'finished' })
+  ok(r.status === 200 && (await client()('GET', `/tournaments/${old.id}`)).status === 200, 'finishing an archived tournament brings it back')
+  ok((await client()('POST', '/admin/watchdog/run', {})).status === 401, 'the watchdog is admin-only')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
