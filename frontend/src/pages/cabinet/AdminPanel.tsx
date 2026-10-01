@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, Ban, Check, Shield, CheckCircle2, CircleDollarSign, Clock, CreditCard, ExternalLink, Eye, EyeOff, Gavel, History, LayoutDashboard, LayoutGrid, LifeBuoy, Search, ShieldAlert, ShieldCheck, Trash2, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
+import { AlertTriangle, Ban, BarChart3, Check, Shield, CheckCircle2, CircleDollarSign, Clock, CreditCard, ExternalLink, Eye, EyeOff, Gavel, History, LayoutDashboard, LayoutGrid, LifeBuoy, Search, ShieldAlert, ShieldCheck, Trash2, Trophy, Unlock, UserCog, Users, X } from 'lucide-react'
 import { adminDeleteTournament, getAdminActions, getAdminStats, getAdminTournaments, getUsers, updateAdminTournament, updateUser } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { AdminTournament, Role, User } from '@/types'
@@ -13,6 +13,7 @@ import { Avatar } from '@/components/auth/UserMenu'
 import { AdminPayments } from '@/components/payments/AdminPayments'
 import { AdminClubs } from '@/components/admin/AdminClubs'
 import { AdminStrikes } from '@/components/admin/AdminStrikes'
+import { AdminAnalytics } from '@/components/admin/AdminAnalytics'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -397,6 +398,7 @@ export default function AdminPanel() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
           <SideTabsList aria-label={t('admin.title')}>
             <SideTabsTrigger value="overview"><LayoutDashboard className="size-4" />{t('dashboard.nav.overview')}</SideTabsTrigger>
+            <SideTabsTrigger value="analytics"><BarChart3 className="size-4" />{t('analytics.tab')}</SideTabsTrigger>
             <SideTabsTrigger value="tournaments">
               <Trophy className="size-4" />{t('nav.tournaments')}
               {pending > 0 && <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[11px] font-bold text-navy" title={t('moderation.pending')}>{pending}</span>}
@@ -414,6 +416,7 @@ export default function AdminPanel() {
             {error ? <ErrorState onRetry={reload} /> : loading || !data ? <Skeleton className="h-96" /> : (
               <>
                 <TabsContent value="overview" className="mt-0"><Overview tournaments={list} setTab={setTab} /></TabsContent>
+                <TabsContent value="analytics" className="mt-0"><AdminAnalytics /></TabsContent>
                 <TabsContent value="tournaments" className="mt-0"><TournamentsTab list={list} setList={setList} /></TabsContent>
                 <TabsContent value="clubs" className="mt-0"><AdminClubs onChange={stats.reload} /></TabsContent>
                 <TabsContent value="strikes" className="mt-0"><AdminStrikes /></TabsContent>

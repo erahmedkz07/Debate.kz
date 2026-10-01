@@ -10,6 +10,7 @@ import { summaryInclude, toSummary } from '../services/tournaments.js'
 import { background, notify, notifyModeration } from '../services/notify.js'
 import type { User } from '../generated/prisma/client.js'
 import { runWatchdog } from '../services/watchdog.js'
+import { platformAnalytics } from '../services/analytics.js'
 
 export const adminRouter = Router()
 adminRouter.use('/admin', requireAuth('admin'))
@@ -43,6 +44,11 @@ adminRouter.get('/admin/stats', async (_req, res) => {
     prisma.clubReport.count({ where: { resolvedAt: null } }),
   ])
   res.json({ users, organizers, judges, tournaments, active, unpaid, pendingModeration, pendingClubs, clubReports })
+})
+
+// platform analytics: growth, regions, formats, returning participants (aggregates only, nothing personal)
+adminRouter.get('/admin/analytics', async (_req, res) => {
+  res.json(await platformAnalytics())
 })
 
 adminRouter.get('/admin/tournaments', async (_req, res) => {

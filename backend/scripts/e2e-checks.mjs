@@ -2045,5 +2045,19 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(r.status === 200 && (await client()('GET', `/tournaments/${old.id}`)).status === 200, 'finishing an archived tournament brings it back')
   ok((await client()('POST', '/admin/watchdog/run', {})).status === 401, 'the watchdog is admin-only')
 }
+// ---------- 54. admin analytics: aggregates only, no personal data ----------
+{
+  const r = await admin('GET', '/admin/analytics')
+  const a = r.data
+  const approved = Number((await db.query("select count(*) from tournaments where moderation = 'approved'")).rows[0].count)
+  const teams = Number((await db.query("select count(*) from teams t join tournaments x on x.id = t.tournament_id where x.moderation = 'approved' and not t.swing")).rows[0].count)
+  ok(r.status === 200 && a.months.length === 12 && a.totals.tournaments === approved && a.totals.teams === teams, 'analytics: 12 months of growth, totals match the database')
+  ok(a.regions.some(x => x.key === 'astana' && x.tournaments > 0) && a.tournaments.byLevel.length > 0 && a.tournaments.byFormat.length > 0, 'tournaments by region, level and format')
+  ok(a.people.active > 0 && a.people.returning <= a.people.active && a.tournaments.activeStrikes >= 2, 'participants who came back, active strikes')
+  const json = JSON.stringify(a)
+  ok(!/@|gender|"email"|"phone"/i.test(json), 'no personal data in the analytics')
+  const someone = await newAccount('Аналитика Посторонний')
+  ok((await someone.c('GET', '/admin/analytics')).status === 403, 'only admins see the analytics')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

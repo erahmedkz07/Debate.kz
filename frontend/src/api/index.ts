@@ -313,6 +313,19 @@ export const revokeInvite = (tournamentId: string, inviteId: string) => http<voi
 
 // ---------- admin ----------
 
+// platform analytics for the admins (aggregates only)
+type Counted = { key: string; count: number }[]
+export interface PlatformAnalytics {
+  months: { month: string; users: number; tournaments: number; teams: number; speakers: number }[]
+  totals: { users: number; tournaments: number; teams: number; speakerSlots: number; judgeSlots: number; clubs: number; inClubs: number; telegram: number }
+  tournaments: { byStatus: Counted; byLevel: Counted; byFormat: Counted; online: number; pro: number; averageTeams: number | null; averageApplications: number | null; completion: number | null; activeStrikes: number }
+  regions: { key: string; tournaments: number; teams: number }[]
+  usersByRegion: Counted
+  people: { active: number; returning: number; returningShare: number; withoutAccount: number }
+  quality: { reviews: number; rating: number | null }
+  topClubs: { id: string; name: string; city: string; members: number; entries: number }[]
+}
+export const getAdminAnalytics = () => http<PlatformAnalytics>('GET', '/admin/analytics')
 export const getAdminStats = () =>
   http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number; pendingClubs: number; clubReports: number }>('GET', '/admin/stats')
 export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/tournaments')
