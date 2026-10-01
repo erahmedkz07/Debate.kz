@@ -4,6 +4,10 @@
 //   power    — neighbours in the standings meet (1–2, 3–4 …): strong vs strong. Round 1 has no standings: random order.
 //   high_low — the top meets the bottom (1–N, 2–N-1 …): a gentle start for weaker teams, like seeding in cups.
 //   random   — a random order, neighbours meet.
+//   slide    — inside each bracket (teams on the same wins) the top half meets the bottom half in order: 1–3, 2–4 of four
+//              (Tabbycat's "slide"); an odd bracket pulls up a team from the bracket below.
+//   fold     — inside each bracket the top meets the bottom: 1–4, 2–3 of four (Tabbycat's "fold").
+//   round_robin — every team meets every other once (circle method), see roundRobinPairs; no standings are used.
 //
 // Hard wishes, in this order of importance:
 //   1) no rematch (two teams that already met);
@@ -12,7 +16,9 @@
 // does not exist (e.g. one club has more than half of the teams), the rule is relaxed step by step and the
 // report says how many same-club meetings or rematches were unavoidable.
 
-export type DrawMethod = 'power' | 'high_low' | 'random'
+export type DrawMethod = 'power' | 'high_low' | 'random' | 'slide' | 'fold' | 'round_robin'
+// methods that pair inside brackets of equal wins, so they work only in two-team formats
+export const BRACKET_METHODS: DrawMethod[] = ['slide', 'fold']
 
 export interface PairingInput {
   order: string[] // teams in ranking order (random order for round 1 or the random method)
@@ -20,6 +26,7 @@ export interface PairingInput {
   met: Set<string> // "a|b" (sorted) for every earlier meeting
   clubOf: Map<string, string | null> // team -> club (or institution) id
   protectClubs: boolean
+  scoreOf?: Map<string, number> // wins so far: the brackets of slide and fold
 }
 
 export interface PairingResult { pairs: [string, string][]; sameClub: number; rematches: number }
@@ -42,7 +49,20 @@ export function pairTeams(input: PairingInput): PairingResult {
 
   const isRematch = (a: string, b: string) => met.has(key(a, b))
   // ideal opponents first: the next team (power/random) or the lowest-ranked one left (high_low)
-  const candidatesFor = (rest: string[]) => (method === 'high_low' ? [...rest].reverse() : rest)
+  // ideal opponents for a (the best-ranked team left), in order of preference
+  const candidatesFor = (a: string, rest: string[]) => {
+    if (method === 'high_low') return [...rest].reverse()
+    if ((method === 'slide' || method === 'fold') && input.scoreOf) {
+      const score = input.scoreOf.get(a) ?? 0
+      const bracket = rest.filter(x => (input.scoreOf!.get(x) ?? 0) === score)
+      const others = rest.filter(x => (input.scoreOf!.get(x) ?? 0) !== score)
+      // fold: from the bottom of the bracket; slide: from the middle (a is the top of a bracket of bracket.length + 1)
+      const ideal = method === 'fold' ? [...bracket].reverse()
+        : [...bracket.slice(Math.floor((bracket.length + 1) / 2) - 1), ...bracket.slice(0, Math.floor((bracket.length + 1) / 2) - 1)]
+      return [...ideal, ...others]
+    }
+    return rest
+  }
   const report = (pairs: [string, string][]): PairingResult => ({
     pairs,
     sameClub: input.protectClubs ? pairs.filter(([a, b]) => sameClub(a, b)).length : 0,
@@ -60,7 +80,7 @@ export function pairTeams(input: PairingInput): PairingResult {
       const a = order.find(x => !used.has(x))
       if (!a) return true
       used.add(a)
-      for (const b of candidatesFor(order.filter(x => !used.has(x)))) {
+      for (const b of candidatesFor(a, order.filter(x => !used.has(x)))) {
         if (!clean(a, b)) continue
         used.add(b); pairs.push([a, b])
         if (solve()) return true
@@ -90,7 +110,7 @@ export function pairTeams(input: PairingInput): PairingResult {
     if (!a) { best = [...pairs]; bestCost = acc; return }
     used.add(a)
     // cheapest opponents first, the ideal order kept among equals
-    const options = candidatesFor(order.filter(x => !used.has(x))).map((b, i) => ({ b, c: cost(a, b), i })).sort((x, y) => x.c - y.c || x.i - y.i)
+    const options = candidatesFor(a, order.filter(x => !used.has(x))).map((b, i) => ({ b, c: cost(a, b), i })).sort((x, y) => x.c - y.c || x.i - y.i)
     for (const { b, c } of options) {
       used.add(b); pairs.push([a, b])
       search(acc + c)
@@ -168,4 +188,16 @@ export function assignPositions(room: string[], counts: Map<string, number[]>, r
     }
   }
   return best
+}
+
+// Round robin (circle method): with n teams (n even) there are n - 1 rounds in which every team meets every other once.
+// Round k (0-based) of the cycle; more rounds than n - 1 start the cycle again.
+export function roundRobinPairs(teams: string[], k: number): [string, string][] {
+  const n = teams.length
+  const r = k % (n - 1)
+  // the first team stays, the others rotate by r places
+  const rot = [teams[0], ...teams.slice(1).map((_, i) => teams[1 + ((i + r) % (n - 1))])]
+  const pairs: [string, string][] = []
+  for (let i = 0; i < n / 2; i++) pairs.push([rot[i], rot[n - 1 - i]])
+  return pairs
 }

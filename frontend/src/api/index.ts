@@ -222,7 +222,7 @@ export const setJudgeConflicts = (judgeId: string, teamIds: string[]) => http<{ 
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed'; silent: boolean }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
-export type DrawMethod = 'power' | 'high_low' | 'random'
+export type DrawMethod = 'power' | 'high_low' | 'random' | 'slide' | 'fold' | 'round_robin'
 export interface DrawReport { method: DrawMethod | 'bracket'; protectClubs: boolean; sameClub: number; rematches: number; judgeConflicts?: number }
 // ---------- playoffs ----------
 export interface BracketDebate { id: string; slot: number; room: string; teams: { side: Side; teamId: string }[]; winner?: Side; ranking?: Side[] }

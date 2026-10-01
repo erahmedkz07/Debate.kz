@@ -802,7 +802,8 @@ function Draw({ data, reload }: SectionProps) {
           <div className="flex w-full flex-wrap items-center gap-2 border-t border-border pt-3">
             <span className="font-semibold">{t('dashboard.draw.method')}</span>
             <Select size="sm" className="w-56" value={method} onValueChange={v => setMethod(v as DrawMethod)} aria-label={t('dashboard.draw.method')}
-              options={(['power', 'high_low', 'random'] as const).map(m => ({ value: m, label: t(`dashboard.draw.methods.${m}`) }))} />
+              options={(isBP(data.format) ? (['power', 'high_low', 'random'] as const) : (['power', 'slide', 'fold', 'high_low', 'round_robin', 'random'] as const))
+                .map(m => ({ value: m, label: t(`dashboard.draw.methods.${m}`) }))} />
             <span className="text-xs text-muted-foreground">{t(`dashboard.draw.methodHints.${method}`)}</span>
           </div>
         </div>

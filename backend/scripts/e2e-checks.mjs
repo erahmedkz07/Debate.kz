@@ -1752,5 +1752,47 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   }
   ok(cert?.break_category === 'Новички' && cert.category_place === 1 && cert.in_break === true, "the novice champion's certificate says so")
 }
+// ---------- 47. draw methods: round robin, slide, fold ----------
+{
+  const host = await newAccount('Методы Организатор')
+  const rr = (await host.c('POST', '/tournaments', { ...tBody(160), name: `Круговой ${jtag}`, preliminaryRounds: 3, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${rr.id}`, { moderation: 'approved' })
+  for (const n of ['Круг 1', 'Круг 2', 'Круг 3', 'Круг 4']) await host.c('POST', `/tournaments/${rr.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  for (let i = 1; i <= 2; i++) await addJudge(host.c, rr.id, `Круговой Судья ${i}`)
+  const vote = sheet => {
+    const scores = {}
+    sheet.proposition.speakers.forEach(x => (scores[x.id] = 72)); sheet.opposition.speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: 'proposition', scores, reply: { proposition: 36, opposition: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  const meetings = new Set()
+  let draws = 0
+  for (const rd of (await host.c('GET', `/tournaments/${rr.id}`)).data.rounds) {
+    r = await host.c('POST', `/rounds/${rd.id}/draw`, { addSwing: false, method: 'round_robin' })
+    if (r.status === 201) draws++
+    r.data.debates.forEach(d => meetings.add([d.propositionTeamId, d.oppositionTeamId].sort().join('|')))
+    await host.c('PATCH', `/rounds/${rd.id}`, { motion: 'ЭП ввела бы бесплатный транспорт', status: 'released' })
+    for (const d of (await host.c('GET', `/tournaments/${rr.id}`)).data.debates.filter(x => x.roundId === rd.id)) await panelVote(d.id, vote)
+    await host.c('PATCH', `/rounds/${rd.id}`, { status: 'completed' })
+  }
+  ok(draws === 3 && meetings.size === 6, 'round robin: in three rounds every one of four teams meets each other once')
+
+  const sf = (await host.c('POST', '/tournaments', { ...tBody(161), name: `Слайд ${jtag}`, preliminaryRounds: 2, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${sf.id}`, { moderation: 'approved' })
+  for (const n of ['Слайд 1', 'Слайд 2', 'Слайд 3', 'Слайд 4', 'Слайд 5', 'Слайд 6', 'Слайд 7', 'Слайд 8']) await host.c('POST', `/tournaments/${sf.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  for (let i = 1; i <= 4; i++) await addJudge(host.c, sf.id, `Слайд Судья ${i}`)
+  const [s1, s2] = (await host.c('GET', `/tournaments/${sf.id}`)).data.rounds
+  await host.c('POST', `/rounds/${s1.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${s1.id}`, { motion: 'ЭП запретила бы смартфоны в школах', status: 'released' })
+  for (const d of (await host.c('GET', `/tournaments/${sf.id}`)).data.debates.filter(x => x.roundId === s1.id)) await panelVote(d.id, vote)
+  await host.c('PATCH', `/rounds/${s1.id}`, { status: 'completed' })
+  const winners = new Set((await host.c('GET', `/tournaments/${sf.id}`)).data.debates.filter(x => x.roundId === s1.id).map(d => d.propositionTeamId))
+  for (const method of ['slide', 'fold']) {
+    r = await host.c('POST', `/rounds/${s2.id}/draw`, { addSwing: false, method })
+    ok(r.status === 201 && r.data.debates.every(d => winners.has(d.propositionTeamId) === winners.has(d.oppositionTeamId)), `${method}: teams meet inside their bracket (winners with winners)`)
+  }
+  const bpT = (await host.c('POST', '/tournaments', { ...tBody(162), name: `BP метод ${jtag}`, format: 'BP', breakSize: 4 })).data
+  const bpRound = (await host.c('GET', `/tournaments/${bpT.id}`)).data.rounds[0]
+  ok((await host.c('POST', `/rounds/${bpRound.id}/draw`, { method: 'round_robin' })).data?.error === 'method_not_for_bp', 'round robin is for two-team formats')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

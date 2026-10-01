@@ -390,7 +390,7 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
   await assertCanManage(req.user, round.tournamentId)
   const opts = body(req, z.object({
     presentOnly: z.boolean().optional(), addSwing: z.boolean().optional(),
-    method: z.enum(['power', 'high_low', 'random']).optional(), protectClubs: z.boolean().optional(),
+    method: z.enum(['power', 'high_low', 'random', 'slide', 'fold', 'round_robin']).optional(), protectClubs: z.boolean().optional(),
   }).default({}))
   const report = await generateDraw(round.id, opts)
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })

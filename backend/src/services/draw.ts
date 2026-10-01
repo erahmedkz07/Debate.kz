@@ -2,7 +2,7 @@ import { badRequest, forbidden } from '../lib/errors.js'
 import { BP_SIDES, isBP, rulesOf } from './formats.js'
 import { prisma } from '../lib/prisma.js'
 import { getStandings } from './tournaments.js'
-import { assignPositions, groupRooms, pairTeams, shuffle, type DrawMethod } from './pairing.js'
+import { assignPositions, BRACKET_METHODS, groupRooms, pairTeams, roundRobinPairs, shuffle, type DrawMethod } from './pairing.js'
 import { eliminationRooms } from './playoffs.js'
 import { conflictChecker, type ConflictCheck } from './conflicts.js'
 
@@ -43,6 +43,8 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     const judgeConflicts = await seatJudgesAndSave(round, rooms, judges, true, await conflictChecker(tId))
     return { method: 'bracket' as const, protectClubs: false, sameClub: 0, rematches: 0, judgeConflicts }
   }
+  // round robin and the bracket methods pair two teams; BP rooms of four use power, high-low or random
+  if (isBP(round.tournament.format) && (opts.method === 'round_robin' || BRACKET_METHODS.includes(opts.method ?? 'power'))) throw badRequest('method_not_for_bp')
   const [teams, judges, previous] = await Promise.all([
     prisma.team.findMany({
       where: { tournamentId: tId, swing: false, ...(opts.presentOnly && { checkedInAt: { not: null } }) },
@@ -69,11 +71,13 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   // order teams
   const method = opts.method ?? 'power'
   let ordered: string[]
+  let scoreOf: Map<string, number> | undefined
   if (method === 'random' || round.number === 1 || previous.length === 0) {
     ordered = shuffle(teams.map(t => t.id))
   } else {
     const s = await getStandings(tId)
     const rank = new Map(s.teams.map((r, i) => [r.team.id, i]))
+    scoreOf = new Map(s.teams.map(r => [r.team.id, r.points]))
     // equal records keep a random order among themselves
     ordered = shuffle(teams.map(t => t.id)).sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999))
   }
@@ -98,7 +102,13 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     const met = new Set(previous.map(p => [p.propositionTeamId, p.oppositionTeamId].sort().join('|')))
     const propCount = new Map<string, number>()
     previous.forEach(p => propCount.set(p.propositionTeamId, (propCount.get(p.propositionTeamId) ?? 0) + 1))
-    const result = pairTeams({ order: ordered, method, met, clubOf, protectClubs })
+    // round robin: the same team order every round (by when the team was added), round k of the circle
+    const robin = method === 'round_robin'
+      ? roundRobinPairs([...teams].sort((a, b) => a.id.localeCompare(b.id)).map(t => t.id), round.number - 1)
+      : null
+    const result = robin
+      ? { pairs: robin, sameClub: 0, rematches: robin.filter(([a, b]) => met.has([a, b].sort().join('|'))).length }
+      : pairTeams({ order: ordered, method, met, clubOf, protectClubs, scoreOf })
     // side balance: Proposition to the team that has had it less often
     pairs = result.pairs.map(([a, b]) => ((propCount.get(a) ?? 0) <= (propCount.get(b) ?? 0) ? [a, b] : [b, a]))
     report = { sameClub: result.sameClub, rematches: result.rematches }
