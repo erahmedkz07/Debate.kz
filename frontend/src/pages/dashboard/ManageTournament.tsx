@@ -4,16 +4,16 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, CalendarClock, ChevronRight, Circle, DoorOpen, Eye, EyeOff, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  Award, CalendarClock, ChevronRight, Circle, Clock, DoorOpen, Eye, EyeOff, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
-import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
+import { cn, formatDate, formatDateRange, formatDateTime, initials } from '@/lib/utils'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -158,16 +158,52 @@ function Registrations({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const regs = useAsync(() => getRegistrations(data.id), [data.id])
   const { busy, run } = useAction()
-  const decide = async (id: string, status: 'confirmed' | 'rejected') => {
-    if (await run(id, () => setRegistrationStatus(id, status), t(`dashboard.registrations.${status}Toast`))) {
-      regs.reload()
-      reload()
-    }
+  const sel = useAsync(() => getSelection(data.id), [data.id])
+  const refresh = () => { regs.reload(); sel.reload(); reload() }
+  const decide = async (id: string, status: 'confirmed' | 'rejected' | 'waitlisted') => {
+    if (await run(id, () => setRegistrationStatus(id, status), t(`dashboard.registrations.${status}Toast`))) refresh()
   }
-  const variant = { pending: 'accent', confirmed: 'success', rejected: 'danger' } as const
+  const variant = { pending: 'accent', confirmed: 'success', rejected: 'danger', waitlisted: 'outline' } as const
+  const [quota, setQuota] = useState(data.clubQuota ? String(data.clubQuota) : '')
+  const setMode = async (selectionMode: 'manual' | 'first_come' | 'lottery') => { if (await run('mode', () => updateTournament(data.id, { selectionMode }), t('dashboard.teams.saved'))) refresh() }
+  const saveQuota = async () => { if (await run('quota', () => updateTournament(data.id, { clubQuota: quota ? Number(quota) : null }), t('dashboard.teams.saved'))) refresh() }
+  const lottery = async () => {
+    let r: { confirmed: number; waitlisted: number } | undefined
+    if (await run('lottery', async () => { r = await runSelectionLottery(data.id) })) { toast.success(t('dashboard.selection.lotteryDone', r)); refresh() }
+  }
+  const mode = data.selectionMode ?? 'manual'
   return (
     <>
       <SectionTitle title={t('dashboard.nav.registrations')} />
+      {data.status !== 'finished' && (
+        <Card className="mb-5 space-y-4 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-bold">{t('dashboard.selection.title')}</p>
+              {sel.data && <p className="text-sm text-muted-foreground">{t('dashboard.selection.numbers', { applications: sel.data.applications, places: sel.data.places, taken: sel.data.taken, waitlisted: sel.data.waitlisted })}</p>}
+            </div>
+            {mode === 'lottery' && !data.lotteryAt && (
+              <Button variant="accent" disabled={!!busy} onClick={lottery}>{busy === 'lottery' ? <Loader2 className="size-4 animate-spin" /> : <Shuffle className="size-4" />}{t('dashboard.selection.runLottery')}</Button>
+            )}
+          </div>
+          <div className="inline-flex flex-wrap rounded-xl bg-muted p-1" role="radiogroup" aria-label={t('dashboard.selection.title')}>
+            {(['manual', 'first_come', 'lottery'] as const).map(m => (
+              <button key={m} type="button" role="radio" aria-checked={mode === m} disabled={!!busy || (m !== 'lottery' && !!data.lotteryAt)} onClick={() => mode !== m && setMode(m)}
+                className={cn('cursor-pointer rounded-lg px-3 py-1.5 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50', mode === m ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
+                {t(`dashboard.selection.modes.${m}`)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">{t(`dashboard.selection.hints.${mode}`)}{data.lotteryAt && ` ${t('dashboard.selection.lotteryAt', { time: formatDateTime(data.lotteryAt) })}`}</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <Label htmlFor="club-quota">{t('dashboard.selection.quota')}</Label>
+              <Input id="club-quota" type="number" min={1} max={32} className="w-40" placeholder={t('dashboard.selection.noQuota')} value={quota} onChange={e => setQuota(e.target.value)} />
+            </div>
+            <Button variant="outline" disabled={!!busy || quota === (data.clubQuota ? String(data.clubQuota) : '')} onClick={saveQuota}>{t('common.save')}</Button>
+          </div>
+        </Card>
+      )}
       {regs.error ? <ErrorState onRetry={regs.reload} /> : !regs.data ? <Skeleton className="h-48" /> : regs.data.length === 0 ? (
         <EmptyState icon={<Inbox className="size-7" />} title={t('dashboard.registrations.empty')} />
       ) : (
@@ -179,15 +215,18 @@ function Registrations({ data, reload }: SectionProps) {
                   <p className="text-lg font-bold">{r.teamName}</p>
                   <p className="text-sm text-muted-foreground">{r.institution}</p>
                 </div>
-                <Badge variant={variant[r.status]}>{t(`profile.regStatus.${r.status}`)}</Badge>
+                <Badge variant={variant[r.status]}>{r.lotteryRank ? `№${r.lotteryRank} · ` : ''}{t(`profile.regStatus.${r.status}`)}</Badge>
               </div>
               <p className="mt-3 text-sm">{r.speakers.join(', ')}</p>
-              <p className="mt-2 text-xs text-muted-foreground">{r.user.name} · {r.user.email} · {r.contactPhone}</p>
-              {r.status === 'pending' && (
-                <div className="mt-4 flex gap-2">
+              <p className="mt-2 text-xs text-muted-foreground">{r.user.name} · {r.user.email} · {r.contactPhone}{r.club && ` · ${r.club}`}</p>
+              {(r.status === 'pending' || r.status === 'waitlisted') && (
+                <div className="mt-4 flex flex-wrap gap-2">
                   <Button size="sm" disabled={!!busy} onClick={() => decide(r.id, 'confirmed')}>
                     {busy === r.id ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t('dashboard.registrations.confirm')}
                   </Button>
+                  {r.status === 'pending' && (
+                    <Button size="sm" variant="outline" disabled={!!busy} onClick={() => decide(r.id, 'waitlisted')}><Clock className="size-4" />{t('dashboard.registrations.waitlist')}</Button>
+                  )}
                   <Button size="sm" variant="ghost" className="text-danger" disabled={!!busy} onClick={() => decide(r.id, 'rejected')}>
                     <X className="size-4" />{t('dashboard.registrations.reject')}
                   </Button>

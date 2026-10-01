@@ -19,6 +19,7 @@ export interface Tournament {
   level: TournamentLevel
   status: TournamentStatus
   teamsCount: number
+  applications?: number // live applications (all but rejected): demand for the places
   maxTeams: number
   cover: string
   organizer: string
@@ -140,6 +141,9 @@ export interface TournamentDetails extends Tournament {
   registrationDeadline?: string
   rooms?: string[]
   roomLinks?: Record<string, string> // room name -> video call link
+  selectionMode?: 'manual' | 'first_come' | 'lottery' // how the places are filled
+  clubQuota?: number // at most this many teams per club
+  lotteryAt?: string // when the selection lottery was drawn
   pendingRegistrations?: number
   myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]
@@ -242,8 +246,10 @@ export interface TeamRegistration {
   teamName: string
   institution: string
   speakers: string[]
-  status: 'pending' | 'confirmed' | 'rejected'
+  status: 'pending' | 'confirmed' | 'rejected' | 'waitlisted'
   createdAt: string
+  lotteryRank?: number // the place in the selection lottery
+  club?: string
 }
 
 export interface JudgeAssignment {

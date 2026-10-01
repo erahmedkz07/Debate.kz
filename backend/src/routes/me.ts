@@ -16,6 +16,7 @@ import { background, notifyNewRegistration } from '../services/notify.js'
 import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 import { placeOf, sideLabel, sidesInDebate } from '../services/formats.js'
 import { hiddenRoundIds } from '../services/silent.js'
+import { onApplication } from '../services/selection.js'
 
 export const meRouter = Router()
 const mailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
@@ -185,7 +186,6 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
   if (t.registrationDeadline && toDay(t.registrationDeadline) < todayKz()) throw forbidden('registration_closed')
-  if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
   assertSpeakers(t.format, data.speakers)
   // a participant states their club and team in the profile first (organizers and ratings need to know who is from where)
   const membership = await prisma.clubMember.findUnique({ where: { userId: req.user!.id }, include: { club: { select: { status: true } } } })
@@ -205,5 +205,7 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
     },
   })
   background(notifyNewRegistration(reg.id))
-  res.status(201).json({ ...reg, createdAt: toDay(reg.createdAt) })
+  // applications are unlimited; first come (or after a lottery) a place is given at once while places last
+  const status = await onApplication(reg.id)
+  res.status(201).json({ ...reg, status, createdAt: toDay(reg.createdAt) })
 })

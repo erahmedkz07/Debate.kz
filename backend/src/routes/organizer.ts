@@ -5,10 +5,12 @@ import { fromDay, toDay } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { assertCanManage, assertOwner, participationIn, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
+import { assertCanManage, assertOwner, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { announceBreak, cancelBreak, categoriesOf } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
+import { institutionIdFor } from '../services/institutions.js'
+import { confirmRegistration, fillFromWaitlist, runLottery } from '../services/selection.js'
 import { REGION_CODES, regionOfCity } from '../lib/regions.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
@@ -133,6 +135,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
     // extra brackets for groups of teams (novices, juniors…), set before the break
+    selectionMode: z.enum(['manual', 'first_come', 'lottery']).optional(),
+    clubQuota: z.number().int().min(1).max(32).nullable().optional(),
     breakCategories: z.array(z.object({
       key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
     })).max(3).optional(),
@@ -199,6 +203,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   // the results are final: certificates exist at once (profiles, printing and the public QR check all see them)
   // and everyone who took part learns the result and where the certificate is
   if (d.status === 'finished' && cur.status !== 'finished') background(ensureCertificates(cur.id).then(() => notifyTournamentFinished(cur.id)))
+  // a higher limit, a looser quota or another mode can open places for the waitlist
+  if (d.maxTeams !== undefined || d.clubQuota !== undefined || d.selectionMode !== undefined) await fillFromWaitlist(cur.id)
   res.json(toSummary(t))
 })
 
@@ -218,6 +224,12 @@ async function assertStageChange(tournamentId: string, to: 'registration' | 'ong
 }
 
 // ---------- the break (playoffs) ----------
+
+// the selection lottery: a public random order of the applications; places go in that order
+organizerRouter.post('/tournaments/:id/selection/lottery', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  res.status(201).json(await runLottery(param(req, 'id')))
+})
 
 organizerRouter.post('/tournaments/:id/break', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
@@ -251,10 +263,7 @@ export function assertSpeakers(format: string, speakers: string[]) {
   if (speakers.length !== need) throw badRequest('wrong_speaker_count', { need })
 }
 
-async function institutionId(name: string, level: 'school' | 'university' | 'mixed') {
-  const i = await prisma.institution.upsert({ where: { name }, update: {}, create: { name, level } })
-  return i.id
-}
+const institutionId = institutionIdFor
 
 organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
@@ -311,6 +320,9 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
   const played = await prisma.debate.count({ where: { OR: [{ propositionTeamId: team.id }, { oppositionTeamId: team.id }, { closingPropositionTeamId: team.id }, { closingOppositionTeamId: team.id }] } })
   if (played) throw forbidden('team_in_draw')
   await prisma.team.delete({ where: { id: team.id } })
+  // the team's application no longer holds a place; the waitlist moves up
+  await prisma.teamRegistration.updateMany({ where: { tournamentId: team.tournamentId, teamName: team.name, status: 'confirmed' }, data: { status: 'rejected' } })
+  await fillFromWaitlist(team.tournamentId)
   res.status(204).end()
 })
 
@@ -482,10 +494,16 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
 
 organizerRouter.get('/tournaments/:id/registrations', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  const regs = await prisma.teamRegistration.findMany({ where: { tournamentId: param(req, 'id') }, include: { user: true }, orderBy: { createdAt: 'asc' } })
+  const regs = await prisma.teamRegistration.findMany({
+    where: { tournamentId: param(req, 'id') }, include: { user: true },
+    orderBy: [{ lotteryRank: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
+  })
+  // the club of each application (for the per-club quota)
+  const clubs = new Map((await prisma.club.findMany({ where: { id: { in: regs.flatMap(r => (r.clubId ? [r.clubId] : [])) } }, select: { id: true, name: true } })).map(c => [c.id, c.name]))
   res.json(regs.map(r => ({
     id: r.id, tournamentId: r.tournamentId, teamName: r.teamName, institution: r.institution, speakers: r.speakers,
     contactPhone: r.contactPhone, status: r.status, createdAt: toDay(r.createdAt), user: { id: r.user.id, name: r.user.name, email: r.user.email },
+    ...(r.clubId && clubs.has(r.clubId) && { club: clubs.get(r.clubId) }), ...(r.lotteryRank && { lotteryRank: r.lotteryRank }),
   })))
 })
 
@@ -494,33 +512,18 @@ organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
   const reg = await prisma.teamRegistration.findUnique({ where: { id: param(req, 'regId') }, include: { tournament: { include: { _count: { select: { teams: { where: { swing: false } } } } } }, user: true } })
   if (!reg) throw notFound('registration_not_found')
   await assertCanManage(req.user, reg.tournamentId)
-  const { status } = body(req, z.object({ status: z.enum(['confirmed', 'rejected']) }))
-  if (reg.status !== 'pending') throw badRequest('already_processed')
+  const { status } = body(req, z.object({ status: z.enum(['confirmed', 'rejected', 'waitlisted']) }))
+  // a waiting application can still be confirmed, rejected or kept waiting
+  if (reg.status !== 'pending' && reg.status !== 'waitlisted') throw badRequest('already_processed')
   if (status === 'confirmed') {
-    // the applicant may have become a judge/organizer here after applying
-    const role = await participationIn(reg.userId, reg.tournamentId)
-    if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
-    if (reg.tournament._count.teams >= reg.tournament.maxTeams) throw badRequest('tournament_full')
-    assertRoomForTeam(reg.tournament, reg.tournament._count.teams)
-    if (await prisma.team.findUnique({ where: { tournamentId_name: { tournamentId: reg.tournamentId, name: reg.teamName } } })) throw conflict('team_name_taken')
-    const instId = await institutionId(reg.institution, reg.tournament.level)
-    // the club and club team the applicant stated, if they still exist
-    const clubTeam = reg.clubTeamId ? await prisma.clubTeam.findUnique({ where: { id: reg.clubTeamId } }) : null
-    await prisma.$transaction([
-      prisma.team.create({
-        data: {
-          tournamentId: reg.tournamentId, name: reg.teamName, institutionId: instId, city: reg.user.city,
-          clubId: clubTeam?.clubId ?? null, clubTeamId: clubTeam?.id ?? null,
-          speakers: { create: reg.speakers.map((name, i) => ({ name, position: i + 1, userId: name === reg.user.name ? reg.userId : undefined })) },
-        },
-      }),
-      prisma.teamRegistration.update({ where: { id: reg.id }, data: { status } }),
-    ])
-  } else {
-    await prisma.teamRegistration.update({ where: { id: reg.id }, data: { status } })
+    await confirmRegistration(reg.id)
+    return void res.json({ id: reg.id, status })
   }
-  background(notifyRegistration(reg.id))
-  res.json({ id: reg.id, status })
+  if (status === 'waitlisted' || status === 'rejected') {
+    await prisma.teamRegistration.update({ where: { id: reg.id }, data: { status } })
+    background(notifyRegistration(reg.id))
+    return void res.json({ id: reg.id, status })
+  }
 })
 
 // ---------- tournament cover ----------

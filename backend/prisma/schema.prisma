@@ -86,6 +86,14 @@ enum RegistrationStatus {
   pending
   confirmed
   rejected
+  waitlisted // no place yet: moves up when a place frees
+}
+
+// how the places are filled: the organizer one by one, first come, or a public lottery
+enum SelectionMode {
+  manual
+  first_come
+  lottery
 }
 
 enum Plan {
@@ -198,6 +206,9 @@ model Tournament {
   level                TournamentLevel
   status               TournamentStatus @default(registration)
   maxTeams             Int              @map("max_teams")
+  selectionMode        SelectionMode    @default(manual) @map("selection_mode")
+  clubQuota            Int?             @map("club_quota") // at most this many teams from one club (null: no limit)
+  lotteryAt            DateTime?        @map("lottery_at") // when the selection lottery was drawn
   coverUrl             String?          @map("cover_url")
   organizerName        String           @map("organizer_name")
   description          String           @default("")
@@ -494,6 +505,7 @@ model TeamRegistration {
   clubTeamId        String?            @map("club_team_id")
   // school and mixed tournaments: the applicant confirmed that the parents of speakers under 18 agreed
   guardianConsentAt DateTime?          @map("guardian_consent_at")
+  lotteryRank       Int?               @map("lottery_rank") // the place in the selection lottery (and in the waitlist after it)
   status            RegistrationStatus @default(pending)
   createdAt         DateTime           @default(now()) @map("created_at")
   tournament        Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)

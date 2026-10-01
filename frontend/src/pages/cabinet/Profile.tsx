@@ -25,7 +25,7 @@ import { MyClub } from '@/components/club/MyClub'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { RateJudgesDialog } from '@/components/tournament/JudgeFeedback'
 
-const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
+const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger' | 'outline'> = { confirmed: 'success', pending: 'accent', rejected: 'danger', waitlisted: 'outline' }
 
 // Telegram: notifications, phone verification and one-tap judge feedback
 function TelegramCard() {

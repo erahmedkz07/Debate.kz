@@ -146,9 +146,8 @@ export async function notifyNewRegistration(regId: string) {
 export async function notifyRegistration(regId: string) {
   const r = await prisma.teamRegistration.findUnique({ where: { id: regId }, include: { tournament: { select: { id: true, name: true } } } })
   if (!r || r.status === 'pending') return
-  const ok = r.status === 'confirmed'
-  await notify([r.userId], ok ? 'participant.registrationConfirmed' : 'participant.registrationRejected',
-    { tournament: r.tournament.name, team: r.teamName }, `/tournaments/${r.tournament.id}`)
+  const type = { confirmed: 'participant.registrationConfirmed', rejected: 'participant.registrationRejected', waitlisted: 'participant.registrationWaitlisted' }[r.status]
+  await notify([r.userId], type, { tournament: r.tournament.name, team: r.teamName }, `/tournaments/${r.tournament.id}`)
 }
 
 // someone accepted an invite: the other organizers see who joined; a new judge gets a welcome

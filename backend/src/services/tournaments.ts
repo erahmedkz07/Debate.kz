@@ -10,12 +10,15 @@ import { silentIn } from './silent.js'
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
 // the swing team (stand-in for an odd draw) never counts toward the team limit
-export const summaryInclude = { _count: { select: { teams: { where: { swing: false } } } } } satisfies Prisma.TournamentInclude
+// teams that play (without swing teams) and live applications (everything but rejected)
+export const summaryInclude = {
+  _count: { select: { teams: { where: { swing: false } }, registrations: { where: { status: { not: 'rejected' } } } } },
+} satisfies Prisma.TournamentInclude
 type SummaryRow = Prisma.TournamentGetPayload<{ include: typeof summaryInclude }>
 
 export const toSummary = (t: SummaryRow) => ({
   id: t.id, name: t.name, city: t.city, region: t.region ?? undefined, district: t.district ?? undefined, startDate: toDay(t.startDate), endDate: toDay(t.endDate),
-  format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams,
+  format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams, applications: t._count.registrations,
   cover: coverOf(t), organizer: t.organizerName, description: t.description,
   preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
   breakCategories: t.breakCategories as { key: string; name: string; size: number }[],
@@ -141,8 +144,11 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       registrationOpen: t.registrationOpen,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
       rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, pendingRegistrations: t.registrations.length,
+      selectionMode: t.selectionMode, clubQuota: t.clubQuota ?? undefined,
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
+    // the selection lottery is public: its order is shown on the tournament page
+    ...(t.lotteryAt && { lotteryAt: t.lotteryAt.toISOString() }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
     rounds, debates,
     teams: t.teams.map(team => ({

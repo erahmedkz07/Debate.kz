@@ -39,7 +39,8 @@ export function TournamentCard({ t: item }: { t: Tournament }) {
         </div>
         <div className="mt-auto pt-5">
           <div className="mb-1.5 flex items-center justify-between text-xs font-semibold">
-            <span className="flex items-center gap-1.5 text-muted-foreground"><Users className="size-3.5" />{t('common.teamsOf', { count: item.teamsCount, max: item.maxTeams })}</span>
+            <span className="flex items-center gap-1.5 text-muted-foreground"><Users className="size-3.5" />{t('common.teamsOf', { count: item.teamsCount, max: item.maxTeams })}
+              {!!item.applications && item.applications > item.teamsCount && <span className="text-primary">· {t('tournament.applicationsShort', { count: item.applications })}</span>}</span>
             <span className="text-foreground">{fill}%</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">

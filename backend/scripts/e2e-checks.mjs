@@ -1838,5 +1838,63 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(akmola.some(x => x.id === a.id) && !akmola.some(x => x.id === r.data.id), 'the list filters by region')
   ok((await host.c('PATCH', `/tournaments/${a.id}`, { city: 'Шымкент' })).data?.region === 'shymkent', 'a new city moves the region along')
 }
+// ---------- 49. selection: unlimited applications, first come / lottery, club quota, waitlist ----------
+{
+  const host = await newAccount('Отбор Организатор')
+  const mk = async (n, extra) => {
+    const t = (await host.c('POST', '/tournaments', { ...tBody(180 + n), name: `Отбор ${n} ${jtag}`, maxTeams: 4, ...extra })).data
+    await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+    return t
+  }
+  // applicants: three in one club (X), the others in their own clubs; every club is approved by an admin
+  const people = []
+  let clubX
+  for (const [i, name] of ['Отбор Икс Один', 'Отбор Икс Два', 'Отбор Икс Три', 'Отбор Бэ', 'Отбор Вэ', 'Отбор Гэ'].entries()) {
+    const p = await newAccount(name)
+    if (i === 0 || i >= 3) {
+      const club = (await p.c('POST', '/clubs', { name: `Отбор клуб ${i} ${jtag}`, city: 'Астана' })).data
+      await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+      if (i === 0) clubX = club.id
+    } else {
+      const code = (await people[0].c('GET', `/clubs/${clubX}`)).data.joinCode
+      await p.c('POST', '/clubs/join', { code })
+    }
+    const myClub = (await p.c('GET', '/me/club')).data.club.id
+    await p.c('POST', `/clubs/${myClub}/teams`, { name: `Отбор команда ${i}`, join: true })
+    people.push(p)
+  }
+  const apply = (p, t, i) => p.c('POST', `/tournaments/${t.id}/registrations`, {
+    teamName: `Отбор ${i}`, institution: 'Лицей', speakers: [`Спикер ${i} А`, `Спикер ${i} Б`, `Спикер ${i} В`], phone: '+7 701 555 44 33', guardianConsent: true,
+  })
+
+  const fc = await mk(1)
+  ok((await host.c('PATCH', `/tournaments/${fc.id}`, { selectionMode: 'first_come', clubQuota: 2 })).status === 200, 'the organizer chooses "first come" and at most 2 teams per club')
+  const st = []
+  for (const [i, p] of people.entries()) st.push((await apply(p, fc, i)).data?.status)
+  ok(st.join() === 'confirmed,confirmed,waitlisted,confirmed,confirmed,waitlisted', 'first come: places while they last; the 3rd team of a club and the 6th team wait')
+  let sel = (await client()('GET', `/tournaments/${fc.id}/selection`)).data
+  ok(sel.applications === 6 && sel.places === 4 && sel.taken === 4 && sel.waitlisted === 2, 'the public sees 6 applications for 4 places')
+  ok((await client()('GET', `/tournaments?limit=100`)).data.find(x => x.id === fc.id)?.applications === 6, 'the tournament card counts live applications')
+  // a team leaves: the club-X team is skipped (quota), the next in line takes the place
+  const teams = (await host.c('GET', `/tournaments/${fc.id}`)).data.teams
+  ok((await host.c('DELETE', `/teams/${teams.find(x => x.name === 'Отбор 3').id}`)).status === 204, 'the organizer removes a team')
+  let regs = (await host.c('GET', `/tournaments/${fc.id}/registrations`)).data
+  ok(regs.find(r => r.teamName === 'Отбор 5').status === 'confirmed' && regs.find(r => r.teamName === 'Отбор 2').status === 'waitlisted', 'the waitlist moves up, skipping a team over its club quota')
+  await host.c('PATCH', `/tournaments/${fc.id}`, { clubQuota: 3, maxTeams: 6 })
+  regs = (await host.c('GET', `/tournaments/${fc.id}/registrations`)).data
+  ok(regs.find(r => r.teamName === 'Отбор 2').status === 'confirmed', 'a looser quota and a higher limit let the waiting team in')
+
+  const lt = await mk(2)
+  await host.c('PATCH', `/tournaments/${lt.id}`, { selectionMode: 'lottery' })
+  for (const [i, p] of people.slice(0, 5).entries()) await apply(p, lt, i)
+  ok((await host.c('GET', `/tournaments/${lt.id}/registrations`)).data.every(r => r.status === 'pending'), 'lottery: applications wait for the draw')
+  r = await host.c('POST', `/tournaments/${lt.id}/selection/lottery`)
+  ok(r.status === 201 && r.data.confirmed === 4 && r.data.waitlisted === 1, 'the lottery gives 4 places and puts the rest on the waitlist')
+  sel = (await client()('GET', `/tournaments/${lt.id}/selection`)).data
+  ok(sel.lotteryAt && sel.lottery.length === 5 && sel.lottery.map(x => x.rank).join() === '1,2,3,4,5', 'the lottery order is public')
+  ok((await host.c('POST', `/tournaments/${lt.id}/selection/lottery`)).data?.error === 'lottery_done', 'the lottery is drawn once')
+  r = await apply(people[5], lt, 5)
+  ok(r.data?.status === 'waitlisted' && (await client()('GET', `/tournaments/${lt.id}/selection`)).data.lottery.find(x => x.team === 'Отбор 5')?.rank === 6, 'a late application joins the end of the waitlist')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

@@ -142,6 +142,7 @@ const N: Record<Lang, Record<string, Render>> = {
   ru: {
     'participant.registrationConfirmed': d => `✅ Заявка команды ${q(d.team)} на турнир ${b(d.tournament)} подтверждена. Удачи!`,
     'participant.registrationRejected': d => `❌ Заявка команды ${q(d.team)} на турнир ${b(d.tournament)} отклонена организатором.`,
+    'participant.registrationWaitlisted': d => `⏳ Команда ${q(d.team)} в листе ожидания турнира ${b(d.tournament)}. Если место освободится, она поднимется сама — мы напишем.`,
     'participant.drawReleased': (d, l) => l.nextSpeaker(d),
     'participant.roundResult': (d, l) => `${d.result === 'win' || d.result === 'place1' ? '🏆' : '📊'} ${b(d.tournament)} · ${s(d.round)}: ${b(l.resultName[String(d.result)])}. Таблица — на странице турнира.`,
     'participant.teammateReply': d => `🤝 Отклик на ваше объявление «Поиск сокомандника»\n${b(d.name)}${d.institution ? `, ${s(d.institution)}` : ''}${d.city ? `, ${s(d.city)}` : ''}:\n${q(d.message)}`,
@@ -177,6 +178,7 @@ const N: Record<Lang, Record<string, Render>> = {
   kz: {
     'participant.registrationConfirmed': d => `✅ ${q(d.team)} командасының ${b(d.tournament)} турниріне өтінімі расталды. Сәттілік!`,
     'participant.registrationRejected': d => `❌ ${q(d.team)} командасының ${b(d.tournament)} турниріне өтінімін ұйымдастырушы қабылдамады.`,
+    'participant.registrationWaitlisted': d => `⏳ ${q(d.team)} командасы ${b(d.tournament)} турнирінің күту тізімінде. Орын босаса, ол өзі көтеріледі — біз жазамыз.`,
     'participant.drawReleased': (d, l) => l.nextSpeaker(d),
     'participant.roundResult': (d, l) => `${d.result === 'win' || d.result === 'place1' ? '🏆' : '📊'} ${b(d.tournament)} · ${s(d.round)}: ${b(l.resultName[String(d.result)])}. Кесте — турнир бетінде.`,
     'participant.teammateReply': d => `🤝 «Сокомандник іздеу» хабарландыруыңызға жауап\n${b(d.name)}${d.institution ? `, ${s(d.institution)}` : ''}${d.city ? `, ${s(d.city)}` : ''}:\n${q(d.message)}`,

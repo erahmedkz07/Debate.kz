@@ -6,9 +6,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer,
+  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle,
 } from 'lucide-react'
-import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
+import { getSelection, getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
@@ -16,7 +16,7 @@ import type { Debate, Round, Side, TournamentDetails } from '@/types'
 import type { TFunction } from 'i18next'
 import { useAsync } from '@/lib/hooks'
 import { breakForecast } from '@/lib/breakForecast'
-import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
+import { cn, formatDate, formatDateRange, formatDateTime, initials } from '@/lib/utils'
 import { Badge, StatusDot, statusVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -141,6 +141,28 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   )
 }
 
+// the selection lottery, public: who got a place and who waits, in the drawn order
+function LotteryCard({ id }: { id: string }) {
+  const { t } = useTranslation()
+  const { data } = useAsync(() => getSelection(id), [id])
+  if (!data?.lottery) return null
+  return (
+    <Card className="p-6">
+      <h2 className="flex items-center gap-2 text-xl font-bold"><Shuffle className="size-5 text-primary" />{t('tournament.lotteryTitle')}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{t('tournament.lotteryText', { time: formatDateTime(data.lotteryAt!) })}</p>
+      <ol className="mt-4 grid gap-2 sm:grid-cols-2">
+        {data.lottery.map(x => (
+          <li key={x.rank} className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2 text-sm">
+            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-extrabold text-primary-foreground">{x.rank}</span>
+            <span className="min-w-0 flex-1 truncate font-semibold">{x.team}</span>
+            <Badge variant={x.status === 'confirmed' ? 'success' : 'outline'}>{t(`profile.regStatus.${x.status}`)}</Badge>
+          </li>
+        ))}
+      </ol>
+    </Card>
+  )
+}
+
 function Overview({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
   const formatName = useFormatName(data.format)
@@ -150,6 +172,8 @@ function Overview({ data }: { data: TournamentDetails }) {
     { icon: Medal, label: t('tournament.prelims'), value: data.preliminaryRounds },
     { icon: Star, label: t('tournament.break.label'), value: data.breakSize },
     { icon: Users, label: t('tournament.tabs.teams'), value: `${data.teamsCount} / ${data.maxTeams}` },
+    // live demand: everyone who applied, also over the limit
+    ...(data.applications ? [{ icon: Inbox, label: t('tournament.applications'), value: t('tournament.applicationsOf', { count: data.applications, places: data.maxTeams }) }] : []),
     { icon: Globe, label: t('tournament.languages'), value: data.languages.map(l => (l === 'kz' ? 'Қазақша' : 'Русский')).join(', ') },
   ]
   return (
@@ -159,6 +183,7 @@ function Overview({ data }: { data: TournamentDetails }) {
           <h2 className="text-xl font-bold">{t('tournament.about')}</h2>
           <p className="mt-3 leading-relaxed text-muted-foreground">{data.description}</p>
         </Card>
+        {data.lotteryAt && <LotteryCard id={data.id} />}
         <Card className="p-6">
           <h2 className="flex items-center gap-2 text-xl font-bold"><MessageSquareQuote className="size-5 text-primary" />{t('tournament.motions')}</h2>
           <ol className="mt-4 space-y-3">

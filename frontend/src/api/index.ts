@@ -206,6 +206,8 @@ export const updateTournament = (id: string, data: Partial<{
   city: string; region: string; district: string | null; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
   breakCategories: { key: string; name: string; size: number }[]
+  selectionMode: 'manual' | 'first_come' | 'lottery'
+  clubQuota: number | null
   coverUrl: string | null
 }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)
@@ -248,8 +250,15 @@ export const updateDebate = (debateId: string, data: Partial<{ room: string; onl
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 
 export type OrganizerRegistration = TeamRegistration & { contactPhone: string; user: { id: string; name: string; email: string } }
+// selection: live numbers and, after a lottery, its public order
+export interface Selection {
+  mode: 'manual' | 'first_come' | 'lottery'; clubQuota?: number; places: number; taken: number; applications: number; waitlisted: number
+  lotteryAt?: string; lottery?: { rank: number; team: string; status: TeamRegistration['status'] }[]
+}
+export const getSelection = (tournamentId: string) => http<Selection>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/selection`)
+export const runSelectionLottery = (tournamentId: string) => http<{ confirmed: number; waitlisted: number }>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/selection/lottery`)
 export const getRegistrations = (tournamentId: string) => http<OrganizerRegistration[]>('GET', `/tournaments/${tournamentId}/registrations`)
-export const setRegistrationStatus = (regId: string, status: 'confirmed' | 'rejected') =>
+export const setRegistrationStatus = (regId: string, status: 'confirmed' | 'rejected' | 'waitlisted') =>
   http<{ id: string; status: string }>('PATCH', `/registrations/${regId}`, { status })
 
 // ---------- invites (judge / co-organizer) ----------

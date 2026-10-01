@@ -7,6 +7,7 @@ import { getStandings, getTournamentDetails, isOrganizerOf, publicWhere, summary
 import { getBracket } from '../services/playoffs.js'
 import { notFound } from '../lib/errors.js'
 import { hiddenRoundIds } from '../services/silent.js'
+import { selectionOf } from '../services/selection.js'
 
 export const publicRouter = Router()
 
@@ -51,6 +52,14 @@ publicRouter.get('/tournaments/:id/standings', async (req, res) => {
   // silent rounds stay out of the public table until the break; organizers see the real one
   const id = param(req, 'id')
   res.json(await getStandings(id, (await isOrganizerOf(req.user, id)) ? new Set() : await hiddenRoundIds(id)))
+})
+
+// selection: how many applied for how many places, and the lottery order after the draw
+publicRouter.get('/tournaments/:id/selection', async (req, res) => {
+  const id = param(req, 'id')
+  const t = await prisma.tournament.findUnique({ where: { id }, select: { visible: true, moderation: true } })
+  if (!t || ((!t.visible || t.moderation !== 'approved') && !(await isOrganizerOf(req.user, id)))) throw notFound('tournament_not_found')
+  res.json(await selectionOf(id))
 })
 
 // the playoffs: seeds, elimination rounds and, after the final, the champion
