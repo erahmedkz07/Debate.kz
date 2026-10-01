@@ -11,10 +11,12 @@ import { prisma } from '../lib/prisma.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param, query } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { background, notify } from '../services/notify.js'
+import { admins, background, notify } from '../services/notify.js'
 
 // Clubs and their teams. All members are equal: any member can edit the club, create and rename teams,
 // put members into teams, share or reset the join link and remove a member. Every change goes to the club log.
+// Against fake clubs: a new club waits for an admin (pending). Until it is approved only its members see it, people join
+// it only by its link, and it cannot apply to tournaments. A rejected club can be fixed and sent again.
 export const clubsRouter = Router()
 
 const name = z.string().trim().min(2).max(80)
@@ -42,6 +44,7 @@ clubsRouter.get('/clubs', async (req, res) => {
   const q = query(req, z.object({ search: z.string().trim().max(80).optional(), city: z.string().trim().max(60).optional() }))
   const clubs = await prisma.club.findMany({
     where: {
+      status: 'approved', // the catalogue shows checked clubs only
       ...(q.city && { city: q.city }),
       ...(q.search && { OR: [{ name: { contains: q.search, mode: 'insensitive' } }, { institution: { contains: q.search, mode: 'insensitive' } }] }),
     },
@@ -63,10 +66,13 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
   })
   if (!c) throw notFound('club_not_found')
   const isMember = !!req.user && c.members.some(m => m.userId === req.user!.id)
+  // a club that is not approved yet is visible to its members and the admins only
+  if (c.status !== 'approved' && !isMember && req.user?.role !== 'admin') throw notFound('club_not_found')
   const member = (m: typeof c.members[number]) => ({ id: m.user.id, name: m.user.name, avatarUrl: m.user.avatarUrl ?? undefined, teamId: m.teamId ?? undefined })
   res.json({
     id: c.id, name: c.name, city: c.city, institution: c.institution ?? undefined, description: c.description, createdAt: c.createdAt.toISOString().slice(0, 10),
-    logoUrl: c.logoUrl ?? undefined,
+    logoUrl: c.logoUrl ?? undefined, status: c.status,
+    ...((isMember || req.user?.role === 'admin') && c.moderationNote && { moderationNote: c.moderationNote }),
     teams: c.teams.map(t => ({ id: t.id, name: t.name, logoUrl: t.logoUrl ?? undefined, members: c.members.filter(m => m.teamId === t.id).map(member) })),
     members: c.members.map(member),
     isMember,
@@ -85,7 +91,7 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
 // preview for the join page
 clubsRouter.get('/clubs/code/:code', async (req, res) => {
   const c = await prisma.club.findUnique({ where: { joinCode: param(req, 'code').toUpperCase() }, include: { _count: { select: { members: true, teams: true } } } })
-  if (!c) throw notFound('club_not_found')
+  if (!c || c.status === 'rejected') throw notFound('club_not_found')
   res.json({ id: c.id, name: c.name, city: c.city, institution: c.institution ?? undefined, logoUrl: c.logoUrl ?? undefined, members: c._count.members, teams: c._count.teams })
 })
 
@@ -93,7 +99,7 @@ clubsRouter.get('/clubs/code/:code', async (req, res) => {
 
 clubsRouter.get('/me/club', requireAuth(), async (req, res) => {
   const m = await prisma.clubMember.findUnique({ where: { userId: req.user!.id }, include: { club: true, team: true } })
-  res.json(m ? { club: { id: m.club.id, name: m.club.name, city: m.club.city, logoUrl: m.club.logoUrl ?? undefined }, team: m.team ? { id: m.team.id, name: m.team.name, logoUrl: m.team.logoUrl ?? undefined } : undefined } : { club: undefined, team: undefined })
+  res.json(m ? { club: { id: m.club.id, name: m.club.name, city: m.club.city, logoUrl: m.club.logoUrl ?? undefined, status: m.club.status }, team: m.team ? { id: m.team.id, name: m.team.name, logoUrl: m.team.logoUrl ?? undefined } : undefined } : { club: undefined, team: undefined })
 })
 
 clubsRouter.post('/clubs', requireAuth(), requireVerified, async (req, res) => {
@@ -106,18 +112,27 @@ clubsRouter.post('/clubs', requireAuth(), requireVerified, async (req, res) => {
     await log(tx, c.id, me, 'created', c.name)
     return c
   }).catch(e => unique(e, 'club_exists'))
-  res.status(201).json({ id: club.id })
+  background(notify(await admins(), 'admin.clubPending', { club: club.name, city: club.city, owner: me.name }, '/admin?tab=clubs'))
+  res.status(201).json({ id: club.id, status: club.status })
 })
 
 clubsRouter.patch('/clubs/:id', requireAuth(), async (req, res) => {
   const id = param(req, 'id')
   await memberOf(req, id)
   const d = body(req, z.object({ name: name.optional(), city: z.string().trim().min(2).max(60).optional(), institution: z.string().trim().max(150).optional(), description: z.string().trim().max(2000).optional() }))
-  await prisma.$transaction(async tx => {
-    await tx.club.update({ where: { id }, data: { ...d, ...(d.institution !== undefined && { institution: d.institution || null }) } })
+  const before = await prisma.club.findUniqueOrThrow({ where: { id } })
+  // a rejected club that was fixed goes back to the admins
+  const resubmit = before.status === 'rejected'
+  const club = await prisma.$transaction(async tx => {
+    const c = await tx.club.update({
+      where: { id },
+      data: { ...d, ...(d.institution !== undefined && { institution: d.institution || null }), ...(resubmit && { status: 'pending', moderationNote: null }) },
+    })
     await log(tx, id, req.user!, 'edited', Object.keys(d).join(', '))
+    return c
   }).catch(e => unique(e, 'club_exists'))
-  res.json({ ok: true })
+  if (resubmit) background(notify(await admins(), 'admin.clubPending', { club: club.name, city: club.city, owner: req.user!.name }, '/admin?tab=clubs'))
+  res.json({ ok: true, status: club.status })
 })
 
 // a new join link; the old one stops working (e.g. it leaked to a public chat)
@@ -314,11 +329,23 @@ clubsRouter.put('/clubs/:id/members/:userId/team', requireAuth(), async (req, re
 
 const MAX_OPEN_REQUESTS = 3
 
+// "this club is fake / a duplicate": goes to the admins; one open report per person and club
+clubsRouter.post('/clubs/:id/report', requireAuth(), requireVerified, async (req, res) => {
+  const { reason } = body(req, z.object({ reason: z.string().trim().min(5).max(500) }))
+  const c = await prisma.club.findUnique({ where: { id: param(req, 'id') } })
+  if (!c) throw notFound('club_not_found')
+  if (await prisma.clubReport.findFirst({ where: { clubId: c.id, userId: req.user!.id, resolvedAt: null } })) throw conflict('already_reported')
+  await prisma.clubReport.create({ data: { clubId: c.id, userId: req.user!.id, reason } })
+  background(notify(await admins(), 'admin.clubReported', { club: c.name, city: c.city }, '/admin?tab=clubs'))
+  res.status(201).json({ ok: true })
+})
+
 clubsRouter.post('/clubs/:id/requests', requireAuth(), requireVerified, async (req, res) => {
   const { message } = body(req, z.object({ message: z.string().trim().max(300).default('') }))
   const me = req.user!
   const c = await prisma.club.findUnique({ where: { id: param(req, 'id') } })
-  if (!c) throw notFound('club_not_found')
+  // requests go only to checked clubs; an unchecked one is joined by its link
+  if (!c || c.status !== 'approved') throw notFound('club_not_found')
   const current = await prisma.clubMember.findUnique({ where: { userId: me.id } })
   if (current?.clubId === c.id) throw conflict('already_member')
   if (current) throw conflict('already_in_club')

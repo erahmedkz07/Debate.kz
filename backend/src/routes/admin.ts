@@ -7,14 +7,16 @@ import { publicUser, requireAuth } from '../middleware/auth.js'
 import { sendMail } from '../lib/mail.js'
 import { env } from '../lib/env.js'
 import { summaryInclude, toSummary } from '../services/tournaments.js'
-import { background, notifyModeration } from '../services/notify.js'
+import { background, notify, notifyModeration } from '../services/notify.js'
 import type { User } from '../generated/prisma/client.js'
+import { runWatchdog } from '../services/watchdog.js'
+import { platformAnalytics } from '../services/analytics.js'
 
 export const adminRouter = Router()
 adminRouter.use('/admin', requireAuth('admin'))
 
 // every admin decision is written to the audit log
-export function logAction(admin: User, action: string, target: { type: 'tournament' | 'user' | 'news'; id: string; label: string }, note?: string | null) {
+export function logAction(admin: User, action: string, target: { type: 'tournament' | 'user' | 'news' | 'club'; id: string; label: string }, note?: string | null) {
   return prisma.adminAction.create({
     data: { adminId: admin.id, adminName: admin.name, action, targetType: target.type, targetId: target.id, targetLabel: target.label, note: note ?? null },
   })
@@ -29,7 +31,7 @@ adminRouter.get('/admin/actions', async (_req, res) => {
 })
 
 adminRouter.get('/admin/stats', async (_req, res) => {
-  const [users, organizers, judges, tournaments, active, unpaid, pendingModeration] = await Promise.all([
+  const [users, organizers, judges, tournaments, active, unpaid, pendingModeration, pendingClubs, clubReports] = await Promise.all([
     prisma.user.count(),
     // people who organize / judge at least one tournament (no longer global roles)
     prisma.user.count({ where: { organizedTournaments: { some: {} } } }),
@@ -38,8 +40,15 @@ adminRouter.get('/admin/stats', async (_req, res) => {
     prisma.tournament.count({ where: { status: { not: 'finished' } } }),
     prisma.tournament.count({ where: { plan: 'pro', paid: false } }),
     prisma.tournament.count({ where: { moderation: 'pending' } }),
+    prisma.club.count({ where: { status: 'pending' } }),
+    prisma.clubReport.count({ where: { resolvedAt: null } }),
   ])
-  res.json({ users, organizers, judges, tournaments, active, unpaid, pendingModeration })
+  res.json({ users, organizers, judges, tournaments, active, unpaid, pendingModeration, pendingClubs, clubReports })
+})
+
+// platform analytics: growth, regions, formats, returning participants (aggregates only, nothing personal)
+adminRouter.get('/admin/analytics', async (_req, res) => {
+  res.json(await platformAnalytics())
 })
 
 adminRouter.get('/admin/tournaments', async (_req, res) => {
@@ -114,6 +123,111 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
     ...toSummary(updated), plan: updated.plan, paid: updated.paid, visible: updated.visible,
     moderation: updated.moderation, moderationNote: updated.moderationNote ?? undefined,
   })
+})
+
+// ---------- clubs: approve, reject, merge duplicates, delete; open reports ----------
+
+const memberIds = async (clubId: string) => (await prisma.clubMember.findMany({ where: { clubId }, select: { userId: true } })).map(m => m.userId)
+
+adminRouter.get('/admin/clubs', async (_req, res) => {
+  const clubs = await prisma.club.findMany({
+    include: {
+      _count: { select: { members: true, teams: true, tournamentTeams: true } },
+      reports: { where: { resolvedAt: null }, include: { user: { select: { name: true } } }, orderBy: { createdAt: 'desc' } },
+      logs: { where: { action: 'created' }, take: 1 },
+    },
+    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }], // pending first
+  })
+  res.json(clubs.map(c => ({
+    id: c.id, name: c.name, city: c.city, institution: c.institution ?? undefined, logoUrl: c.logoUrl ?? undefined,
+    status: c.status, moderationNote: c.moderationNote ?? undefined, createdAt: c.createdAt.toISOString(),
+    createdBy: c.logs[0]?.userName, members: c._count.members, teams: c._count.teams, tournamentTeams: c._count.tournamentTeams,
+    reports: c.reports.map(r => ({ id: r.id, reason: r.reason, by: r.user.name, createdAt: r.createdAt.toISOString() })),
+  })))
+})
+
+adminRouter.patch('/admin/clubs/:id', async (req, res) => {
+  const d = body(req, z.object({ status: z.enum(['approved', 'rejected']), note: z.string().trim().max(500).optional() }))
+  if (d.status === 'rejected' && !d.note) throw badRequest('reason_required')
+  const c = await prisma.club.findUnique({ where: { id: param(req, 'id') } })
+  if (!c) throw notFound('club_not_found')
+  await prisma.club.update({ where: { id: c.id }, data: { status: d.status, moderationNote: d.status === 'rejected' ? d.note : null, reviewedAt: new Date() } })
+  await logAction(req.user!, `club.${d.status === 'approved' ? 'approve' : 'reject'}`, { type: 'club', id: c.id, label: c.name }, d.note)
+  background(notify(await memberIds(c.id), d.status === 'approved' ? 'participant.clubApproved' : 'participant.clubRejected',
+    { club: c.name, reason: d.note ?? '' }, `/clubs/${c.id}`))
+  res.json({ id: c.id, status: d.status })
+})
+
+// a duplicate goes into the real club: members, teams, tournament history; the duplicate is removed
+adminRouter.post('/admin/clubs/:id/merge', async (req, res) => {
+  const { intoId } = body(req, z.object({ intoId: z.string() }))
+  const [from, into] = await Promise.all([
+    prisma.club.findUnique({ where: { id: param(req, 'id') }, include: { teams: true } }),
+    prisma.club.findUnique({ where: { id: intoId }, include: { teams: true } }),
+  ])
+  if (!from || !into) throw notFound('club_not_found')
+  if (from.id === into.id) throw badRequest('same_club')
+  const taken = new Set(into.teams.map(t => t.name.toLowerCase()))
+  await prisma.$transaction(async tx => {
+    for (const t of from.teams) {
+      // a team name the real club already has gets the duplicate's name added
+      let name = t.name
+      for (let i = 2; taken.has(name.toLowerCase()); i++) name = `${t.name} (${i})`
+      taken.add(name.toLowerCase())
+      await tx.clubTeam.update({ where: { id: t.id }, data: { clubId: into.id, name } })
+    }
+    await tx.clubMember.updateMany({ where: { clubId: from.id }, data: { clubId: into.id } })
+    await tx.team.updateMany({ where: { clubId: from.id }, data: { clubId: into.id } })
+    await tx.clubLog.updateMany({ where: { clubId: from.id }, data: { clubId: into.id } })
+    await tx.clubJoinRequest.deleteMany({ where: { clubId: from.id } })
+    await tx.club.delete({ where: { id: from.id } })
+  })
+  await logAction(req.user!, 'club.merge', { type: 'club', id: into.id, label: into.name }, `${from.name} → ${into.name}`)
+  res.json({ id: into.id })
+})
+
+adminRouter.delete('/admin/clubs/:id', async (req, res) => {
+  const { reason } = body(req, z.object({ reason: z.string().trim().min(5).max(500) }))
+  const c = await prisma.club.findUnique({ where: { id: param(req, 'id') } })
+  if (!c) throw notFound('club_not_found')
+  // notify first: after deletion the members are no longer linked to the club
+  await notify(await memberIds(c.id), 'participant.clubDeleted', { club: c.name, reason }).catch(() => undefined)
+  await prisma.club.delete({ where: { id: c.id } })
+  await logAction(req.user!, 'club.delete', { type: 'club', id: c.id, label: c.name }, reason)
+  res.status(204).end()
+})
+
+adminRouter.post('/admin/club-reports/:id/resolve', async (req, res) => {
+  const r = await prisma.clubReport.findUnique({ where: { id: param(req, 'id') }, include: { club: true } })
+  if (!r) throw notFound('report_not_found')
+  await prisma.clubReport.update({ where: { id: r.id }, data: { resolvedAt: new Date() } })
+  await logAction(req.user!, 'club.reportResolved', { type: 'club', id: r.clubId, label: r.club.name }, r.reason)
+  res.json({ ok: true })
+})
+
+// ---------- organizer strikes ----------
+
+adminRouter.get('/admin/strikes', async (_req, res) => {
+  const rows = await prisma.organizerStrike.findMany({ include: { user: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: 'desc' }, take: 300 })
+  res.json(rows.map(r => ({
+    id: r.id, user: r.user, tournament: r.tournamentName, reason: r.reason, createdAt: r.createdAt.toISOString(),
+    lifted: !!r.liftedAt, note: r.liftedNote ?? undefined,
+  })))
+})
+
+adminRouter.post('/admin/strikes/:id/lift', async (req, res) => {
+  const { note } = body(req, z.object({ note: z.string().trim().min(3).max(500) }))
+  const r = await prisma.organizerStrike.findUnique({ where: { id: param(req, 'id') }, include: { user: true } })
+  if (!r) throw notFound('strike_not_found')
+  await prisma.organizerStrike.update({ where: { id: r.id }, data: { liftedAt: new Date(), liftedNote: note } })
+  await logAction(req.user!, 'user.strikeLifted', { type: 'user', id: r.userId, label: r.user.name }, `${r.tournamentName}: ${note}`)
+  res.json({ ok: true })
+})
+
+adminRouter.post('/admin/watchdog/run', async (req, res) => {
+  const { today } = body(req, z.object({ today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }))
+  // a pretend date only in the e2e run: in production the watchdog always uses today
+  res.json(await runWatchdog(env.NODE_ENV === 'test' && today ? today : undefined))
 })
 
 adminRouter.get('/admin/users', async (_req, res) => {

@@ -9,6 +9,8 @@ export function useAward() {
   const { t } = useTranslation()
   return (c: Certificate) => {
     if (c.kind === 'judge') return { title: t('certificate.certificate'), lines: [t('certificate.judge')] }
+    // best speaker / best judge of the tournament
+    if (c.kind === 'award') return { title: t('certificate.diploma'), lines: [t(`certificate.awardTitle.${c.award}`), ...(c.teamName ? [t('certificate.ofTeam', { team: c.teamName })] : [])] }
     const team = c.teamName ?? ''
     const lines = [
       c.teamPlace && c.teamPlace <= 3 && !c.breakCategory ? t('certificate.teamPlace', { n: c.teamPlace, team })

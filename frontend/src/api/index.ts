@@ -23,7 +23,7 @@ const or404 = async <T,>(p: Promise<T>) => {
 // ---------- public ----------
 
 export const getTournaments = (f: TournamentFilters = {}) =>
-  http<Tournament[]>('GET', `/tournaments${qs({ search: f.search, city: f.city, level: f.level, status: f.status, sort: f.sort })}`)
+  http<Tournament[]>('GET', `/tournaments${qs({ search: f.search, region: f.region, level: f.level, status: f.status, sort: f.sort })}`)
 
 export const getUpcomingTournaments = (limit = 3) =>
   http<Tournament[]>('GET', `/tournaments${qs({ status: 'registration', sort: 'date-asc', limit })}`)
@@ -103,7 +103,7 @@ export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATC
 export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
 // confirmed by the password, or by typing the email for accounts without a password
 export const deleteAccount = (confirm: { password: string } | { email: string }) => http<void>('DELETE', '/me', confirm)
-export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
+export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string; profileHidden?: boolean }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
 
 export function uploadAvatar(file: File) {
@@ -140,6 +140,41 @@ export interface JudgeFeedbackSummary {
   judgeId: string; count: number; average: number
   items: { score: number; comment?: string; team: string; round: string; room: string; createdAt: string }[]
 }
+// reviews of a finished tournament: public average, comments without names
+export interface ReviewSummary { count: number; average: number | null; spread: number[] }
+export interface TournamentReviews extends ReviewSummary {
+  organizer: ReviewSummary
+  items: { id: string; role: 'speaker' | 'judge'; score: number; comment: string; createdAt: string }[]
+  canReview: boolean
+  mine?: { score: number; comment?: string }
+}
+export const getTournamentReviews = (id: string) => http<TournamentReviews>('GET', `/tournaments/${encodeURIComponent(id)}/reviews`)
+export const sendTournamentReview = (id: string, score: number, comment?: string) => http<{ ok: true }>('POST', `/tournaments/${encodeURIComponent(id)}/review`, { score, comment })
+// best speaker / best judge: suggestions and the organizer's choice
+export type AwardKind = 'best_speaker' | 'best_judge'
+export interface AwardCandidates {
+  speakers: { id: string; name: string; team: string; total: number; average: number; rounds: number }[]
+  judges: { id: string; name: string; rating: number; reviews: number; average: number | null }[]
+  otherJudges: { id: string; name: string; rating: number; reviews: number; average: number | null }[]
+  minReviews: number; preliminaryRounds: number
+  chosen: Partial<Record<AwardKind, { speakerId?: string; judgeId?: string; name: string }>>
+}
+export const getAwardCandidates = (id: string) => http<AwardCandidates>('GET', `/tournaments/${encodeURIComponent(id)}/awards`)
+export const setTournamentAward = (id: string, kind: AwardKind, personId: string | null) => http<{ kind: AwardKind; name: string | null }>('PUT', `/tournaments/${encodeURIComponent(id)}/awards`, { kind, personId })
+// a person's public page: career as a speaker and a judge, awards
+export interface PublicProfile {
+  id: string; name: string; avatarUrl?: string; city?: string; since: string; hidden: boolean; club?: { id: string; name: string }
+  speaker: {
+    tournaments: { id: string; name: string; startDate: string; status: string; team: string; place?: number; teams: number; inBreak: boolean; speakerRank?: number; average?: number }[]
+    debates: number; wins: number; average: number | null; best: number | null
+  }
+  judge: {
+    tournaments: { id: string; name: string; startDate: string; status: string; rounds: number; chaired: number }[]
+    rounds: number; chaired: number; playoffRounds: number; rating?: { average: number | null; count: number }
+  }
+  awards: { tournament: { id: string; name: string }; date: string; kind: 'best_speaker' | 'best_judge' | 'category_champion' | 'team_place' | 'speaker_place'; place?: number; speakerPlace?: number; category?: string; code: string }[]
+}
+export const getPublicProfile = (id: string) => or404(http<PublicProfile>('GET', `/people/${encodeURIComponent(id)}`))
 export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackSummary[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/judge-feedback`)
 
 // ---------- judge ----------
@@ -192,8 +227,8 @@ export const submitBallot = (debateId: string, payload: BallotPayload) =>
 export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/tournaments')
 
 export interface CreateTournamentInput {
-  name: string; city: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
-  preliminaryRounds: number; breakSize: number; silentRounds?: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
+  name: string; city: string; region?: string; district?: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
+  preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
@@ -203,10 +238,11 @@ export const createTournament = (data: CreateTournamentInput) => http<Tournament
 export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })
 export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
-  city: string; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
+  city: string; region: string; district: string | null; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
-  silentRounds: number
   breakCategories: { key: string; name: string; size: number }[]
+  selectionMode: 'manual' | 'first_come' | 'lottery'
+  clubQuota: number | null
   coverUrl: string | null
 }>) =>
   http<Tournament>('PATCH', `/tournaments/${id}`, data)
@@ -221,9 +257,9 @@ export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${tea
 export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
 export const setJudgeConflicts = (judgeId: string, teamIds: string[]) => http<{ judgeId: string; teamIds: string[] }>('PUT', `/judges/${judgeId}/conflicts`, { teamIds })
 
-export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed' }>) =>
+export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed'; silent: boolean }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
-export type DrawMethod = 'power' | 'high_low' | 'random'
+export type DrawMethod = 'power' | 'high_low' | 'random' | 'slide' | 'fold' | 'round_robin'
 export interface DrawReport { method: DrawMethod | 'bracket'; protectClubs: boolean; sameClub: number; rematches: number; judgeConflicts?: number }
 // ---------- playoffs ----------
 export interface BracketDebate { id: string; slot: number; room: string; teams: { side: Side; teamId: string }[]; winner?: Side; ranking?: Side[] }
@@ -249,8 +285,15 @@ export const updateDebate = (debateId: string, data: Partial<{ room: string; onl
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 
 export type OrganizerRegistration = TeamRegistration & { contactPhone: string; user: { id: string; name: string; email: string } }
+// selection: live numbers and, after a lottery, its public order
+export interface Selection {
+  mode: 'manual' | 'first_come' | 'lottery'; clubQuota?: number; places: number; taken: number; applications: number; waitlisted: number
+  lotteryAt?: string; lottery?: { rank: number; team: string; status: TeamRegistration['status'] }[]
+}
+export const getSelection = (tournamentId: string) => http<Selection>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/selection`)
+export const runSelectionLottery = (tournamentId: string) => http<{ confirmed: number; waitlisted: number }>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/selection/lottery`)
 export const getRegistrations = (tournamentId: string) => http<OrganizerRegistration[]>('GET', `/tournaments/${tournamentId}/registrations`)
-export const setRegistrationStatus = (regId: string, status: 'confirmed' | 'rejected') =>
+export const setRegistrationStatus = (regId: string, status: 'confirmed' | 'rejected' | 'waitlisted') =>
   http<{ id: string; status: string }>('PATCH', `/registrations/${regId}`, { status })
 
 // ---------- invites (judge / co-organizer) ----------
@@ -270,12 +313,44 @@ export const revokeInvite = (tournamentId: string, inviteId: string) => http<voi
 
 // ---------- admin ----------
 
+// platform analytics for the admins (aggregates only)
+type Counted = { key: string; count: number }[]
+export interface PlatformAnalytics {
+  months: { month: string; users: number; tournaments: number; teams: number; speakers: number }[]
+  totals: { users: number; tournaments: number; teams: number; speakerSlots: number; judgeSlots: number; clubs: number; inClubs: number; telegram: number }
+  tournaments: { byStatus: Counted; byLevel: Counted; byFormat: Counted; online: number; pro: number; averageTeams: number | null; averageApplications: number | null; completion: number | null; activeStrikes: number }
+  regions: { key: string; tournaments: number; teams: number }[]
+  usersByRegion: Counted
+  people: { active: number; returning: number; returningShare: number; withoutAccount: number }
+  quality: { reviews: number; rating: number | null }
+  topClubs: { id: string; name: string; city: string; members: number; entries: number }[]
+}
+export const getAdminAnalytics = () => http<PlatformAnalytics>('GET', '/admin/analytics')
 export const getAdminStats = () =>
-  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number }>('GET', '/admin/stats')
+  http<{ users: number; organizers: number; judges: number; tournaments: number; active: number; unpaid: number; pendingModeration: number; pendingClubs: number; clubReports: number }>('GET', '/admin/stats')
 export const getAdminTournaments = () => http<AdminTournament[]>('GET', '/admin/tournaments')
 export const updateAdminTournament = (id: string, data: Partial<{ paid: boolean; visible: boolean; moderation: 'approved' | 'rejected'; moderationNote: string }>) =>
   http<AdminTournament>('PATCH', `/admin/tournaments/${id}`, data)
 export const getUsers = () => http<User[]>('GET', '/admin/users')
+// clubs for the admins: moderation, duplicates, reports
+export interface AdminClub {
+  id: string; name: string; city: string; institution?: string; logoUrl?: string
+  status: 'pending' | 'approved' | 'rejected'; moderationNote?: string; createdAt: string; createdBy?: string
+  members: number; teams: number; tournamentTeams: number
+  reports: { id: string; reason: string; by: string; createdAt: string }[]
+}
+// organizer strikes: abandoned tournaments and last-minute cancellations
+export interface StrikeItem { id: string; tournament: string; reason: 'abandoned' | 'late_cancel'; createdAt: string; lifted: boolean; note?: string }
+export interface AdminStrike extends StrikeItem { user: { id: string; name: string; email: string } }
+export const getMyStrikes = () => http<{ limit: number; active: number; items: StrikeItem[] }>('GET', '/me/strikes')
+export const getAdminStrikes = () => http<AdminStrike[]>('GET', '/admin/strikes')
+export const liftStrike = (id: string, note: string) => http<{ ok: true }>('POST', `/admin/strikes/${id}/lift`, { note })
+export const getAdminClubs = () => http<AdminClub[]>('GET', '/admin/clubs')
+export const reviewClub = (id: string, status: 'approved' | 'rejected', note?: string) => http<{ id: string; status: string }>('PATCH', `/admin/clubs/${id}`, { status, note })
+export const mergeClub = (id: string, intoId: string) => http<{ id: string }>('POST', `/admin/clubs/${id}/merge`, { intoId })
+export const adminDeleteClub = (id: string, reason: string) => http<void>('DELETE', `/admin/clubs/${id}`, { reason })
+export const resolveClubReport = (id: string) => http<{ ok: true }>('POST', `/admin/club-reports/${id}/resolve`)
+export const reportClub = (id: string, reason: string) => http<{ ok: true }>('POST', `/clubs/${encodeURIComponent(id)}/report`, { reason })
 // ---------- certificates & check-in ----------
 export const verifyCertificate = (code: string) => or404(http<Certificate>('GET', `/certificates/${encodeURIComponent(code)}`))
 export const getMyCertificates = () => http<Certificate[]>('GET', '/me/certificates')

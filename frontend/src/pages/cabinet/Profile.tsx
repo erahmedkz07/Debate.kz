@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input, Label } from '@/components/ui/input'
+import { Input, Label, Switch } from '@/components/ui/input'
 import { SideTabsList, SideTabsTrigger, Tabs, TabsContent } from '@/components/ui/tabs'
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
@@ -25,7 +25,7 @@ import { MyClub } from '@/components/club/MyClub'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { RateJudgesDialog } from '@/components/tournament/JudgeFeedback'
 
-const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger'> = { confirmed: 'success', pending: 'accent', rejected: 'danger' }
+const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger' | 'outline'> = { confirmed: 'success', pending: 'accent', rejected: 'danger', waitlisted: 'outline' }
 
 // Telegram: notifications, phone verification and one-tap judge feedback
 function TelegramCard() {
@@ -185,6 +185,39 @@ function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 }
 
 // password and account removal live here as compact rows; the forms open in dialogs
+// the public career page and the switch that hides it (the personal-data law; many debaters are schoolchildren)
+function PublicProfileCard() {
+  const { t } = useTranslation()
+  const { user, signIn } = useAuth()
+  const [busy, setBusy] = useState(false)
+  if (!user) return null
+  const toggle = async (hidden: boolean) => {
+    setBusy(true)
+    try {
+      // the session keeps the club and the roles; only the flag changes
+      const updated = await updateProfile({ name: user.name, phone: user.phone, institution: user.institution, city: user.city, profileHidden: hidden })
+      signIn({ ...user, profileHidden: updated.profileHidden })
+      toast.success(t(hidden ? 'person.hiddenToast' : 'person.shownToast'))
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Card className="p-6">
+      <h3 className="flex items-center gap-2 font-bold"><UserRound className="size-4 text-primary" />{t('person.cardTitle')}</h3>
+      <p className="mt-1 text-sm text-muted-foreground">{t('person.cardText')}</p>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <Link to={`/people/${user.id}`} className="text-sm font-semibold text-primary hover:underline">{t('person.open')}</Link>
+        <span className={cn('flex items-center gap-2 text-sm font-medium', busy && 'pointer-events-none opacity-60')}>
+          <Switch checked={!!user.profileHidden} onChange={v => void toggle(v)} label={t('person.hide')} />{t('person.hide')}
+        </span>
+      </div>
+    </Card>
+  )
+}
+
 function SecurityCard({ canDelete }: { canDelete: boolean }) {
   const { t } = useTranslation()
   const { user, signIn } = useAuth()
@@ -460,6 +493,7 @@ export default function Profile() {
           <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
             <TelegramCard />
             {/* admins are demoted by another admin before they can leave */}
+            {!isAdmin && <PublicProfileCard />}
             <SecurityCard canDelete={!isAdmin} />
           </div>
           </div>

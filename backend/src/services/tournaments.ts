@@ -10,26 +10,30 @@ import { silentIn } from './silent.js'
 // ---------- shapes sent to the frontend (match frontend/src/types) ----------
 
 // the swing team (stand-in for an odd draw) never counts toward the team limit
-export const summaryInclude = { _count: { select: { teams: { where: { swing: false } } } } } satisfies Prisma.TournamentInclude
+// teams that play (without swing teams) and live applications (everything but rejected)
+export const summaryInclude = {
+  _count: { select: { teams: { where: { swing: false } }, registrations: { where: { status: { not: 'rejected' } } } } },
+} satisfies Prisma.TournamentInclude
 type SummaryRow = Prisma.TournamentGetPayload<{ include: typeof summaryInclude }>
 
 export const toSummary = (t: SummaryRow) => ({
-  id: t.id, name: t.name, city: t.city, startDate: toDay(t.startDate), endDate: toDay(t.endDate),
-  format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams,
+  id: t.id, name: t.name, city: t.city, region: t.region ?? undefined, district: t.district ?? undefined, startDate: toDay(t.startDate), endDate: toDay(t.endDate),
+  format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams, applications: t._count.registrations,
   cover: coverOf(t), organizer: t.organizerName, description: t.description,
-  preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, silentRounds: t.silentRounds, languages: t.languages,
+  preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
   breakCategories: t.breakCategories as { key: string; name: string; size: number }[],
 })
 
 export const teamInclude = {
-  institution: true, speakers: { orderBy: { position: 'asc' } },
+  institution: true, speakers: { orderBy: { position: 'asc' }, include: { user: { select: { profileHidden: true } } } },
   club: { select: { id: true, name: true, logoUrl: true } }, clubTeam: { select: { id: true, name: true, logoUrl: true } },
 } satisfies Prisma.TeamInclude
 type TeamRow = Prisma.TeamGetPayload<{ include: typeof teamInclude }>
 
 export const toTeam = (t: TeamRow) => ({
   id: t.id, tournamentId: t.tournamentId, name: t.name, institution: t.institution?.name ?? '', city: t.city ?? '',
-  speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id })),
+  // userId: a link to the person's public page (an account that did not hide its profile)
+  speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id, ...(s.userId && s.user && !s.user.profileHidden && { userId: s.userId }) })),
   checkedIn: !!t.checkedInAt, swing: t.swing,
   club: t.club ? { id: t.club.id, name: t.club.name, logoUrl: t.club.logoUrl ?? undefined } : undefined, // where the team comes from
   clubTeam: t.clubTeam ? { id: t.clubTeam.id, name: t.clubTeam.name } : undefined,
@@ -80,7 +84,9 @@ export async function assertOwner(user: User | undefined, tournamentId: string) 
 }
 
 // Public listing: approved by an admin and not hidden
-export const publicWhere = { visible: true, moderation: 'approved' as const }
+export const publicWhere = { visible: true, moderation: 'approved' as const, abandonedAt: null } // an abandoned tournament is archived
+// the same rule for one loaded tournament
+export const isPublic = (t: { visible: boolean; moderation: string; abandonedAt: Date | null }) => t.visible && t.moderation === 'approved' && !t.abandonedAt
 
 // One person cannot be both a judge/organizer and a speaker in the same tournament
 export async function participationIn(userId: string, tournamentId: string) {
@@ -104,14 +110,15 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       rounds: { orderBy: { number: 'asc' }, include: { debates: { include: debateInclude, orderBy: { room: 'asc' } } } },
       teams: { include: teamInclude, orderBy: { createdAt: 'asc' } },
       judges: {
-        include: { institution: true, conflicts: { select: { teamId: true } }, user: { select: { clubMembership: { select: { clubId: true } } } } },
+        include: { institution: true, conflicts: { select: { teamId: true } }, user: { select: { profileHidden: true, clubMembership: { select: { clubId: true } } } } },
         orderBy: [{ rating: 'desc' }, { name: 'asc' }],
       },
       registrations: { where: { status: 'pending' }, select: { id: true } },
+      awards: true,
     },
   })
   const manager = await isOrganizerOf(viewer, id)
-  if (!t || ((!t.visible || t.moderation !== 'approved') && !manager)) throw notFound('tournament_not_found')
+  if (!t || (!isPublic(t) && !manager)) throw notFound('tournament_not_found')
   const link = manager ? await organizerLink(viewer, id) : null
 
   // the public never sees unreleased motions or draws
@@ -119,7 +126,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     id: r.id, tournamentId: r.tournamentId, number: r.number, name: r.name,
     motion: r.status === 'draft' && !manager ? '' : r.motion,
     infoSlide: r.status === 'draft' && !manager ? undefined : r.infoSlide ?? undefined,
-    status: r.status, date: toDay(r.date),
+    status: r.status, date: toDay(r.date), ...(r.silent && { silent: true }),
     ...(r.kind === 'elimination' && {
       kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)),
       // a category bracket (novices…): its key and name for the round title
@@ -141,8 +148,13 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       registrationOpen: t.registrationOpen,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
       rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, pendingRegistrations: t.registrations.length,
+      selectionMode: t.selectionMode, clubQuota: t.clubQuota ?? undefined,
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
+    // best speaker / best judge: public once the tournament is finished, organizers see their choice before
+    ...((t.status === 'finished' || manager) && t.awards.length && { awards: t.awards.map(a => ({ kind: a.kind, name: a.name })) }),
+    // the selection lottery is public: its order is shown on the tournament page
+    ...(t.lotteryAt && { lotteryAt: t.lotteryAt.toISOString() }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
     rounds, debates,
     teams: t.teams.map(team => ({
@@ -153,6 +165,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
       hasAccount: !!j.userId, // only judges with an account can send ballots
+      ...(j.userId && j.user && !j.user.profileHidden && { userId: j.userId }),
       // organizers: conflicts the draw respects (personal ones and the judge's club)
       ...(manager && { conflictTeamIds: j.conflicts.map(c => c.teamId), clubId: j.user?.clubMembership?.clubId ?? undefined, institutionId: j.institutionId ?? undefined }),
     })),

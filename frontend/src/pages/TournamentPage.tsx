@@ -6,9 +6,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer,
+  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award,
 } from 'lucide-react'
-import { getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
+import { getSelection, getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
@@ -16,7 +16,7 @@ import type { Debate, Round, Side, TournamentDetails } from '@/types'
 import type { TFunction } from 'i18next'
 import { useAsync } from '@/lib/hooks'
 import { breakForecast } from '@/lib/breakForecast'
-import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
+import { cn, formatDate, formatDateRange, formatDateTime, initials } from '@/lib/utils'
 import { Badge, StatusDot, statusVariant } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -31,8 +31,10 @@ import { isBP, placeOf, sidesOf, teamIdOn, useFormatName, useSides } from '@/lib
 import { formatOfTournament } from '@/content/formats'
 import { useRoundName } from '@/lib/rounds'
 import { PlayoffTab } from '@/components/tournament/Bracket'
+import { ReviewsTab } from '@/components/tournament/Reviews'
 import { silentRoundIds } from '@/lib/silent'
 import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
+import { cityName } from '@/content/geo'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -140,6 +142,28 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   )
 }
 
+// the selection lottery, public: who got a place and who waits, in the drawn order
+function LotteryCard({ id }: { id: string }) {
+  const { t } = useTranslation()
+  const { data } = useAsync(() => getSelection(id), [id])
+  if (!data?.lottery) return null
+  return (
+    <Card className="p-6">
+      <h2 className="flex items-center gap-2 text-xl font-bold"><Shuffle className="size-5 text-primary" />{t('tournament.lotteryTitle')}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{t('tournament.lotteryText', { time: formatDateTime(data.lotteryAt!) })}</p>
+      <ol className="mt-4 grid gap-2 sm:grid-cols-2">
+        {data.lottery.map(x => (
+          <li key={x.rank} className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2 text-sm">
+            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-extrabold text-primary-foreground">{x.rank}</span>
+            <span className="min-w-0 flex-1 truncate font-semibold">{x.team}</span>
+            <Badge variant={x.status === 'confirmed' ? 'success' : 'outline'}>{t(`profile.regStatus.${x.status}`)}</Badge>
+          </li>
+        ))}
+      </ol>
+    </Card>
+  )
+}
+
 function Overview({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
   const formatName = useFormatName(data.format)
@@ -149,6 +173,8 @@ function Overview({ data }: { data: TournamentDetails }) {
     { icon: Medal, label: t('tournament.prelims'), value: data.preliminaryRounds },
     { icon: Star, label: t('tournament.break.label'), value: data.breakSize },
     { icon: Users, label: t('tournament.tabs.teams'), value: `${data.teamsCount} / ${data.maxTeams}` },
+    // live demand: everyone who applied, also over the limit
+    ...(data.applications ? [{ icon: Inbox, label: t('tournament.applications'), value: t('tournament.applicationsOf', { count: data.applications, places: data.maxTeams }) }] : []),
     { icon: Globe, label: t('tournament.languages'), value: data.languages.map(l => (l === 'kz' ? 'Қазақша' : 'Русский')).join(', ') },
   ]
   return (
@@ -158,6 +184,20 @@ function Overview({ data }: { data: TournamentDetails }) {
           <h2 className="text-xl font-bold">{t('tournament.about')}</h2>
           <p className="mt-3 leading-relaxed text-muted-foreground">{data.description}</p>
         </Card>
+        {data.status === 'finished' && data.awards && data.awards.length > 0 && (
+          <Card className="p-6">
+            <h2 className="flex items-center gap-2 text-xl font-bold"><Award className="size-5 text-primary" />{t('awards.title')}</h2>
+            <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+              {data.awards.map(a => (
+                <li key={a.kind} className="flex items-center gap-3 rounded-xl bg-accent-soft px-4 py-3">
+                  <Medal className="size-6 shrink-0 text-navy dark:text-accent" />
+                  <span><span className="block text-xs font-semibold text-muted-foreground">{t(a.kind === 'best_judge' ? 'awards.bestJudge' : 'awards.bestSpeaker')}</span><span className="font-bold">{a.name}</span></span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+        {data.lotteryAt && <LotteryCard id={data.id} />}
         <Card className="p-6">
           <h2 className="flex items-center gap-2 text-xl font-bold"><MessageSquareQuote className="size-5 text-primary" />{t('tournament.motions')}</h2>
           <ol className="mt-4 space-y-3">
@@ -221,7 +261,7 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
             </div>
           </div>
           <ul className="mt-4 space-y-1.5 border-t border-border pt-4">
-            {team.speakers.map(s => <li key={s.id} className="text-sm">{s.name}</li>)}
+            {team.speakers.map(s => <li key={s.id} className="text-sm">{s.userId ? <Link to={`/people/${s.userId}`} className="hover:text-primary hover:underline">{s.name}</Link> : s.name}</li>)}
           </ul>
           <span className="sr-only">{t('tournament.speakers')}</span>
         </Card>
@@ -348,7 +388,7 @@ function RoundBanner({ round }: { round: Round }) {
   )
 }
 
-export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'silentRounds' | 'myRole'> }) {
+export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'myRole'> }) {
   const { t } = useTranslation()
   const sides = useSides(tournament?.format)
   const roundName = useRoundName()
@@ -448,7 +488,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
           {data.speakers.slice(0, 30).map(r => (
             <tr key={r.speaker.id} className="hover:bg-muted/40">
               <td className="px-4 py-3">{medal(r.rank)}</td>
-              <td className="px-4 py-3"><p className="font-bold">{r.speaker.name}</p><p className="text-xs text-muted-foreground">{r.team.name} · {r.team.institution}</p></td>
+              <td className="px-4 py-3"><p className="font-bold">{r.speaker.userId ? <Link to={`/people/${r.speaker.userId}`} className="hover:text-primary hover:underline">{r.speaker.name}</Link> : r.speaker.name}</p><p className="text-xs text-muted-foreground">{r.team.name} · {r.team.institution}</p></td>
               <td className="px-4 py-3 text-right tabular-nums">{r.average.toFixed(1)}</td>
               <td className="px-4 py-3 text-right font-bold tabular-nums">{r.total.toFixed(1)}</td>
             </tr>
@@ -468,7 +508,7 @@ function JudgesTab({ data }: { data: TournamentDetails }) {
         <Card key={j.id} className="flex items-center gap-3 p-4">
           <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-bold">{j.name}</p>
+            <p className="truncate font-bold">{j.userId ? <Link to={`/people/${j.userId}`} className="hover:text-primary hover:underline">{j.name}</Link> : j.name}</p>
             <p className="truncate text-xs text-muted-foreground">{j.institution}</p>
           </div>
           {j.isChair && <Badge variant="accent">{t('tournament.chair')}</Badge>}
@@ -492,11 +532,11 @@ function PageSkeleton() {
 
 export default function TournamentPage() {
   const { id = '' } = useParams()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getTournamentById(id), [id])
   // deep links like /tournaments/:id?tab=draw (e.g. from "My debates")
   const [params] = useSearchParams()
-  const tabs = ['overview', 'teams', 'draw', 'playoffs', 'results', 'speakers', 'judges']
+  const tabs = ['overview', 'teams', 'draw', 'playoffs', 'results', 'speakers', 'judges', 'reviews']
   const requestedTab = params.get('tab')
 
   if (error instanceof NotFoundError) return <NotFound />
@@ -519,7 +559,7 @@ export default function TournamentPage() {
           <h1 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight sm:text-5xl">{data.name}</h1>
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-white/85">
             <span className="flex items-center gap-2"><CalendarDays className="size-4 text-accent" />{formatDateRange(data.startDate, data.endDate)}</span>
-            <span className="flex items-center gap-2"><MapPin className="size-4 text-accent" />{data.city}</span>
+            <span className="flex items-center gap-2"><MapPin className="size-4 text-accent" />{[cityName(data.city, i18n.language === 'kz' ? 'kz' : 'ru'), data.district].filter(Boolean).join(', ')}</span>
             <span className="flex items-center gap-2"><Building2 className="size-4 text-accent" />{t('tournament.organizer')}: {data.organizer}</span>
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
@@ -541,6 +581,7 @@ export default function TournamentPage() {
             <TabsTrigger value="results">{t('tournament.tabs.results')}</TabsTrigger>
             <TabsTrigger value="speakers">{t('tournament.tabs.speakers')}</TabsTrigger>
             <TabsTrigger value="judges">{t('tournament.tabs.judges')}</TabsTrigger>
+            {data.status === 'finished' && <TabsTrigger value="reviews">{t('reviews.tab')}</TabsTrigger>}
           </TabsList>
           <TabsContent value="overview"><Overview data={data} /></TabsContent>
           <TabsContent value="teams"><TeamsTab data={data} /></TabsContent>
@@ -549,6 +590,7 @@ export default function TournamentPage() {
           <TabsContent value="results"><ResultsTab id={data.id} kind="teams" tournament={data} /></TabsContent>
           <TabsContent value="speakers"><ResultsTab id={data.id} kind="speakers" tournament={data} /></TabsContent>
           <TabsContent value="judges"><JudgesTab data={data} /></TabsContent>
+          <TabsContent value="reviews"><ReviewsTab id={data.id} /></TabsContent>
         </Tabs>
       </div>
     </>

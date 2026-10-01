@@ -67,6 +67,8 @@ export default function Notifications() {
       plan: d.pro ? ' · Pro' : '',
       status: d.status ? t(`safety.status.${d.status}`) : '',
       category: d.category ? t(`safety.categories.${d.category}`) : '',
+      // organizer strikes carry a reason code; other notifications carry a reason typed by an admin
+      ...(n.type === 'organizer.strike' && { reason: t(`strikes.reason.${d.reason}`) }),
     }
   }
 

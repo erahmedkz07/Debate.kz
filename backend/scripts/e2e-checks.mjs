@@ -942,6 +942,15 @@ const clubId = r.data.id
 ok(r.status === 201, 'a verified user creates a club and becomes its member')
 ok((await clubA('POST', '/clubs', { name: `Второй ${uniq}`, city: 'Астана' })).data?.error === 'already_in_club', 'one person is in one club only')
 ok((await clubB('POST', '/clubs', { name: `Клуб ${uniq}`, city: 'Астана' })).data?.error === 'club_exists', 'club names are unique within a city')
+// against fake clubs: a new club waits for an admin
+ok(r.status === 201 && (await clubA('GET', `/clubs/${clubId}`)).data.status === 'pending', 'a new club waits for an admin')
+ok(!(await client()('GET', '/clubs')).data.some(c => c.id === clubId) && (await client()('GET', `/clubs/${clubId}`)).status === 404, 'an unchecked club is not in the catalogue and not open to outsiders')
+ok((await admin('GET', '/admin/clubs')).data.find(c => c.id === clubId)?.status === 'pending', 'the admins see it in the queue')
+ok((await admin('PATCH', `/admin/clubs/${clubId}`, { status: 'rejected' })).data?.error === 'reason_required', 'rejecting needs a reason')
+await admin('PATCH', `/admin/clubs/${clubId}`, { status: 'rejected', note: 'Укажите учебное заведение полностью' })
+ok((await clubA('GET', `/clubs/${clubId}`)).data.moderationNote === 'Укажите учебное заведение полностью' && (await notes(clubA)).items.some(n => n.type === 'participant.clubRejected'), 'members learn why it was rejected')
+ok((await clubA('PATCH', `/clubs/${clubId}`, { institution: 'Евразийский национальный университет' })).data?.status === 'pending', 'after a fix the club goes back to the admins')
+ok((await admin('PATCH', `/admin/clubs/${clubId}`, { status: 'approved' })).status === 200 && (await client()('GET', '/clubs')).data.some(c => c.id === clubId), 'an approved club is in the catalogue')
 let club = (await clubA('GET', `/clubs/${clubId}`)).data
 ok(club.isMember && /^[A-Z2-9]{8}$/.test(club.joinCode) && club.log.some(l => l.action === 'created'), 'members see the join code and the club log')
 ok((await client()('GET', `/clubs/${clubId}`)).data.joinCode === undefined, 'outsiders do not see the join code')
@@ -977,6 +986,26 @@ await outsider('POST', '/clubs/join', { code: r.data ? (await clubA('GET', `/clu
 await outsider('PUT', `/clubs/${clubId}/members/${(await outsider('GET', '/auth/me')).data.user.id}/team`, { teamId: beta })
 r = await outsider('POST', `/tournaments/${small.id}/registrations`, { teamName: `С клубом ${uniq}`, institution: 'ЕНУ', speakers: ['Клубный Членo', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
 ok(r.status === 201, 'with a club and a team the application goes through')
+{
+  // a club no admin has approved cannot send a team, and duplicates are merged, fakes reported and removed
+  const fake = await newAccount('Фейк Клубов')
+  const fc = (await fake.c('POST', '/clubs', { name: `Клуб ${uniq} дубль`, city: 'Астана' })).data
+  await fake.c('POST', `/clubs/${fc.id}/teams`, { name: 'Дубль', join: true })
+  r = await fake.c('POST', `/tournaments/${small.id}/registrations`, { teamName: `Дубль ${uniq}`, institution: 'Школа', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
+  ok(r.data?.error === 'club_not_verified', 'a team of an unchecked club cannot apply to a tournament')
+  ok((await outsider('POST', `/clubs/${fc.id}/report`, { reason: 'Это дубль клуба' })).status === 201
+    && (await outsider('POST', `/clubs/${fc.id}/report`, { reason: 'Ещё раз' })).data?.error === 'already_reported', 'a person reports a fake club once')
+  ok((await admin('GET', '/admin/clubs')).data.find(c => c.id === fc.id)?.reports.length === 1, 'the admins see the report')
+  r = await admin('POST', `/admin/clubs/${fc.id}/merge`, { intoId: clubId })
+  const merged = (await client()('GET', `/clubs/${clubId}`)).data
+  ok(r.status === 200 && merged.members.some(m => m.id === fake.id) && merged.teams.some(t => t.name === 'Дубль') && (await client()('GET', `/clubs/${fc.id}`)).status === 404,
+    'merging moves the members and teams of the duplicate into the real club')
+  const gone = await newAccount('Удалённый Клуб')
+  const gc = (await gone.c('POST', '/clubs', { name: `Пустышка ${uniq}`, city: 'Астана' })).data
+  ok((await admin('DELETE', `/admin/clubs/${gc.id}`, { reason: 'Фейковый клуб' })).status === 204
+    && (await notes(gone.c)).items.some(n => n.type === 'participant.clubDeleted') && (await gone.c('GET', '/me/club')).data.club === undefined, 'an admin removes a fake club and its members are told')
+  ok((await admin('GET', '/admin/actions')).data.some(a => a.action === 'club.merge'), 'club decisions go to the audit log')
+}
 const smallRegs = (await payer('GET', `/tournaments/${small.id}/registrations`)).data
 await payer('PATCH', `/registrations/${smallRegs.find(x => x.teamName === `С клубом ${uniq}`).id}`, { status: 'confirmed' })
 const smallTeams = (await payer('GET', `/tournaments/${small.id}`)).data.teams
@@ -1094,6 +1123,7 @@ for (const [c, n] of [[reqClubOwner, 'ro'], [applicant, 'ap']]) {
   await c('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
 }
 const rClub = (await reqClubOwner('POST', '/clubs', { name: `Заявочный ${uniq}`, city: 'Астана' })).data.id
+await admin('PATCH', `/admin/clubs/${rClub}`, { status: 'approved' }) // checked: it is in the catalogue
 const rTeam = (await reqClubOwner('POST', `/clubs/${rClub}/teams`, { name: 'Основа', join: true })).data.id
 ok((await client()('POST', `/clubs/${rClub}/requests`, {})).status === 401, 'a guest cannot ask to join')
 r = await applicant('POST', `/clubs/${rClub}/requests`, { message: 'Хочу в клуб, говорю вторым спикером' })
@@ -1279,6 +1309,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   // club and team logos
   const owner = await newAccount('Логотип Клуба')
   const club = (await owner.c('POST', '/clubs', { name: `Клуб логотипов ${jtag}`, city: 'Астана' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
   const sess = cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: owner.email, password: 'secret123' }) }), 'dkz_token')
   const png = await sharpR({ create: { width: 300, height: 200, channels: 3, background: '#009bc9' } }).png().toBuffer()
   const up = async (url, file, cookie = sess) => {
@@ -1607,9 +1638,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
 // ---------- 43. silent rounds: results hidden from the public until the break ----------
 {
   const host = await newAccount('Тихие Организатор')
-  const q = (await host.c('POST', '/tournaments', { ...tBody(120), name: `Тихие ${jtag}`, preliminaryRounds: 2, breakSize: 2, silentRounds: 1 })).data
-  ok(q.silentRounds === 1, 'the organizer makes the last preliminary round silent')
-  ok((await host.c('PATCH', `/tournaments/${q.id}`, { silentRounds: 2 })).data?.error === 'too_many_silent_rounds', 'at least one preliminary round stays open')
+  const q = (await host.c('POST', '/tournaments', { ...tBody(120), name: `Тихие ${jtag}`, preliminaryRounds: 2, breakSize: 2 })).data
   await admin('PATCH', `/admin/tournaments/${q.id}`, { moderation: 'approved' })
   for (const n of ['Тихие 1', 'Тихие 2', 'Тихие 3', 'Тихие 4']) await host.c('POST', `/tournaments/${q.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
   for (let i = 1; i <= 2; i++) await addJudge(host.c, q.id, `Тихий Судья ${i}`)
@@ -1622,6 +1651,8 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const [r1, r2] = (await host.c('GET', `/tournaments/${q.id}`)).data.rounds
   for (const rd of [r1, r2]) {
     await host.c('POST', `/rounds/${rd.id}/draw`, { addSwing: false })
+    // round 2 is closed after its draw is made: the switch works at any time
+    if (rd.id === r2.id) ok((await host.c('PATCH', `/rounds/${rd.id}`, { silent: true })).status === 200, 'the organizer closes round 2 after its draw')
     await host.c('PATCH', `/rounds/${rd.id}`, { motion: 'ЭП запретила бы домашние задания', status: 'released' })
     for (const d of (await host.c('GET', `/tournaments/${q.id}`)).data.debates.filter(x => x.roundId === rd.id)) await panelVote(d.id, vote)
     await host.c('PATCH', `/rounds/${rd.id}`, { status: 'completed' })
@@ -1632,7 +1663,12 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const pubDebates = (await client()('GET', `/tournaments/${q.id}`)).data.debates
   ok(pubDebates.filter(x => x.roundId === r2.id).every(x => x.winner === undefined) && pubDebates.filter(x => x.roundId === r1.id).every(x => x.winner),
     "the public draw hides who won a silent round")
+  ok((await host.c('PATCH', `/rounds/${r2.id}`, { silent: false })).status === 200
+    && wins((await client()('GET', `/tournaments/${q.id}/standings`)).data.teams) === 4, 'opening the round shows its results at once')
+  await host.c('PATCH', `/rounds/${r2.id}`, { silent: true })
   ok((await host.c('POST', `/tournaments/${q.id}/break`)).status === 201, 'the break is announced (on the real results)')
+  const final = (await host.c('GET', `/tournaments/${q.id}`)).data.rounds.find(x => x.kind === 'elimination')
+  ok((await host.c('PATCH', `/rounds/${final.id}`, { silent: true })).data?.error === 'playoff_round_not_silent', 'a playoff round cannot be closed')
   ok(wins((await client()('GET', `/tournaments/${q.id}/standings`)).data.teams) === 4, 'after the break the silent round is revealed')
 }
 // ---------- 44. judge conflicts: institution, own club, personal ----------
@@ -1746,6 +1782,282 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     cert = (await db.query("select c.break_category, c.category_place, c.in_break from certificates c join speakers s on s.id = c.speaker_id where c.tournament_id = $1 and s.team_id = $2 limit 1", [cat.id, novChamp])).rows[0]
   }
   ok(cert?.break_category === 'Новички' && cert.category_place === 1 && cert.in_break === true, "the novice champion's certificate says so")
+}
+// ---------- 47. draw methods: round robin, slide, fold ----------
+{
+  const host = await newAccount('Методы Организатор')
+  const rr = (await host.c('POST', '/tournaments', { ...tBody(160), name: `Круговой ${jtag}`, preliminaryRounds: 3, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${rr.id}`, { moderation: 'approved' })
+  for (const n of ['Круг 1', 'Круг 2', 'Круг 3', 'Круг 4']) await host.c('POST', `/tournaments/${rr.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  for (let i = 1; i <= 2; i++) await addJudge(host.c, rr.id, `Круговой Судья ${i}`)
+  const vote = sheet => {
+    const scores = {}
+    sheet.proposition.speakers.forEach(x => (scores[x.id] = 72)); sheet.opposition.speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: 'proposition', scores, reply: { proposition: 36, opposition: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  const meetings = new Set()
+  let draws = 0
+  for (const rd of (await host.c('GET', `/tournaments/${rr.id}`)).data.rounds) {
+    r = await host.c('POST', `/rounds/${rd.id}/draw`, { addSwing: false, method: 'round_robin' })
+    if (r.status === 201) draws++
+    r.data.debates.forEach(d => meetings.add([d.propositionTeamId, d.oppositionTeamId].sort().join('|')))
+    await host.c('PATCH', `/rounds/${rd.id}`, { motion: 'ЭП ввела бы бесплатный транспорт', status: 'released' })
+    for (const d of (await host.c('GET', `/tournaments/${rr.id}`)).data.debates.filter(x => x.roundId === rd.id)) await panelVote(d.id, vote)
+    await host.c('PATCH', `/rounds/${rd.id}`, { status: 'completed' })
+  }
+  ok(draws === 3 && meetings.size === 6, 'round robin: in three rounds every one of four teams meets each other once')
+
+  const sf = (await host.c('POST', '/tournaments', { ...tBody(161), name: `Слайд ${jtag}`, preliminaryRounds: 2, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${sf.id}`, { moderation: 'approved' })
+  for (const n of ['Слайд 1', 'Слайд 2', 'Слайд 3', 'Слайд 4', 'Слайд 5', 'Слайд 6', 'Слайд 7', 'Слайд 8']) await host.c('POST', `/tournaments/${sf.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} А`, `${n} Б`, `${n} В`] })
+  for (let i = 1; i <= 4; i++) await addJudge(host.c, sf.id, `Слайд Судья ${i}`)
+  const [s1, s2] = (await host.c('GET', `/tournaments/${sf.id}`)).data.rounds
+  await host.c('POST', `/rounds/${s1.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${s1.id}`, { motion: 'ЭП запретила бы смартфоны в школах', status: 'released' })
+  for (const d of (await host.c('GET', `/tournaments/${sf.id}`)).data.debates.filter(x => x.roundId === s1.id)) await panelVote(d.id, vote)
+  await host.c('PATCH', `/rounds/${s1.id}`, { status: 'completed' })
+  const winners = new Set((await host.c('GET', `/tournaments/${sf.id}`)).data.debates.filter(x => x.roundId === s1.id).map(d => d.propositionTeamId))
+  for (const method of ['slide', 'fold']) {
+    r = await host.c('POST', `/rounds/${s2.id}/draw`, { addSwing: false, method })
+    ok(r.status === 201 && r.data.debates.every(d => winners.has(d.propositionTeamId) === winners.has(d.oppositionTeamId)), `${method}: teams meet inside their bracket (winners with winners)`)
+  }
+  const bpT = (await host.c('POST', '/tournaments', { ...tBody(162), name: `BP метод ${jtag}`, format: 'BP', breakSize: 4 })).data
+  const bpRound = (await host.c('GET', `/tournaments/${bpT.id}`)).data.rounds[0]
+  ok((await host.c('POST', `/rounds/${bpRound.id}/draw`, { method: 'round_robin' })).data?.error === 'method_not_for_bp', 'round robin is for two-team formats')
+}
+// ---------- 48. the place: region, city or village, district ----------
+{
+  const host = await newAccount('География Организатор')
+  const a = (await host.c('POST', '/tournaments', { ...tBody(170), name: `Кокшетау ${jtag}`, city: 'Кокшетау' })).data
+  ok(a.region === 'akmola', "a known city brings its region")
+  r = await host.c('POST', '/tournaments', { ...tBody(171), name: `Село ${jtag}`, city: 'Жарма', region: 'abai', district: 'ул. Абая, 10' })
+  ok(r.status === 201 && r.data.region === 'abai' && r.data.district === 'ул. Абая, 10', 'a village is typed in with its region and an address')
+  ok((await host.c('POST', '/tournaments', { ...tBody(172), name: `Нет региона ${jtag}`, region: 'mars' })).status === 400, 'an unknown region is refused')
+  for (const x of [a, r.data]) await admin('PATCH', `/admin/tournaments/${x.id}`, { moderation: 'approved' })
+  const akmola = (await client()('GET', '/tournaments?region=akmola&limit=100')).data
+  ok(akmola.some(x => x.id === a.id) && !akmola.some(x => x.id === r.data.id), 'the list filters by region')
+  ok((await host.c('PATCH', `/tournaments/${a.id}`, { city: 'Шымкент' })).data?.region === 'shymkent', 'a new city moves the region along')
+}
+// ---------- 49. selection: unlimited applications, first come / lottery, club quota, waitlist ----------
+{
+  const host = await newAccount('Отбор Организатор')
+  const mk = async (n, extra) => {
+    const t = (await host.c('POST', '/tournaments', { ...tBody(180 + n), name: `Отбор ${n} ${jtag}`, maxTeams: 4, ...extra })).data
+    await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+    return t
+  }
+  // applicants: three in one club (X), the others in their own clubs; every club is approved by an admin
+  const people = []
+  let clubX
+  for (const [i, name] of ['Отбор Икс Один', 'Отбор Икс Два', 'Отбор Икс Три', 'Отбор Бэ', 'Отбор Вэ', 'Отбор Гэ'].entries()) {
+    const p = await newAccount(name)
+    if (i === 0 || i >= 3) {
+      const club = (await p.c('POST', '/clubs', { name: `Отбор клуб ${i} ${jtag}`, city: 'Астана' })).data
+      await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+      if (i === 0) clubX = club.id
+    } else {
+      const code = (await people[0].c('GET', `/clubs/${clubX}`)).data.joinCode
+      await p.c('POST', '/clubs/join', { code })
+    }
+    const myClub = (await p.c('GET', '/me/club')).data.club.id
+    await p.c('POST', `/clubs/${myClub}/teams`, { name: `Отбор команда ${i}`, join: true })
+    people.push(p)
+  }
+  const apply = (p, t, i) => p.c('POST', `/tournaments/${t.id}/registrations`, {
+    teamName: `Отбор ${i}`, institution: 'Лицей', speakers: [`Спикер ${i} А`, `Спикер ${i} Б`, `Спикер ${i} В`], phone: '+7 701 555 44 33', guardianConsent: true,
+  })
+
+  const fc = await mk(1)
+  ok((await host.c('PATCH', `/tournaments/${fc.id}`, { selectionMode: 'first_come', clubQuota: 2 })).status === 200, 'the organizer chooses "first come" and at most 2 teams per club')
+  const st = []
+  for (const [i, p] of people.entries()) st.push((await apply(p, fc, i)).data?.status)
+  ok(st.join() === 'confirmed,confirmed,waitlisted,confirmed,confirmed,waitlisted', 'first come: places while they last; the 3rd team of a club and the 6th team wait')
+  let sel = (await client()('GET', `/tournaments/${fc.id}/selection`)).data
+  ok(sel.applications === 6 && sel.places === 4 && sel.taken === 4 && sel.waitlisted === 2, 'the public sees 6 applications for 4 places')
+  ok((await client()('GET', `/tournaments?limit=100`)).data.find(x => x.id === fc.id)?.applications === 6, 'the tournament card counts live applications')
+  // a team leaves: the club-X team is skipped (quota), the next in line takes the place
+  const teams = (await host.c('GET', `/tournaments/${fc.id}`)).data.teams
+  ok((await host.c('DELETE', `/teams/${teams.find(x => x.name === 'Отбор 3').id}`)).status === 204, 'the organizer removes a team')
+  let regs = (await host.c('GET', `/tournaments/${fc.id}/registrations`)).data
+  ok(regs.find(r => r.teamName === 'Отбор 5').status === 'confirmed' && regs.find(r => r.teamName === 'Отбор 2').status === 'waitlisted', 'the waitlist moves up, skipping a team over its club quota')
+  await host.c('PATCH', `/tournaments/${fc.id}`, { clubQuota: 3, maxTeams: 6 })
+  regs = (await host.c('GET', `/tournaments/${fc.id}/registrations`)).data
+  ok(regs.find(r => r.teamName === 'Отбор 2').status === 'confirmed', 'a looser quota and a higher limit let the waiting team in')
+
+  const lt = await mk(2)
+  await host.c('PATCH', `/tournaments/${lt.id}`, { selectionMode: 'lottery' })
+  for (const [i, p] of people.slice(0, 5).entries()) await apply(p, lt, i)
+  ok((await host.c('GET', `/tournaments/${lt.id}/registrations`)).data.every(r => r.status === 'pending'), 'lottery: applications wait for the draw')
+  r = await host.c('POST', `/tournaments/${lt.id}/selection/lottery`)
+  ok(r.status === 201 && r.data.confirmed === 4 && r.data.waitlisted === 1, 'the lottery gives 4 places and puts the rest on the waitlist')
+  sel = (await client()('GET', `/tournaments/${lt.id}/selection`)).data
+  ok(sel.lotteryAt && sel.lottery.length === 5 && sel.lottery.map(x => x.rank).join() === '1,2,3,4,5', 'the lottery order is public')
+  ok((await host.c('POST', `/tournaments/${lt.id}/selection/lottery`)).data?.error === 'lottery_done', 'the lottery is drawn once')
+  r = await apply(people[5], lt, 5)
+  ok(r.data?.status === 'waitlisted' && (await client()('GET', `/tournaments/${lt.id}/selection`)).data.lottery.find(x => x.team === 'Отбор 5')?.rank === 6, 'a late application joins the end of the waitlist')
+}
+// ---------- 50. tournament reviews: everyone who took part rates a finished tournament ----------
+{
+  const done = (await db.query("select id from tournaments where name like $1 and status = 'finished' order by created_at desc limit 1", [`Плей-офф ${jtag}`])).rows[0].id
+  const judgeId = (await db.query('select id from judges where tournament_id = $1 and user_id is not null limit 1', [done])).rows[0].id
+  const jc = await judgeAs(judgeId)
+  ok((await notes(jc)).items.some(n => n.type === 'participant.rateTournament'), 'finishing the tournament asks its judges to rate it')
+  const fan = await newAccount('Оценщик Спикер')
+  const sp = (await db.query('select s.id from speakers s join teams t on t.id = s.team_id where t.tournament_id = $1 and s.user_id is null limit 1', [done])).rows[0].id
+  await db.query('update speakers set user_id = $1 where id = $2', [fan.id, sp])
+  ok((await (await newAccount('Посторонний Зритель')).c('POST', `/tournaments/${done}/review`, { score: 5 })).data?.error === 'not_a_participant', 'only participants and judges rate a tournament')
+  ok((await fan.c('POST', `/tournaments/${done}/review`, { score: 6 })).status === 400, 'the rating is 1 to 5')
+  ok((await fan.c('POST', `/tournaments/${done}/review`, { score: 3 })).status === 201
+    && (await fan.c('POST', `/tournaments/${done}/review`, { score: 4, comment: 'Отличные темы, но задержки между раундами' })).status === 201, 'a speaker rates it and can change the rating')
+  ok((await jc('POST', `/tournaments/${done}/review`, { score: 5 })).status === 201, 'a judge rates it too')
+  const rv = (await client()('GET', `/tournaments/${done}/reviews`)).data
+  ok(rv.count === 2 && rv.average === 4.5 && rv.spread.join() === '1,1,0,0,0', 'the public sees the average and the spread')
+  ok(rv.items.length === 1 && rv.items[0].role === 'speaker' && rv.items[0].comment.startsWith('Отличные') && rv.items[0].userId === undefined && rv.items[0].name === undefined, 'comments are shown without names, with the role only')
+  ok(rv.organizer.count >= 2 && typeof rv.organizer.average === 'number', "the organizer's average across their tournaments is public")
+  const mine = (await fan.c('GET', `/tournaments/${done}/reviews`)).data
+  ok(mine.canReview && mine.mine?.score === 4, 'a participant sees their own rating')
+  const open = (await db.query("select id from tournaments where status <> 'finished' and moderation = 'approved' limit 1")).rows[0].id
+  ok((await fan.c('POST', `/tournaments/${open}/review`, { score: 5 })).data?.error === 'tournament_not_finished', 'a tournament is rated after it finishes')
+}
+// ---------- 51. best speaker and best judge: the site suggests, the organizer confirms, diplomas ----------
+{
+  const done = (await db.query("select id from tournaments where name like $1 and status = 'finished' order by created_at desc limit 1", [`Плей-офф ${jtag}`])).rows[0].id
+  const ownerEmail = (await db.query("select u.email from tournament_organizers o join users u on u.id = o.user_id where o.tournament_id = $1 and o.role = 'owner'", [done])).rows[0].email
+  const host = client()
+  await host('POST', '/auth/login', { email: ownerEmail, password: 'secret123' })
+  // three speakers of one debate rate its chair: enough reviews to suggest the judge
+  const deb = (await db.query("select d.id, dj.judge_id, d.proposition_team_id, d.opposition_team_id from debates d join debate_judges dj on dj.debate_id = d.id and dj.is_chair join rounds r on r.id = d.round_id where r.tournament_id = $1 and r.kind = 'preliminary' limit 1", [done])).rows[0]
+  const spk = (await db.query('select id from speakers where team_id in ($1, $2) order by id limit 3', [deb.proposition_team_id, deb.opposition_team_id])).rows
+  for (const [i, sp] of spk.entries()) {
+    const a = await newAccount(`Рецензент ${['Один', 'Два', 'Три'][i]}`)
+    await db.query('update speakers set user_id = $1 where id = $2', [a.id, sp.id])
+    await a.c('POST', `/debates/${deb.id}/feedback`, { judgeId: deb.judge_id, score: 5 - (i === 2 ? 1 : 0) })
+  }
+  const cand = (await host('GET', `/tournaments/${done}/awards`)).data
+  ok(cand.speakers.length === 3 && cand.speakers.every(s => s.rounds >= cand.preliminaryRounds) && cand.speakers[0].total >= cand.speakers[1].total, 'the site suggests the top speakers who spoke in every preliminary round')
+  ok(cand.judges[0]?.id === deb.judge_id && cand.judges[0].reviews === 3 && cand.judges[0].average === 4.7, 'and the judge with the best rating from the speakers (3+ reviews)')
+  ok((await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_speaker', personId: 'nobody' })).data?.error === 'award_person_not_found', 'an award goes to someone of this tournament')
+  ok((await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_speaker', personId: cand.speakers[0].id })).status === 200
+    && (await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_judge', personId: deb.judge_id })).status === 200, 'the organizer confirms the best speaker and the best judge')
+  const awardCerts = async () => (await db.query("select award, name from certificates where tournament_id = $1 and kind = 'award' order by award", [done])).rows
+  let certs = await awardCerts()
+  ok(certs.length === 2 && certs[0].award === 'best_judge' && certs[1].name === cand.speakers[0].name, 'a finished tournament gets the award diplomas at once')
+  const pub = (await client()('GET', `/tournaments/${done}`)).data.awards
+  ok(pub?.length === 2 && pub.some(a => a.kind === 'best_speaker' && a.name === cand.speakers[0].name), 'the tournament page shows the awards')
+  await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_speaker', personId: cand.speakers[1].id })
+  certs = await awardCerts()
+  ok(certs.length === 2 && certs[1].name === cand.speakers[1].name, 'a changed choice replaces the diploma')
+  await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_judge', personId: null })
+  ok((await awardCerts()).length === 1, 'an award can be withdrawn')
+}
+// ---------- 52. public profiles: a speaker's and a judge's career, "hide my profile" ----------
+{
+  const done = (await db.query("select id from tournaments where name like $1 and status = 'finished' order by created_at desc limit 1", [`Плей-офф ${jtag}`])).rows[0].id
+  // a speaker of the champion team with an account
+  const champ = (await client()('GET', `/tournaments/${done}/bracket`)).data.champion
+  const sp = (await db.query('select s.id, s.user_id from speakers s where s.team_id = $1 order by s.position limit 1', [champ.id])).rows[0]
+  let pid = sp.user_id
+  if (!pid) {
+    const a = await newAccount('Публичный Спикер')
+    await db.query('update speakers set user_id = $1 where id = $2', [a.id, sp.id])
+    pid = a.id
+  }
+  const pro = (await client()('GET', `/people/${pid}`)).data
+  const entry = pro.speaker?.tournaments.find(x => x.id === done)
+  ok(entry && entry.place === 1 && entry.team === champ.name && pro.speaker.debates >= 2 && typeof pro.speaker.average === 'number', "a speaker's page lists the tournament, the place and the speaking record")
+  ok(pro.awards.some(a => a.tournament.id === done), 'and the awards (diplomas) of finished tournaments')
+  const team = (await client()('GET', `/tournaments/${done}`)).data.teams.find(x => x.id === champ.id)
+  ok(team.speakers.find(s => s.id === sp.id)?.userId === pid, 'speaker names link to the page')
+  const judgeUser = (await db.query('select user_id, id from judges where tournament_id = $1 and user_id is not null limit 1', [done])).rows[0]
+  const jp = (await client()('GET', `/people/${judgeUser.user_id}`)).data
+  ok(jp.judge.tournaments.some(x => x.id === done) && jp.judge.rounds >= 1 && jp.judge.rating === undefined, "a judge's page counts rounds and chairs; the rating shows only with 5+ reviews")
+  // the person hides the profile: no page, no links
+  const c = client()
+  await c('POST', '/auth/login', { email: (await db.query('select email from users where id = $1', [pid])).rows[0].email, password: 'secret123' })
+  ok((await c('PATCH', '/me', { name: 'Публичный Спикер', profileHidden: true })).data?.user?.profileHidden === true, 'a person hides the public profile')
+  ok((await client()('GET', `/people/${pid}`)).status === 404 && (await c('GET', `/people/${pid}`)).data.hidden === true, 'a hidden page is closed to others; the person still sees it')
+  const team2 = (await client()('GET', `/tournaments/${done}`)).data.teams.find(x => x.id === champ.id)
+  ok(team2.speakers.find(s => s.id === sp.id)?.userId === undefined, 'and the links disappear')
+}
+// ---------- 53. strikes and reminders: abandoned tournaments, last-minute cancellations ----------
+{
+  const host = await newAccount('Страйк Организатор')
+  const mk = async (n, start, end) => {
+    const t = (await host.c('POST', '/tournaments', { ...tBody(200 + n), name: `Страйк ${n} ${jtag}` })).data
+    await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+    if (start) await db.query('update tournaments set start_date = $2, end_date = $3 where id = $1', [t.id, start, end ?? start])
+    return t
+  }
+  const team = (t, i) => host.c('POST', `/tournaments/${t.id}/teams`, { name: `Страйк команда ${i}`, institution: 'Школа', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+  const run = today => admin('POST', '/admin/watchdog/run', { today })
+  const mine = async type => (await notes(host.c)).items.filter(n => n.type === type && n.data.tournament?.includes(jtag))
+  // the watchdog on pretend dates (e2e only): no motions 2 days before the start; a tournament that ended 2 days ago
+  const soon = await mk(1, '2020-01-03', '2020-01-04')
+  const old = await mk(2, '2019-12-29', '2019-12-30')
+  await run('2020-01-01')
+  await run('2020-01-01')
+  ok((await mine('organizer.motionsMissing')).length === 1, 'reminder: motions are missing 3 days before the start (once)')
+  ok((await mine('organizer.finishReminder')).length === 1, 'reminder: the tournament ended but is not finished')
+  await run('2020-01-04')
+  ok((await mine('organizer.archiveWarning')).some(n => n.data.days === 2), 'warning: 2 days left before the archive and a strike')
+  await run('2020-01-06')
+  const mineList = (await host.c('GET', '/organizer/tournaments')).data
+  ok(mineList.find(x => x.id === old.id)?.abandoned === true && !mineList.find(x => x.id === soon.id)?.abandoned, '7 days after the end the tournament goes to the archive')
+  ok((await client()('GET', `/tournaments/${old.id}`)).status === 404 && (await host.c('GET', `/tournaments/${old.id}`)).status === 200, 'an archived tournament is hidden from the public, the organizer still sees it')
+  let s = (await host.c('GET', '/me/strikes')).data
+  ok(s.active === 1 && s.items[0].reason === 'abandoned' && (await mine('organizer.strike')).length === 1, 'and the owner gets a strike')
+
+  // deleting a tournament with teams less than 3 days before the start: a strike; without teams or early: none
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const late = await mk(3, today)
+  await team(late, 1)
+  await host.c('DELETE', `/tournaments/${late.id}`)
+  const empty = await mk(4, today)
+  await host.c('DELETE', `/tournaments/${empty.id}`)
+  const early = await mk(5)
+  await team(early, 2)
+  await host.c('DELETE', `/tournaments/${early.id}`)
+  s = (await host.c('GET', '/me/strikes')).data
+  ok(s.active === 2 && s.items[0].reason === 'late_cancel', 'a last-minute cancellation with teams is a strike; an empty or early one is not')
+  const late2 = await mk(6, today)
+  await team(late2, 3)
+  await host.c('DELETE', `/tournaments/${late2.id}`)
+  let r = await host.c('POST', '/tournaments', { ...tBody(207), name: `Страйк 7 ${jtag}` })
+  ok(r.status === 403 && r.data.error === 'too_many_strikes', '3 strikes: no new tournaments')
+  ok((await host.c('GET', '/me/debates')).status === 200 && (await host.c('GET', '/me/registrations')).status === 200, 'but the account works as before')
+  ok((await notes(admin)).items.some(n => n.type === 'admin.strikeLimit' && n.data.tournament?.includes(jtag)), 'admins learn about the third strike')
+
+  // the admin sees and lifts a strike, with a reason for the log
+  const list = (await admin('GET', '/admin/strikes')).data.filter(x => x.user.id === host.id)
+  ok(list.length === 3 && list.every(x => !x.lifted), 'the admin sees the strikes')
+  ok((await host.c('GET', '/admin/strikes')).status === 403, 'only admins see everyone')
+  ok((await admin('POST', `/admin/strikes/${list[0].id}/lift`, { note: '' })).status === 400, 'lifting needs a reason')
+  await admin('POST', `/admin/strikes/${list[0].id}/lift`, { note: 'Турнир перенесли из-за погоды' })
+  s = (await host.c('GET', '/me/strikes')).data
+  ok(s.active === 2 && s.items.some(x => x.lifted && x.note), 'a lifted strike stays in the history')
+  r = await host.c('POST', '/tournaments', { ...tBody(208), name: `Страйк 8 ${jtag}` })
+  ok(r.status === 201, 'and the person can create tournaments again')
+
+  // finishing an archived tournament brings it back (the strike stays)
+  for (const i of [4, 5]) await team(old, i)
+  await host.c('PATCH', `/tournaments/${old.id}`, { status: 'ongoing' })
+  r = await host.c('PATCH', `/tournaments/${old.id}`, { status: 'finished' })
+  ok(r.status === 200 && (await client()('GET', `/tournaments/${old.id}`)).status === 200, 'finishing an archived tournament brings it back')
+  ok((await client()('POST', '/admin/watchdog/run', {})).status === 401, 'the watchdog is admin-only')
+}
+// ---------- 54. admin analytics: aggregates only, no personal data ----------
+{
+  const r = await admin('GET', '/admin/analytics')
+  const a = r.data
+  const approved = Number((await db.query("select count(*) from tournaments where moderation = 'approved'")).rows[0].count)
+  const teams = Number((await db.query("select count(*) from teams t join tournaments x on x.id = t.tournament_id where x.moderation = 'approved' and not t.swing")).rows[0].count)
+  ok(r.status === 200 && a.months.length === 12 && a.totals.tournaments === approved && a.totals.teams === teams, 'analytics: 12 months of growth, totals match the database')
+  ok(a.regions.some(x => x.key === 'astana' && x.tournaments > 0) && a.tournaments.byLevel.length > 0 && a.tournaments.byFormat.length > 0, 'tournaments by region, level and format')
+  ok(a.people.active > 0 && a.people.returning <= a.people.active && a.tournaments.activeStrikes >= 2, 'participants who came back, active strikes')
+  const json = JSON.stringify(a)
+  ok(!/@|gender|"email"|"phone"/i.test(json), 'no personal data in the analytics')
+  const someone = await newAccount('Аналитика Посторонний')
+  ok((await someone.c('GET', '/admin/analytics')).status === 403, 'only admins see the analytics')
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

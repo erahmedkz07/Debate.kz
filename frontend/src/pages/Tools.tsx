@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, BookOpen, Calculator, Library, Scale, Timer, UserPlus } from 'lucide-react'
+import { ArrowRight, BookOpen, Calculator, Library, Scale, Timer, Trophy, UserPlus } from 'lucide-react'
 import { PageHeader } from '@/components/layout/Layout'
 import { Reveal } from '@/components/motion'
 
 // "Tools": everything a debater uses to train and to run a round — tools and reference pages in one place
 const tools = [
+  { to: '/break-calculator', key: 'breakCalculator', icon: Trophy },
   { to: '/timer', key: 'timer', icon: Timer },
   { to: '/calculator', key: 'calculator', icon: Calculator },
   { to: '/formats', key: 'formats', icon: Scale },

@@ -6,9 +6,10 @@ import { Badge, StatusDot } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/states'
 import { formatDateRange } from '@/lib/utils'
 import { formatOfTournament } from '@/content/formats'
+import { cityName } from '@/content/geo'
 
 export function TournamentCard({ t: item }: { t: Tournament }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const fill = Math.round((item.teamsCount / item.maxTeams) * 100)
 
   return (
@@ -33,12 +34,13 @@ export function TournamentCard({ t: item }: { t: Tournament }) {
       <div className="flex flex-1 flex-col p-5">
         <h3 className="text-lg font-bold leading-snug transition-colors group-hover:text-primary">{item.name}</h3>
         <div className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-          <p className="flex items-center gap-2"><MapPin className="size-4 shrink-0 text-primary" />{item.city}</p>
+          <p className="flex items-center gap-2"><MapPin className="size-4 shrink-0 text-primary" />{cityName(item.city, i18n.language === 'kz' ? 'kz' : 'ru')}</p>
           <p className="flex items-center gap-2"><CalendarDays className="size-4 shrink-0 text-primary" />{formatDateRange(item.startDate, item.endDate)}</p>
         </div>
         <div className="mt-auto pt-5">
           <div className="mb-1.5 flex items-center justify-between text-xs font-semibold">
-            <span className="flex items-center gap-1.5 text-muted-foreground"><Users className="size-3.5" />{t('common.teamsOf', { count: item.teamsCount, max: item.maxTeams })}</span>
+            <span className="flex items-center gap-1.5 text-muted-foreground"><Users className="size-3.5" />{t('common.teamsOf', { count: item.teamsCount, max: item.maxTeams })}
+              {!!item.applications && item.applications > item.teamsCount && <span className="text-primary">· {t('tournament.applicationsShort', { count: item.applications })}</span>}</span>
             <span className="text-foreground">{fill}%</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">

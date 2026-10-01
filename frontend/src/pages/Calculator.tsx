@@ -56,6 +56,7 @@ export default function Calculator() {
           <Button variant="ghost" size="sm" onClick={() => setScores({})}><RotateCcw className="size-4" />{t('calculator.clear')}</Button>
         </div>
         <p className="mt-1 text-muted-foreground">{t('calculator.subtitle')}</p>
+        <Link to="/break-calculator" className="mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"><Trophy className="size-4" />{t('breakCalc.title')}</Link>
 
         <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label={t('timer.format')}>
           {FORMATS.map(x => (

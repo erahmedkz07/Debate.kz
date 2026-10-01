@@ -16,6 +16,8 @@ import { background, notifyNewRegistration } from '../services/notify.js'
 import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 import { placeOf, sideLabel, sidesInDebate } from '../services/formats.js'
 import { hiddenRoundIds } from '../services/silent.js'
+import { onApplication } from '../services/selection.js'
+import { STRIKE_LIMIT } from '../services/watchdog.js'
 
 export const meRouter = Router()
 const mailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
@@ -28,6 +30,7 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
     phone: z.union([phone, z.literal('')]).optional(),
     institution: z.string().trim().max(150).optional(),
     city: z.string().trim().max(60).optional(),
+    profileHidden: z.boolean().optional(), // "hide my public profile"
   }))
   // a phone confirmed through the Telegram bot stays confirmed only while it is not changed by hand
   const digits = (p?: string | null) => (p ?? '').replace(/\D/g, '').replace(/^8(?=\d{10}$)/, '7')
@@ -36,6 +39,7 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
     where: { id: req.user!.id },
     data: {
       name: data.name, phone: data.phone || null, institution: data.institution || null, city: data.city || null,
+      ...(data.profileHidden !== undefined && { profileHidden: data.profileHidden }),
       ...(changedPhone && { verifiedPhone: null, phoneVerifiedAt: null }),
     },
   })
@@ -164,6 +168,15 @@ meRouter.post('/debates/:debateId/feedback', requireAuth(), async (req, res) => 
   res.status(201).json({ ok: true })
 })
 
+// my strikes as an organizer (abandoned tournaments, last-minute cancellations): 3 active ones block new tournaments
+meRouter.get('/me/strikes', requireAuth(), async (req, res) => {
+  const rows = await prisma.organizerStrike.findMany({ where: { userId: req.user!.id }, orderBy: { createdAt: 'desc' } })
+  res.json({
+    limit: STRIKE_LIMIT, active: rows.filter(r => !r.liftedAt).length,
+    items: rows.map(r => ({ id: r.id, tournament: r.tournamentName, reason: r.reason, createdAt: r.createdAt.toISOString(), lifted: !!r.liftedAt, note: r.liftedNote ?? undefined })),
+  })
+})
+
 const registrationSchema = z.object({
   teamName: z.string().trim().min(2).max(60),
   institution: z.string().trim().min(2).max(150),
@@ -185,11 +198,12 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
   if (t.registrationDeadline && toDay(t.registrationDeadline) < todayKz()) throw forbidden('registration_closed')
-  if (t._count.teams >= t.maxTeams) throw badRequest('tournament_full')
   assertSpeakers(t.format, data.speakers)
   // a participant states their club and team in the profile first (organizers and ratings need to know who is from where)
-  const membership = await prisma.clubMember.findUnique({ where: { userId: req.user!.id } })
+  const membership = await prisma.clubMember.findUnique({ where: { userId: req.user!.id }, include: { club: { select: { status: true } } } })
   if (!membership?.teamId) throw badRequest('club_required')
+  // against fake clubs: only a club an admin approved can send teams
+  if (membership.club.status !== 'approved') throw badRequest('club_not_verified')
   if (await prisma.teamRegistration.findUnique({ where: { tournamentId_teamName: { tournamentId: t.id, teamName: data.teamName } } })) {
     throw conflict('team_name_taken')
   }
@@ -203,5 +217,7 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
     },
   })
   background(notifyNewRegistration(reg.id))
-  res.status(201).json({ ...reg, createdAt: toDay(reg.createdAt) })
+  // applications are unlimited; first come (or after a lottery) a place is given at once while places last
+  const status = await onApplication(reg.id)
+  res.status(201).json({ ...reg, status, createdAt: toDay(reg.createdAt) })
 })

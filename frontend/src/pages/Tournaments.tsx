@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
-import { getCities, getTournaments } from '@/api'
+import { getTournaments } from '@/api'
+import { REGIONS, regionByCode } from '@/content/geo'
 import type { TournamentFilters } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
@@ -27,7 +28,8 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 export default function Tournaments() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState(params.get('q') ?? '')
   const [page, setPage] = useState(1)
@@ -35,7 +37,7 @@ export default function Tournaments() {
 
   const filters: TournamentFilters = {
     search: params.get('q') ?? '',
-    city: params.get('city') ?? 'all',
+    region: params.get('region') ?? 'all',
     level: (params.get('level') as TournamentFilters['level']) ?? 'all',
     status: (params.get('status') as TournamentFilters['status']) ?? 'all',
     sort: (params.get('sort') as TournamentFilters['sort']) ?? 'date-asc',
@@ -62,14 +64,13 @@ export default function Tournaments() {
   }, [search])
 
   const { data, loading, error, reload } = useAsync(() => getTournaments(filters), [key])
-  const { data: cities = [] } = useAsync(getCities)
 
   // active filters shown as removable chips
   const active = [
-    filters.city !== 'all' && { key: 'city', label: filters.city! },
+    filters.region !== 'all' && { key: 'region', label: regionByCode(filters.region)?.[lang] ?? filters.region! },
     filters.level !== 'all' && { key: 'level', label: t(`level.${filters.level}`) },
     filters.status !== 'all' && { key: 'status', label: t(`status.${filters.status}`) },
-  ].filter(Boolean) as { key: 'city' | 'level' | 'status'; label: string }[]
+  ].filter(Boolean) as { key: 'region' | 'level' | 'status'; label: string }[]
 
   const totalPages = Math.max(1, Math.ceil((data?.length ?? 0) / PAGE_SIZE))
   const pageItems = useMemo(() => data?.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) ?? [], [data, page])
@@ -136,9 +137,9 @@ export default function Tournaments() {
               transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
               <div className="mt-4 grid grid-cols-1 gap-6 rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6 md:grid-cols-[minmax(0,16rem)_1fr_1fr] [&>*]:min-w-0">
                 <div>
-                  <Label htmlFor="f-city">{t('tournaments.city')}</Label>
-                  <Select id="f-city" value={filters.city} onValueChange={v => setFilters({ ...filters, city: v })}
-                    options={[{ value: 'all', label: t('tournaments.allCities') }, ...cities.map(c => ({ value: c, label: c }))]} />
+                  <Label htmlFor="f-region">{t('place.region')}</Label>
+                  <Select id="f-region" value={filters.region} onValueChange={v => setFilters({ ...filters, region: v })}
+                    options={[{ value: 'all', label: t('place.allRegions') }, ...REGIONS.map(r => ({ value: r.code, label: r[lang] }))]} />
                 </div>
                 <div>
                   <Label>{t('tournaments.level')}</Label>

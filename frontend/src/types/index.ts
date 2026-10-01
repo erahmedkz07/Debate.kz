@@ -14,16 +14,18 @@ export interface Tournament {
   startDate: string // ISO date
   endDate: string
   format: TournamentFormat
+  region?: string // region code (content/geo.ts)
+  district?: string // a district of a big city or an address
   level: TournamentLevel
   status: TournamentStatus
   teamsCount: number
+  applications?: number // live applications (all but rejected): demand for the places
   maxTeams: number
   cover: string
   organizer: string
   description: string
   preliminaryRounds: number
   breakSize: number
-  silentRounds?: number // the last N preliminary rounds keep results hidden until the break
   breakCategories?: BreakCategory[] // extra brackets (novices, juniors…)
   languages: Lang[]
 }
@@ -32,6 +34,7 @@ export interface Speaker {
   id: string
   name: string
   teamId: string
+  userId?: string // links to the person's public page (an account that did not hide it)
 }
 
 export interface Team {
@@ -60,6 +63,7 @@ export interface Judge {
   rating: number // 1..10
   isChair?: boolean
   hasAccount?: boolean // only judges with an account send ballots; others are invited by email to link one
+  userId?: string // links to the judge's public page
   // organizers only: what the draw keeps this judge away from
   conflictTeamIds?: string[] // personal conflicts (relative, former coach…)
   clubId?: string // the judge's own club
@@ -75,6 +79,7 @@ export interface Round {
   infoSlide?: string
   status: 'draft' | 'released' | 'completed'
   date: string
+  silent?: boolean // a closed round: results hidden from the public until the break
   // playoffs: elimination rounds after the break (quarterfinal, semifinal, final)
   kind?: 'elimination'
   teamsInRound?: number
@@ -138,6 +143,10 @@ export interface TournamentDetails extends Tournament {
   registrationDeadline?: string
   rooms?: string[]
   roomLinks?: Record<string, string> // room name -> video call link
+  awards?: { kind: 'best_speaker' | 'best_judge'; name: string }[] // best speaker / best judge (public after the finish)
+  selectionMode?: 'manual' | 'first_come' | 'lottery' // how the places are filled
+  clubQuota?: number // at most this many teams per club
+  lotteryAt?: string // when the selection lottery was drawn
   pendingRegistrations?: number
   myRole?: OrganizerRole | 'admin'
   schedule: ScheduleItem[]
@@ -195,7 +204,7 @@ export interface Testimonial {
 
 export interface TournamentFilters {
   search?: string
-  city?: string
+  region?: string // region code, see content/geo.ts
   level?: TournamentLevel | 'all'
   status?: TournamentStatus | 'all'
   sort?: 'date-asc' | 'date-desc' | 'teams'
@@ -232,6 +241,7 @@ export interface User {
   club?: Ref // required in the profile before applying to tournaments
   clubTeam?: Ref
   safeguardingOfficer?: boolean // handles behaviour reports
+  profileHidden?: boolean // "hide my public profile"
 }
 
 export interface TeamRegistration {
@@ -240,8 +250,10 @@ export interface TeamRegistration {
   teamName: string
   institution: string
   speakers: string[]
-  status: 'pending' | 'confirmed' | 'rejected'
+  status: 'pending' | 'confirmed' | 'rejected' | 'waitlisted'
   createdAt: string
+  lotteryRank?: number // the place in the selection lottery
+  club?: string
 }
 
 export interface JudgeAssignment {
@@ -278,7 +290,8 @@ export interface AdminAction {
 // ---------- certificates ----------
 export interface Certificate {
   code: string
-  kind: 'speaker' | 'judge'
+  kind: 'speaker' | 'judge' | 'award'
+  award?: 'best_speaker' | 'best_judge' // an award diploma
   name: string
   teamName?: string
   institution?: string
@@ -328,6 +341,7 @@ export interface MyTournament extends Tournament {
   moderation: ModerationStatus
   moderationNote?: string
   myRole: OrganizerRole
+  abandoned?: boolean // not finished 7 days after the end: archived, hidden from the public
 }
 
 export interface InvitePreview {
@@ -422,6 +436,8 @@ export interface ClubDetails {
   description: string
   createdAt: string
   logoUrl?: string
+  status?: 'pending' | 'approved' | 'rejected' // a new club waits for an admin
+  moderationNote?: string // why it was rejected (members and admins)
   teams: { id: string; name: string; logoUrl?: string; members: ClubMemberInfo[] }[]
   members: ClubMemberInfo[]
   isMember: boolean

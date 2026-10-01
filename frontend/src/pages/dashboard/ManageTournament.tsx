@@ -4,16 +4,16 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, CalendarClock, ChevronRight, Circle, DoorOpen, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
+  Award, CalendarClock, ChevronRight, Circle, Clock, DoorOpen, Eye, EyeOff, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
-import { cn, formatDate, formatDateRange, initials } from '@/lib/utils'
+import { cn, formatDate, formatDateRange, formatDateTime, initials } from '@/lib/utils'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -40,6 +40,9 @@ import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { conflictReason } from '@/lib/conflicts'
+import { PlacePicker, placeCity } from '@/components/tournament/PlacePicker'
+import { AwardsCard } from '@/components/tournament/AwardsCard'
+import { regionOfCity } from '@/content/geo'
 import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedback'
 import { formatOfTournament } from '@/content/formats'
 
@@ -156,16 +159,52 @@ function Registrations({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const regs = useAsync(() => getRegistrations(data.id), [data.id])
   const { busy, run } = useAction()
-  const decide = async (id: string, status: 'confirmed' | 'rejected') => {
-    if (await run(id, () => setRegistrationStatus(id, status), t(`dashboard.registrations.${status}Toast`))) {
-      regs.reload()
-      reload()
-    }
+  const sel = useAsync(() => getSelection(data.id), [data.id])
+  const refresh = () => { regs.reload(); sel.reload(); reload() }
+  const decide = async (id: string, status: 'confirmed' | 'rejected' | 'waitlisted') => {
+    if (await run(id, () => setRegistrationStatus(id, status), t(`dashboard.registrations.${status}Toast`))) refresh()
   }
-  const variant = { pending: 'accent', confirmed: 'success', rejected: 'danger' } as const
+  const variant = { pending: 'accent', confirmed: 'success', rejected: 'danger', waitlisted: 'outline' } as const
+  const [quota, setQuota] = useState(data.clubQuota ? String(data.clubQuota) : '')
+  const setMode = async (selectionMode: 'manual' | 'first_come' | 'lottery') => { if (await run('mode', () => updateTournament(data.id, { selectionMode }), t('dashboard.teams.saved'))) refresh() }
+  const saveQuota = async () => { if (await run('quota', () => updateTournament(data.id, { clubQuota: quota ? Number(quota) : null }), t('dashboard.teams.saved'))) refresh() }
+  const lottery = async () => {
+    let r: { confirmed: number; waitlisted: number } | undefined
+    if (await run('lottery', async () => { r = await runSelectionLottery(data.id) })) { toast.success(t('dashboard.selection.lotteryDone', r)); refresh() }
+  }
+  const mode = data.selectionMode ?? 'manual'
   return (
     <>
       <SectionTitle title={t('dashboard.nav.registrations')} />
+      {data.status !== 'finished' && (
+        <Card className="mb-5 space-y-4 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-bold">{t('dashboard.selection.title')}</p>
+              {sel.data && <p className="text-sm text-muted-foreground">{t('dashboard.selection.numbers', { applications: sel.data.applications, places: sel.data.places, taken: sel.data.taken, waitlisted: sel.data.waitlisted })}</p>}
+            </div>
+            {mode === 'lottery' && !data.lotteryAt && (
+              <Button variant="accent" disabled={!!busy} onClick={lottery}>{busy === 'lottery' ? <Loader2 className="size-4 animate-spin" /> : <Shuffle className="size-4" />}{t('dashboard.selection.runLottery')}</Button>
+            )}
+          </div>
+          <div className="inline-flex flex-wrap rounded-xl bg-muted p-1" role="radiogroup" aria-label={t('dashboard.selection.title')}>
+            {(['manual', 'first_come', 'lottery'] as const).map(m => (
+              <button key={m} type="button" role="radio" aria-checked={mode === m} disabled={!!busy || (m !== 'lottery' && !!data.lotteryAt)} onClick={() => mode !== m && setMode(m)}
+                className={cn('cursor-pointer rounded-lg px-3 py-1.5 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50', mode === m ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
+                {t(`dashboard.selection.modes.${m}`)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">{t(`dashboard.selection.hints.${mode}`)}{data.lotteryAt && ` ${t('dashboard.selection.lotteryAt', { time: formatDateTime(data.lotteryAt) })}`}</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <Label htmlFor="club-quota">{t('dashboard.selection.quota')}</Label>
+              <Input id="club-quota" type="number" min={1} max={32} className="w-40" placeholder={t('dashboard.selection.noQuota')} value={quota} onChange={e => setQuota(e.target.value)} />
+            </div>
+            <Button variant="outline" disabled={!!busy || quota === (data.clubQuota ? String(data.clubQuota) : '')} onClick={saveQuota}>{t('common.save')}</Button>
+          </div>
+        </Card>
+      )}
       {regs.error ? <ErrorState onRetry={regs.reload} /> : !regs.data ? <Skeleton className="h-48" /> : regs.data.length === 0 ? (
         <EmptyState icon={<Inbox className="size-7" />} title={t('dashboard.registrations.empty')} />
       ) : (
@@ -177,15 +216,18 @@ function Registrations({ data, reload }: SectionProps) {
                   <p className="text-lg font-bold">{r.teamName}</p>
                   <p className="text-sm text-muted-foreground">{r.institution}</p>
                 </div>
-                <Badge variant={variant[r.status]}>{t(`profile.regStatus.${r.status}`)}</Badge>
+                <Badge variant={variant[r.status]}>{r.lotteryRank ? `№${r.lotteryRank} · ` : ''}{t(`profile.regStatus.${r.status}`)}</Badge>
               </div>
               <p className="mt-3 text-sm">{r.speakers.join(', ')}</p>
-              <p className="mt-2 text-xs text-muted-foreground">{r.user.name} · {r.user.email} · {r.contactPhone}</p>
-              {r.status === 'pending' && (
-                <div className="mt-4 flex gap-2">
+              <p className="mt-2 text-xs text-muted-foreground">{r.user.name} · {r.user.email} · {r.contactPhone}{r.club && ` · ${r.club}`}</p>
+              {(r.status === 'pending' || r.status === 'waitlisted') && (
+                <div className="mt-4 flex flex-wrap gap-2">
                   <Button size="sm" disabled={!!busy} onClick={() => decide(r.id, 'confirmed')}>
                     {busy === r.id ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t('dashboard.registrations.confirm')}
                   </Button>
+                  {r.status === 'pending' && (
+                    <Button size="sm" variant="outline" disabled={!!busy} onClick={() => decide(r.id, 'waitlisted')}><Clock className="size-4" />{t('dashboard.registrations.waitlist')}</Button>
+                  )}
                   <Button size="sm" variant="ghost" className="text-danger" disabled={!!busy} onClick={() => decide(r.id, 'rejected')}>
                     <X className="size-4" />{t('dashboard.registrations.reject')}
                   </Button>
@@ -468,6 +510,7 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
     if (await run('release', () => updateRound(round.id, { motion, status: 'released' }), t('dashboard.rounds.released'))) reload()
   }
   const complete = async () => { if (await run('complete', () => updateRound(round.id, { status: 'completed' }), t('dashboard.rounds.completedToast'))) reload() }
+  const setSilent = async (silent: boolean) => { if (await run('silent', () => updateRound(round.id, { silent }), t(silent ? 'dashboard.rounds.closedToast' : 'dashboard.rounds.openedToast'))) reload() }
 
   return (
     <Card className="p-5">
@@ -503,6 +546,21 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
         <Textarea id={`m-${round.id}`} rows={2} value={motion} disabled={round.status === 'completed'} onChange={e => setMotion(e.target.value)} placeholder={t('dashboard.rounds.motionPlaceholder')} />
         {blocker && <p className="mt-2 text-xs text-muted-foreground">{blocker}</p>}
       </div>
+      {round.kind !== 'elimination' && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
+          <span className="text-sm font-semibold">{t('dashboard.rounds.visibility')}</span>
+          <div className="inline-flex rounded-xl bg-muted p-1" role="radiogroup" aria-label={t('dashboard.rounds.visibility')}>
+            {([false, true] as const).map(v => (
+              <button key={String(v)} type="button" role="radio" aria-checked={!!round.silent === v} disabled={!!busy} onClick={() => !!round.silent !== v && setSilent(v)}
+                className={cn('flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition-all',
+                  !!round.silent === v ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
+                {v ? <EyeOff className="size-4" /> : <Eye className="size-4" />}{t(v ? 'dashboard.rounds.closed' : 'dashboard.rounds.open')}
+              </button>
+            ))}
+          </div>
+          <p className="w-full text-xs text-muted-foreground">{t('dashboard.rounds.visibilityHint')}</p>
+        </div>
+      )}
     </Card>
   )
 }
@@ -786,7 +844,8 @@ function Draw({ data, reload }: SectionProps) {
           <div className="flex w-full flex-wrap items-center gap-2 border-t border-border pt-3">
             <span className="font-semibold">{t('dashboard.draw.method')}</span>
             <Select size="sm" className="w-56" value={method} onValueChange={v => setMethod(v as DrawMethod)} aria-label={t('dashboard.draw.method')}
-              options={(['power', 'high_low', 'random'] as const).map(m => ({ value: m, label: t(`dashboard.draw.methods.${m}`) }))} />
+              options={(isBP(data.format) ? (['power', 'high_low', 'random'] as const) : (['power', 'slide', 'fold', 'high_low', 'round_robin', 'random'] as const))
+                .map(m => ({ value: m, label: t(`dashboard.draw.methods.${m}`) }))} />
             <span className="text-xs text-muted-foreground">{t(`dashboard.draw.methodHints.${method}`)}</span>
           </div>
         </div>
@@ -953,8 +1012,7 @@ function Ballots({ data }: SectionProps) {
 function DetailsCard({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
-  const { data: cities = [] } = useAsync(getCities)
-  const initial = { city: data.city, startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
+  const initial = { region: data.region ?? regionOfCity(data.city)?.code ?? '', city: data.city, district: data.district ?? '', startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
   const [f, setF] = useState(initial)
   useEffect(() => setF(initial), [data]) // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = JSON.stringify(f) !== JSON.stringify(initial)
@@ -962,7 +1020,9 @@ function DetailsCard({ data, reload }: SectionProps) {
   const limitBad = !Number.isInteger(f.maxTeams) || f.maxTeams < minTeams || f.maxTeams > 128
   const today = new Date().toISOString().slice(0, 10)
   const save = async () => {
-    if (await run('details', () => updateTournament(data.id, { ...f, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
+    const city = placeCity(f)
+    if (!f.region || city.length < 2) return void toast.error(t('place.cityRequired'))
+    if (await run('details', () => updateTournament(data.id, { ...f, city, district: f.district.trim() || null, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
   }
   return (
     <Card className="space-y-4 p-6">
@@ -971,9 +1031,8 @@ function DetailsCard({ data, reload }: SectionProps) {
         <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.details.text')}</p>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="d-city">{t('wizard.city')}</Label>
-          <Select id="d-city" value={f.city} onValueChange={c => setF({ ...f, city: c })} options={[...new Set([f.city, ...cities])].map(c => ({ value: c, label: c }))} />
+        <div className="sm:col-span-2">
+          <PlacePicker value={{ region: f.region, city: f.city, district: f.district }} onChange={p => setF({ ...f, ...p })} />
         </div>
         <div>
           <Label htmlFor="d-max">{t('wizard.maxTeams')}</Label>
@@ -1055,23 +1114,6 @@ function CategoriesCard({ data, reload }: SectionProps) {
         {dirty && <Button variant="ghost" onClick={() => setList(saved)}>{t('common.cancel')}</Button>}
         <Button disabled={!dirty || busy === 'cats'} onClick={save}>{t('common.save')}</Button>
       </div>
-    </Card>
-  )
-}
-
-// silent rounds: the last N preliminary rounds keep their results hidden from the public until the break
-function SilentCard({ data, reload }: SectionProps) {
-  const { t } = useTranslation()
-  const { busy, run } = useAction()
-  const set = async (n: number) => { if (await run('silent', () => updateTournament(data.id, { silentRounds: n }), t('dashboard.teams.saved'))) reload() }
-  return (
-    <Card className="space-y-3 p-6">
-      <div>
-        <h3 className="font-bold">{t('wizard.silent')}</h3>
-        <p className="mt-1 text-sm text-muted-foreground">{t('wizard.silentHint')}</p>
-      </div>
-      <Select className="w-full sm:w-64" value={String(data.silentRounds ?? 0)} disabled={busy === 'silent'} onValueChange={n => set(Number(n))} aria-label={t('wizard.silent')}
-        options={[0, 1, 2, 3].filter(n => n < data.preliminaryRounds).map(n => ({ value: String(n), label: n ? t('wizard.silentN', { count: n }) : t('wizard.silentNone') }))} />
     </Card>
   )
 }
@@ -1203,7 +1245,6 @@ function SettingsSection({ data, reload }: SectionProps) {
         </Card>
         <CoverCard tournamentId={data.id} cover={data.cover} onChanged={reload} />
         {data.status !== 'finished' && <RoomsCard data={data} reload={reload} />}
-        {data.status !== 'finished' && !data.rounds.some(r => r.kind === 'elimination') && <SilentCard data={data} reload={reload} />}
         {data.status !== 'finished' && !data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}
         {/* Pro (more than 20 teams): Kaspi QR payment; otherwise a short note about the free plan */}
         {data.plan === 'pro' ? <PaymentCard tournamentId={data.id} /> : (
@@ -1318,6 +1359,7 @@ export default function ManageTournament() {
                   <Button asChild variant="outline"><a href={`/tournaments/${id}/certificates/print`} target="_blank" rel="noopener"><Award className="size-4" />{t('certificate.printAll')}</a></Button>
                 )} />
               {data.status !== 'finished' && <p className="-mt-3 mb-4 text-sm text-muted-foreground">{t('certificate.afterFinish')}</p>}
+              {data.status !== 'registration' && <AwardsCard id={id} finished={data.status === 'finished'} onChange={reload} />}
               <ResultsTab id={id} kind="teams" tournament={data} />
             </>
           )}

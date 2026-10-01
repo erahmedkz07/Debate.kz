@@ -86,6 +86,14 @@ enum RegistrationStatus {
   pending
   confirmed
   rejected
+  waitlisted // no place yet: moves up when a place frees
+}
+
+// how the places are filled: the organizer one by one, first come, or a public lottery
+enum SelectionMode {
+  manual
+  first_come
+  lottery
 }
 
 enum Plan {
@@ -119,6 +127,7 @@ model User {
   blocked             Boolean   @default(false)
   emailVerifiedAt     DateTime? @map("email_verified_at")
   consentAt           DateTime? @map("consent_at") // consent to personal data processing
+  profileHidden       Boolean   @default(false) @map("profile_hidden") // "hide my public profile": no career page, no links
   passwordChangedAt   DateTime? @map("password_changed_at") // sessions issued before this are rejected
   telegramChatId      String?   @unique @map("telegram_chat_id") // private chat with the bot (= Telegram user id)
   telegramUsername    String?   @map("telegram_username")
@@ -151,6 +160,10 @@ model User {
   safetyReports        SafetyReport[]        @relation("SafetyReporter")
   handledSafetyReports SafetyReport[]        @relation("SafetyHandler")
   judgeFeedback        JudgeFeedback[]
+
+  clubReports       ClubReport[]
+  tournamentReviews TournamentReview[]
+  strikes OrganizerStrike[]
 
   @@map("users")
 }
@@ -188,18 +201,25 @@ model Tournament {
   id                   String           @id @default(cuid())
   name                 String
   city                 String
+  region               String? // region code (content/geo.ts): 17 regions and Astana, Almaty, Shymkent
+  district             String? // optional: a district of a big city or an address
   startDate            DateTime         @map("start_date") @db.Date
   endDate              DateTime         @map("end_date") @db.Date
   format               String           @default("WSDC")
   level                TournamentLevel
   status               TournamentStatus @default(registration)
   maxTeams             Int              @map("max_teams")
+  selectionMode        SelectionMode    @default(manual) @map("selection_mode")
+  clubQuota            Int?             @map("club_quota") // at most this many teams from one club (null: no limit)
+  lotteryAt            DateTime?        @map("lottery_at") // when the selection lottery was drawn
+  abandonedAt       DateTime?     @map("abandoned_at") // archived: not finished 7 days after the end
+  remindedMotionsAt DateTime?     @map("reminded_motions_at")
+  finishReminders   Int           @default(0) @map("finish_reminders") // 1: "finish it", 2: "the archive in 2 days"
   coverUrl             String?          @map("cover_url")
   organizerName        String           @map("organizer_name")
   description          String           @default("")
   preliminaryRounds    Int              @map("preliminary_rounds")
   breakSize            Int              @map("break_size")
-  silentRounds         Int              @default(0) @map("silent_rounds") // the last N preliminary rounds keep their results hidden until the break
   breakCategories      Json             @default("[]") @map("break_categories") // [{ key, name, size }]: extra brackets (novices, juniors…)
   languages            String[]
   plan                 Plan             @default(free)
@@ -226,6 +246,8 @@ model Tournament {
   invites       TournamentInvite[]
   certificates  Certificate[]
   payments      Payment[]
+  reviews       TournamentReview[]
+  awards        TournamentAward[]
 
   @@index([status, startDate])
   @@index([moderation])
@@ -365,6 +387,7 @@ model Round {
   infoSlide    String?     @map("info_slide")
   status       RoundStatus @default(draft)
   kind         RoundKind   @default(preliminary)
+  silent       Boolean     @default(false) // a closed round: results hidden from the public until the break (or until opened)
   teamsInRound Int?        @map("teams_in_round") // elimination: how many teams are still in (final = 2, BP final = 4)
   category     String? // elimination: the break category of this bracket (null = open)
   date         DateTime    @db.Date
@@ -415,6 +438,54 @@ model JudgeConflict {
 }
 
 // a speaker's rating of a judge of their debate (1..5 and an optional comment); only the organizers read it
+// a participant's or judge's rating of a finished tournament (1..5, optional comment); public, shown without names
+// "best speaker" / "best judge" the organizer chose (from the site's suggestions); a diploma after the finish
+// a strike for an organizer: an abandoned tournament or a last-minute cancellation; 3 active ones block new tournaments
+model OrganizerStrike {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  tournamentId   String?   @map("tournament_id")
+  tournamentName String    @map("tournament_name")
+  reason         String // abandoned | late_cancel
+  createdAt      DateTime  @default(now()) @map("created_at")
+  liftedAt       DateTime? @map("lifted_at")
+  liftedNote     String?   @map("lifted_note")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("organizer_strikes")
+}
+
+model TournamentAward {
+  id           String     @id @default(cuid())
+  tournamentId String     @map("tournament_id")
+  kind         String // best_speaker | best_judge
+  speakerId    String?    @map("speaker_id")
+  judgeId      String?    @map("judge_id")
+  name         String // as printed (a snapshot)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, kind])
+  @@map("tournament_awards")
+}
+
+model TournamentReview {
+  id           String     @id @default(cuid())
+  tournamentId String     @map("tournament_id")
+  userId       String     @map("user_id")
+  role         String // speaker | judge: shown next to the review instead of the name
+  score        Int
+  comment      String?
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@map("tournament_reviews")
+}
+
 model JudgeFeedback {
   id        String   @id @default(cuid())
   debateId  String   @map("debate_id")
@@ -490,6 +561,7 @@ model TeamRegistration {
   clubTeamId        String?            @map("club_team_id")
   // school and mixed tournaments: the applicant confirmed that the parents of speakers under 18 agreed
   guardianConsentAt DateTime?          @map("guardian_consent_at")
+  lotteryRank       Int?               @map("lottery_rank") // the place in the selection lottery (and in the waitlist after it)
   status            RegistrationStatus @default(pending)
   createdAt         DateTime           @default(now()) @map("created_at")
   tournament        Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
@@ -551,6 +623,7 @@ model Certificate {
   speakerPlace  Int?       @map("speaker_place") // 1..3 in the speaker standings
   breakCategory String?    @map("break_category") // the category bracket the team played in (its name, a snapshot)
   categoryPlace Int?       @map("category_place") // place in that bracket (1 = category champion)
+  award         String? // award diplomas (kind = award): best_speaker | best_judge
   issuedAt      DateTime   @default(now()) @map("issued_at")
   tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
 
@@ -675,15 +748,34 @@ model Club {
   description     String            @default("")
   joinCode        String            @unique @map("join_code") // /clubs/join/<code>
   logoUrl         String?           @map("logo_url") // /uploads/logos/…, re-encoded square WebP
+  status          ClubStatus        @default(pending)
+  moderationNote  String?           @map("moderation_note") // why it was rejected
+  reviewedAt      DateTime?         @map("reviewed_at")
   createdAt       DateTime          @default(now()) @map("created_at")
   teams           ClubTeam[]
   members         ClubMember[]
   logs            ClubLog[]
   requests        ClubJoinRequest[]
+  reports         ClubReport[]
   tournamentTeams Team[]
 
   @@unique([name, city])
   @@map("clubs")
+}
+
+// "this club is fake / a duplicate": a signed-in user tells the admins
+model ClubReport {
+  id         String    @id @default(cuid())
+  clubId     String    @map("club_id")
+  userId     String    @map("user_id")
+  reason     String
+  createdAt  DateTime  @default(now()) @map("created_at")
+  resolvedAt DateTime? @map("resolved_at")
+  club       Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clubId])
+  @@map("club_reports")
 }
 
 model ClubTeam {
@@ -748,6 +840,13 @@ model News {
 }
 
 // a request to join a club from its public page; any member accepts (choosing the team) or declines it
+// a new club waits for an admin: only an approved club appears in the catalogue and can apply to tournaments
+enum ClubStatus {
+  pending
+  approved
+  rejected
+}
+
 enum ClubRequestStatus {
   pending
   accepted
