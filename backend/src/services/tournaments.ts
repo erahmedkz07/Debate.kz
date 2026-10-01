@@ -25,14 +25,15 @@ export const toSummary = (t: SummaryRow) => ({
 })
 
 export const teamInclude = {
-  institution: true, speakers: { orderBy: { position: 'asc' } },
+  institution: true, speakers: { orderBy: { position: 'asc' }, include: { user: { select: { profileHidden: true } } } },
   club: { select: { id: true, name: true, logoUrl: true } }, clubTeam: { select: { id: true, name: true, logoUrl: true } },
 } satisfies Prisma.TeamInclude
 type TeamRow = Prisma.TeamGetPayload<{ include: typeof teamInclude }>
 
 export const toTeam = (t: TeamRow) => ({
   id: t.id, tournamentId: t.tournamentId, name: t.name, institution: t.institution?.name ?? '', city: t.city ?? '',
-  speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id })),
+  // userId: a link to the person's public page (an account that did not hide its profile)
+  speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id, ...(s.userId && s.user && !s.user.profileHidden && { userId: s.userId }) })),
   checkedIn: !!t.checkedInAt, swing: t.swing,
   club: t.club ? { id: t.club.id, name: t.club.name, logoUrl: t.club.logoUrl ?? undefined } : undefined, // where the team comes from
   clubTeam: t.clubTeam ? { id: t.clubTeam.id, name: t.clubTeam.name } : undefined,
@@ -107,7 +108,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       rounds: { orderBy: { number: 'asc' }, include: { debates: { include: debateInclude, orderBy: { room: 'asc' } } } },
       teams: { include: teamInclude, orderBy: { createdAt: 'asc' } },
       judges: {
-        include: { institution: true, conflicts: { select: { teamId: true } }, user: { select: { clubMembership: { select: { clubId: true } } } } },
+        include: { institution: true, conflicts: { select: { teamId: true } }, user: { select: { profileHidden: true, clubMembership: { select: { clubId: true } } } } },
         orderBy: [{ rating: 'desc' }, { name: 'asc' }],
       },
       registrations: { where: { status: 'pending' }, select: { id: true } },
@@ -162,6 +163,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
       hasAccount: !!j.userId, // only judges with an account can send ballots
+      ...(j.userId && j.user && !j.user.profileHidden && { userId: j.userId }),
       // organizers: conflicts the draw respects (personal ones and the judge's club)
       ...(manager && { conflictTeamIds: j.conflicts.map(c => c.teamId), clubId: j.user?.clubMembership?.clubId ?? undefined, institutionId: j.institutionId ?? undefined }),
     })),

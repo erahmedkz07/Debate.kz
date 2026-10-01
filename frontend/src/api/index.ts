@@ -103,7 +103,7 @@ export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATC
 export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
 // confirmed by the password, or by typing the email for accounts without a password
 export const deleteAccount = (confirm: { password: string } | { email: string }) => http<void>('DELETE', '/me', confirm)
-export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
+export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string; profileHidden?: boolean }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
 
 export function uploadAvatar(file: File) {
@@ -161,6 +161,20 @@ export interface AwardCandidates {
 }
 export const getAwardCandidates = (id: string) => http<AwardCandidates>('GET', `/tournaments/${encodeURIComponent(id)}/awards`)
 export const setTournamentAward = (id: string, kind: AwardKind, personId: string | null) => http<{ kind: AwardKind; name: string | null }>('PUT', `/tournaments/${encodeURIComponent(id)}/awards`, { kind, personId })
+// a person's public page: career as a speaker and a judge, awards
+export interface PublicProfile {
+  id: string; name: string; avatarUrl?: string; city?: string; since: string; hidden: boolean; club?: { id: string; name: string }
+  speaker: {
+    tournaments: { id: string; name: string; startDate: string; status: string; team: string; place?: number; teams: number; inBreak: boolean; speakerRank?: number; average?: number }[]
+    debates: number; wins: number; average: number | null; best: number | null
+  }
+  judge: {
+    tournaments: { id: string; name: string; startDate: string; status: string; rounds: number; chaired: number }[]
+    rounds: number; chaired: number; playoffRounds: number; rating?: { average: number | null; count: number }
+  }
+  awards: { tournament: { id: string; name: string }; date: string; kind: 'best_speaker' | 'best_judge' | 'category_champion' | 'team_place' | 'speaker_place'; place?: number; speakerPlace?: number; category?: string; code: string }[]
+}
+export const getPublicProfile = (id: string) => or404(http<PublicProfile>('GET', `/people/${encodeURIComponent(id)}`))
 export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackSummary[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/judge-feedback`)
 
 // ---------- judge ----------

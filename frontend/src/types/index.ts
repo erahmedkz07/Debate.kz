@@ -34,6 +34,7 @@ export interface Speaker {
   id: string
   name: string
   teamId: string
+  userId?: string // links to the person's public page (an account that did not hide it)
 }
 
 export interface Team {
@@ -62,6 +63,7 @@ export interface Judge {
   rating: number // 1..10
   isChair?: boolean
   hasAccount?: boolean // only judges with an account send ballots; others are invited by email to link one
+  userId?: string // links to the judge's public page
   // organizers only: what the draw keeps this judge away from
   conflictTeamIds?: string[] // personal conflicts (relative, former coach…)
   clubId?: string // the judge's own club
@@ -239,6 +241,7 @@ export interface User {
   club?: Ref // required in the profile before applying to tournaments
   clubTeam?: Ref
   safeguardingOfficer?: boolean // handles behaviour reports
+  profileHidden?: boolean // "hide my public profile"
 }
 
 export interface TeamRegistration {

@@ -16,6 +16,7 @@ const Login = lazy(() => import('@/pages/auth/Login'))
 const Register = lazy(() => import('@/pages/auth/Register'))
 const Rating = lazy(() => import('@/pages/Rating'))
 const About = lazy(() => import('@/pages/About'))
+const PersonPage = lazy(() => import('@/pages/PersonPage'))
 const TournamentReport = lazy(() => import('@/pages/TournamentReport'))
 const Privacy = lazy(() => import('@/pages/Legal').then(m => ({ default: m.PrivacyPage })))
 const Terms = lazy(() => import('@/pages/Legal').then(m => ({ default: m.TermsPage })))
@@ -92,6 +93,7 @@ export default function App() {
                 <Route path="verify/:code" element={<VerifyCertificate />} />
                 <Route path="checkin/:tournamentId" element={<RequireAuth><CheckIn /></RequireAuth>} />
                 <Route path="about" element={<About />} />
+                <Route path="people/:id" element={<PersonPage />} />
                 <Route path="privacy" element={<Privacy />} />
                 <Route path="terms" element={<Terms />} />
                 <Route path="pricing" element={<Pricing />} />

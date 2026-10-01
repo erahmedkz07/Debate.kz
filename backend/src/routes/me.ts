@@ -29,6 +29,7 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
     phone: z.union([phone, z.literal('')]).optional(),
     institution: z.string().trim().max(150).optional(),
     city: z.string().trim().max(60).optional(),
+    profileHidden: z.boolean().optional(), // "hide my public profile"
   }))
   // a phone confirmed through the Telegram bot stays confirmed only while it is not changed by hand
   const digits = (p?: string | null) => (p ?? '').replace(/\D/g, '').replace(/^8(?=\d{10}$)/, '7')
@@ -37,6 +38,7 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
     where: { id: req.user!.id },
     data: {
       name: data.name, phone: data.phone || null, institution: data.institution || null, city: data.city || null,
+      ...(data.profileHidden !== undefined && { profileHidden: data.profileHidden }),
       ...(changedPhone && { verifiedPhone: null, phoneVerifiedAt: null }),
     },
   })

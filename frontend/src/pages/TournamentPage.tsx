@@ -261,7 +261,7 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
             </div>
           </div>
           <ul className="mt-4 space-y-1.5 border-t border-border pt-4">
-            {team.speakers.map(s => <li key={s.id} className="text-sm">{s.name}</li>)}
+            {team.speakers.map(s => <li key={s.id} className="text-sm">{s.userId ? <Link to={`/people/${s.userId}`} className="hover:text-primary hover:underline">{s.name}</Link> : s.name}</li>)}
           </ul>
           <span className="sr-only">{t('tournament.speakers')}</span>
         </Card>
@@ -488,7 +488,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
           {data.speakers.slice(0, 30).map(r => (
             <tr key={r.speaker.id} className="hover:bg-muted/40">
               <td className="px-4 py-3">{medal(r.rank)}</td>
-              <td className="px-4 py-3"><p className="font-bold">{r.speaker.name}</p><p className="text-xs text-muted-foreground">{r.team.name} · {r.team.institution}</p></td>
+              <td className="px-4 py-3"><p className="font-bold">{r.speaker.userId ? <Link to={`/people/${r.speaker.userId}`} className="hover:text-primary hover:underline">{r.speaker.name}</Link> : r.speaker.name}</p><p className="text-xs text-muted-foreground">{r.team.name} · {r.team.institution}</p></td>
               <td className="px-4 py-3 text-right tabular-nums">{r.average.toFixed(1)}</td>
               <td className="px-4 py-3 text-right font-bold tabular-nums">{r.total.toFixed(1)}</td>
             </tr>
@@ -508,7 +508,7 @@ function JudgesTab({ data }: { data: TournamentDetails }) {
         <Card key={j.id} className="flex items-center gap-3 p-4">
           <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-bold">{j.name}</p>
+            <p className="truncate font-bold">{j.userId ? <Link to={`/people/${j.userId}`} className="hover:text-primary hover:underline">{j.name}</Link> : j.name}</p>
             <p className="truncate text-xs text-muted-foreground">{j.institution}</p>
           </div>
           {j.isChair && <Badge variant="accent">{t('tournament.chair')}</Badge>}

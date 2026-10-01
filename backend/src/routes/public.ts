@@ -8,6 +8,7 @@ import { getBracket } from '../services/playoffs.js'
 import { notFound } from '../lib/errors.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { selectionOf } from '../services/selection.js'
+import { publicProfile } from '../services/people.js'
 
 export const publicRouter = Router()
 
@@ -52,6 +53,11 @@ publicRouter.get('/tournaments/:id/standings', async (req, res) => {
   // silent rounds stay out of the public table until the break; organizers see the real one
   const id = param(req, 'id')
   res.json(await getStandings(id, (await isOrganizerOf(req.user, id)) ? new Set() : await hiddenRoundIds(id)))
+})
+
+// a person's public page: the career as a speaker and a judge, the awards (404 when the profile is hidden)
+publicRouter.get('/people/:id', async (req, res) => {
+  res.json(await publicProfile(param(req, 'id'), req.user))
 })
 
 // selection: how many applied for how many places, and the lottery order after the draw
