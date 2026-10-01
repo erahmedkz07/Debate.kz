@@ -14,6 +14,8 @@ export interface Tournament {
   startDate: string // ISO date
   endDate: string
   format: TournamentFormat
+  region?: string // region code (content/geo.ts)
+  district?: string // a district of a big city or an address
   level: TournamentLevel
   status: TournamentStatus
   teamsCount: number
@@ -195,7 +197,7 @@ export interface Testimonial {
 
 export interface TournamentFilters {
   search?: string
-  city?: string
+  region?: string // region code, see content/geo.ts
   level?: TournamentLevel | 'all'
   status?: TournamentStatus | 'all'
   sort?: 'date-asc' | 'date-desc' | 'teams'

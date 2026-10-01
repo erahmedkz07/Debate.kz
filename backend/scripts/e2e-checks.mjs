@@ -1794,5 +1794,18 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const bpRound = (await host.c('GET', `/tournaments/${bpT.id}`)).data.rounds[0]
   ok((await host.c('POST', `/rounds/${bpRound.id}/draw`, { method: 'round_robin' })).data?.error === 'method_not_for_bp', 'round robin is for two-team formats')
 }
+// ---------- 48. the place: region, city or village, district ----------
+{
+  const host = await newAccount('География Организатор')
+  const a = (await host.c('POST', '/tournaments', { ...tBody(170), name: `Кокшетау ${jtag}`, city: 'Кокшетау' })).data
+  ok(a.region === 'akmola', "a known city brings its region")
+  r = await host.c('POST', '/tournaments', { ...tBody(171), name: `Село ${jtag}`, city: 'Жарма', region: 'abai', district: 'ул. Абая, 10' })
+  ok(r.status === 201 && r.data.region === 'abai' && r.data.district === 'ул. Абая, 10', 'a village is typed in with its region and an address')
+  ok((await host.c('POST', '/tournaments', { ...tBody(172), name: `Нет региона ${jtag}`, region: 'mars' })).status === 400, 'an unknown region is refused')
+  for (const x of [a, r.data]) await admin('PATCH', `/admin/tournaments/${x.id}`, { moderation: 'approved' })
+  const akmola = (await client()('GET', '/tournaments?region=akmola&limit=100')).data
+  ok(akmola.some(x => x.id === a.id) && !akmola.some(x => x.id === r.data.id), 'the list filters by region')
+  ok((await host.c('PATCH', `/tournaments/${a.id}`, { city: 'Шымкент' })).data?.region === 'shymkent', 'a new city moves the region along')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

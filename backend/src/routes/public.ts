@@ -13,6 +13,7 @@ export const publicRouter = Router()
 const listSchema = z.object({
   search: z.string().trim().max(100).optional(),
   city: z.string().max(60).optional(),
+  region: z.string().max(30).optional(),
   level: z.enum(['all', 'school', 'university', 'mixed']).optional(),
   status: z.enum(['all', 'registration', 'ongoing', 'finished']).optional(),
   sort: z.enum(['date-asc', 'date-desc', 'teams']).optional(),
@@ -27,6 +28,7 @@ publicRouter.get('/tournaments', async (req, res) => {
     ...publicWhere,
     ...(f.search && { OR: [{ name: { contains: f.search, mode: 'insensitive' } }, { organizerName: { contains: f.search, mode: 'insensitive' } }] }),
     ...(f.city && f.city !== 'all' && { city: f.city }),
+    ...(f.region && f.region !== 'all' && { region: f.region }),
     ...(f.level && f.level !== 'all' && { level: { in: [f.level, 'mixed' as const] } }),
     ...(f.status && f.status !== 'all' && { status: f.status }),
   }

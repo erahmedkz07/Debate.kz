@@ -7,7 +7,7 @@ import {
   Award, CalendarClock, ChevronRight, Circle, DoorOpen, Eye, EyeOff, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
 } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, getCities, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
@@ -40,6 +40,8 @@ import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { conflictReason } from '@/lib/conflicts'
+import { PlacePicker, placeCity } from '@/components/tournament/PlacePicker'
+import { regionOfCity } from '@/content/geo'
 import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedback'
 import { formatOfTournament } from '@/content/formats'
 
@@ -970,8 +972,7 @@ function Ballots({ data }: SectionProps) {
 function DetailsCard({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
-  const { data: cities = [] } = useAsync(getCities)
-  const initial = { city: data.city, startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
+  const initial = { region: data.region ?? regionOfCity(data.city)?.code ?? '', city: data.city, district: data.district ?? '', startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
   const [f, setF] = useState(initial)
   useEffect(() => setF(initial), [data]) // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = JSON.stringify(f) !== JSON.stringify(initial)
@@ -979,7 +980,9 @@ function DetailsCard({ data, reload }: SectionProps) {
   const limitBad = !Number.isInteger(f.maxTeams) || f.maxTeams < minTeams || f.maxTeams > 128
   const today = new Date().toISOString().slice(0, 10)
   const save = async () => {
-    if (await run('details', () => updateTournament(data.id, { ...f, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
+    const city = placeCity(f)
+    if (!f.region || city.length < 2) return void toast.error(t('place.cityRequired'))
+    if (await run('details', () => updateTournament(data.id, { ...f, city, district: f.district.trim() || null, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
   }
   return (
     <Card className="space-y-4 p-6">
@@ -988,9 +991,8 @@ function DetailsCard({ data, reload }: SectionProps) {
         <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.details.text')}</p>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="d-city">{t('wizard.city')}</Label>
-          <Select id="d-city" value={f.city} onValueChange={c => setF({ ...f, city: c })} options={[...new Set([f.city, ...cities])].map(c => ({ value: c, label: c }))} />
+        <div className="sm:col-span-2">
+          <PlacePicker value={{ region: f.region, city: f.city, district: f.district }} onChange={p => setF({ ...f, ...p })} />
         </div>
         <div>
           <Label htmlFor="d-max">{t('wizard.maxTeams')}</Label>

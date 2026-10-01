@@ -9,6 +9,7 @@ import { assertCanManage, assertOwner, participationIn, summaryInclude, teamIncl
 import { generateDraw } from '../services/draw.js'
 import { announceBreak, cancelBreak, categoriesOf } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
+import { REGION_CODES, regionOfCity } from '../lib/regions.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -57,6 +58,9 @@ const createSchema = z.object({
   coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
   preliminaryRounds: z.number().int().min(2).max(8),
   breakSize: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+  // the place: region (when missing, found from the city), city or village, and optionally a district or address
+  region: z.enum(REGION_CODES).optional(),
+  district: z.string().trim().max(80).optional(),
   maxTeams: z.number().int().min(4).max(128),
   registrationOpen: z.boolean().default(true),
   requireApproval: z.boolean().default(true),
@@ -83,6 +87,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
     data: {
       name: d.name, city: d.city, startDate: start, endDate: end, level: d.level, format: d.format, description: d.description,
       coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, maxTeams: d.maxTeams,
+      region: d.region ?? regionOfCity(d.city), district: d.district || null,
       registrationOpen: d.registrationOpen, requireApproval: d.requireApproval,
       registrationDeadline: d.registrationDeadline ? fromDay(d.registrationDeadline) : null,
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
@@ -120,6 +125,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationOpen: z.boolean().optional(),
     status: z.enum(['registration', 'ongoing', 'finished']).optional(),
     city: z.string().trim().min(2).max(60).optional(),
+    region: z.enum(REGION_CODES).optional(),
+    district: z.string().trim().max(80).nullable().optional(),
     startDate: day.optional(),
     endDate: day.optional(),
     registrationDeadline: day.nullable().optional(),
@@ -156,6 +163,9 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     data.maxTeams = maxTeams
   }
   if (rooms) data.rooms = [...new Set(rooms)]
+  // a new city without a region: take the city's region
+  if (rest.city && !rest.region) data.region = regionOfCity(rest.city) ?? cur.region
+  if (rest.district !== undefined) data.district = rest.district || null
   if (rest.breakCategories) {
     if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
     if (new Set(rest.breakCategories.map(c => c.key)).size !== rest.breakCategories.length) throw badRequest('invalid_break_categories')

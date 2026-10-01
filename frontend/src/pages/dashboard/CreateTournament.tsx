@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Loader2, PartyPopper } from 'lucide-react'
-import { claimPayment, createTournament, getCities, getCoverTemplates, getPlanQuote, uploadTournamentCover } from '@/api'
+import { claimPayment, createTournament, getCoverTemplates, getPlanQuote, uploadTournamentCover } from '@/api'
 import { KaspiPayBox } from '@/components/payments/KaspiPayBox'
 import { Skeleton } from '@/components/ui/states'
 import { useAuth } from '@/lib/auth'
@@ -22,6 +22,8 @@ import { DatePicker } from '@/components/ui/date-picker'
 
 import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
 import { formatOfTournament, TOURNAMENT_FORMATS } from '@/content/formats'
+import { PlacePicker } from '@/components/tournament/PlacePicker'
+import { cityName, regionByCode } from '@/content/geo'
 type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
 
 export default function CreateTournament() {
@@ -29,7 +31,6 @@ export default function CreateTournament() {
   const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { data: cities = [] } = useAsync(getCities)
   const [step, setStep] = useState(0)
   // the cover: a ready template (saved with the tournament) or the organizer's own picture (uploaded right after)
   const [cover, setCover] = useState<string | null>(null)
@@ -39,7 +40,9 @@ export default function CreateTournament() {
 
   const schema = z.object({
     name: z.string().trim().min(3, t('auth.errors.required')),
-    city: z.string().min(1, t('auth.errors.required')),
+    region: z.string().min(1, t('place.regionRequired')),
+    city: z.string().trim().min(2, t('place.cityRequired')).refine(c => c !== '__other__', t('place.cityRequired')),
+    district: z.string().optional(),
     startDate: z.string().min(1, t('auth.errors.required')),
     endDate: z.string().min(1, t('auth.errors.required')),
     level: z.enum(['school', 'university', 'mixed']),
@@ -58,7 +61,7 @@ export default function CreateTournament() {
 
   const { register, handleSubmit, trigger, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, city: '', startDate: '', endDate: '', regDeadline: '' },
+    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, region: '', city: '', district: '', startDate: '', endDate: '', regDeadline: '' },
   })
   const v = watch()
   // tournaments cannot start in the past
@@ -76,7 +79,7 @@ export default function CreateTournament() {
   const paymentReady = !!quote && !!receipt && payNote.trim().length >= 2
 
   const fieldsByStep: Record<Step, (keyof Form)[]> = {
-    basic: ['name', 'city', 'startDate', 'endDate', 'level'],
+    basic: ['name', 'region', 'city', 'startDate', 'endDate', 'level'],
     format: ['prelims', 'breakSize'],
     registration: ['maxTeams'],
     payment: [],
@@ -93,7 +96,7 @@ export default function CreateTournament() {
     }
     try {
       const created = await createTournament({
-        name: f.name.trim(), city: f.city, startDate: f.startDate, endDate: f.endDate, level: f.level,
+        name: f.name.trim(), city: f.city.trim(), region: f.region, district: f.district?.trim() || undefined, startDate: f.startDate, endDate: f.endDate, level: f.level,
         description: f.description?.trim() ?? '', preliminaryRounds: Number(f.prelims), breakSize: Number(f.breakSize),
         maxTeams: Number(f.maxTeams), registrationOpen: f.regOpen, requireApproval: f.approval,
         registrationDeadline: f.regDeadline || undefined,
@@ -155,13 +158,14 @@ export default function CreateTournament() {
                     <Input id="name" placeholder={t('wizard.namePlaceholder')} aria-invalid={!!errors.name} {...register('name')} />
                     <FieldError message={errors.name?.message} />
                   </div>
+                  <PlacePicker value={{ region: v.region ?? '', city: v.city ?? '', district: v.district ?? '' }}
+                    invalid={{ region: errors.region?.message, city: errors.city?.message }}
+                    onChange={p => {
+                      setValue('region', p.region, { shouldValidate: !!errors.region })
+                      setValue('city', p.city, { shouldValidate: !!errors.city })
+                      setValue('district', p.district)
+                    }} />
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <div>
-                      <Label htmlFor="city">{t('wizard.city')}</Label>
-                      <Select id="city" invalid={!!errors.city} value={v.city ?? ''} placeholder={t('wizard.cityPlaceholder')}
-                        onValueChange={c => setValue('city', c, { shouldValidate: true })} options={cities.map(c => ({ value: c, label: c }))} />
-                      <FieldError message={errors.city?.message} />
-                    </div>
                     <div>
                       <Label>{t('wizard.level')}</Label>
                       <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1">
@@ -298,7 +302,7 @@ export default function CreateTournament() {
                   {cover && <img src={cover} alt="" className="h-40 w-full rounded-2xl object-cover" />}
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-2xl bg-muted/60 p-5 text-sm sm:grid-cols-2">
                     {[
-                      [t('wizard.city'), v.city],
+                      [t('wizard.city'), [cityName(v.city ?? '', lang), regionByCode(v.region)?.[lang], v.district].filter(x => x && x !== '__other__').join(', ')],
                       [t('wizard.level'), t(`level.${v.level}`)],
                       [t('wizard.startDate'), v.startDate && v.endDate ? formatDateRange(v.startDate, v.endDate) : '—'],
                       [t('wizard.format'), formatOfTournament(v.format).name[lang]],

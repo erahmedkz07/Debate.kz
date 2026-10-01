@@ -14,7 +14,7 @@ export const summaryInclude = { _count: { select: { teams: { where: { swing: fal
 type SummaryRow = Prisma.TournamentGetPayload<{ include: typeof summaryInclude }>
 
 export const toSummary = (t: SummaryRow) => ({
-  id: t.id, name: t.name, city: t.city, startDate: toDay(t.startDate), endDate: toDay(t.endDate),
+  id: t.id, name: t.name, city: t.city, region: t.region ?? undefined, district: t.district ?? undefined, startDate: toDay(t.startDate), endDate: toDay(t.endDate),
   format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams,
   cover: coverOf(t), organizer: t.organizerName, description: t.description,
   preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,

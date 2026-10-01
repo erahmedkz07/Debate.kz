@@ -188,6 +188,8 @@ model Tournament {
   id                   String           @id @default(cuid())
   name                 String
   city                 String
+  region               String? // region code (content/geo.ts): 17 regions and Astana, Almaty, Shymkent
+  district             String? // optional: a district of a big city or an address
   startDate            DateTime         @map("start_date") @db.Date
   endDate              DateTime         @map("end_date") @db.Date
   format               String           @default("WSDC")
