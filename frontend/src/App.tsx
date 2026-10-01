@@ -36,6 +36,7 @@ const Notifications = lazy(() => import('@/pages/cabinet/Notifications'))
 const Motions = lazy(() => import('@/pages/Motions'))
 const Timer = lazy(() => import('@/pages/Timer'))
 const Calculator = lazy(() => import('@/pages/Calculator'))
+const BreakCalculator = lazy(() => import('@/pages/BreakCalculator'))
 const Projector = lazy(() => import('@/pages/Projector'))
 const CertificatePrint = lazy(() => import('@/pages/CertificatePrint'))
 const VerifyCertificate = lazy(() => import('@/pages/VerifyCertificate'))
@@ -77,6 +78,7 @@ export default function App() {
                 <Route path="motions" element={<Motions />} />
                 <Route path="timer" element={<Timer />} />
                 <Route path="calculator" element={<Calculator />} />
+                <Route path="break-calculator" element={<BreakCalculator />} />
                 <Route path="teammates" element={<Teammates />} />
                 <Route path="clubs" element={<Clubs />} />
                 <Route path="clubs/join/:code" element={<ClubJoin />} />
