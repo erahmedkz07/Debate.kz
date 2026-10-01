@@ -41,6 +41,7 @@ import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { conflictReason } from '@/lib/conflicts'
 import { PlacePicker, placeCity } from '@/components/tournament/PlacePicker'
+import { AwardsCard } from '@/components/tournament/AwardsCard'
 import { regionOfCity } from '@/content/geo'
 import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedback'
 import { formatOfTournament } from '@/content/formats'
@@ -1358,6 +1359,7 @@ export default function ManageTournament() {
                   <Button asChild variant="outline"><a href={`/tournaments/${id}/certificates/print`} target="_blank" rel="noopener"><Award className="size-4" />{t('certificate.printAll')}</a></Button>
                 )} />
               {data.status !== 'finished' && <p className="-mt-3 mb-4 text-sm text-muted-foreground">{t('certificate.afterFinish')}</p>}
+              {data.status !== 'registration' && <AwardsCard id={id} finished={data.status === 'finished'} onChange={reload} />}
               <ResultsTab id={id} kind="teams" tournament={data} />
             </>
           )}

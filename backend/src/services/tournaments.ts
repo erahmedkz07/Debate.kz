@@ -111,6 +111,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
         orderBy: [{ rating: 'desc' }, { name: 'asc' }],
       },
       registrations: { where: { status: 'pending' }, select: { id: true } },
+      awards: true,
     },
   })
   const manager = await isOrganizerOf(viewer, id)
@@ -147,6 +148,8 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       selectionMode: t.selectionMode, clubQuota: t.clubQuota ?? undefined,
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
+    // best speaker / best judge: public once the tournament is finished, organizers see their choice before
+    ...((t.status === 'finished' || manager) && t.awards.length && { awards: t.awards.map(a => ({ kind: a.kind, name: a.name })) }),
     // the selection lottery is public: its order is shown on the tournament page
     ...(t.lotteryAt && { lotteryAt: t.lotteryAt.toISOString() }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),

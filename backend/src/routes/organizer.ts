@@ -11,6 +11,7 @@ import { announceBreak, cancelBreak, categoriesOf } from '../services/playoffs.j
 import { conflictChecker } from '../services/conflicts.js'
 import { institutionIdFor } from '../services/institutions.js'
 import { confirmRegistration, fillFromWaitlist, runLottery } from '../services/selection.js'
+import { awardCandidates, issueAwardCertificates, setAward } from '../services/awards.js'
 import { REGION_CODES, regionOfCity } from '../lib/regions.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
@@ -202,7 +203,9 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   })
   // the results are final: certificates exist at once (profiles, printing and the public QR check all see them)
   // and everyone who took part learns the result and where the certificate is
-  if (d.status === 'finished' && cur.status !== 'finished') background(ensureCertificates(cur.id).then(() => notifyTournamentFinished(cur.id)))
+  if (d.status === 'finished' && cur.status !== 'finished') {
+    background(ensureCertificates(cur.id).then(() => issueAwardCertificates(cur.id)).then(() => notifyTournamentFinished(cur.id)))
+  }
   // a higher limit, a looser quota or another mode can open places for the waitlist
   if (d.maxTeams !== undefined || d.clubQuota !== undefined || d.selectionMode !== undefined) await fillFromWaitlist(cur.id)
   res.json(toSummary(t))
@@ -224,6 +227,20 @@ async function assertStageChange(tournamentId: string, to: 'registration' | 'ong
 }
 
 // ---------- the break (playoffs) ----------
+
+// best speaker / best judge: the site's suggestions and the organizer's choice
+organizerRouter.get('/tournaments/:id/awards', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  res.json(await awardCandidates(param(req, 'id')))
+})
+
+organizerRouter.put('/tournaments/:id/awards', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  const d = body(req, z.object({ kind: z.enum(['best_speaker', 'best_judge']), personId: z.string().nullable() }))
+  const person = await setAward(param(req, 'id'), d.kind, d.personId)
+  if (person === undefined) throw badRequest('award_person_not_found')
+  res.json({ kind: d.kind, name: person?.name ?? null })
+})
 
 // the selection lottery: a public random order of the applications; places go in that order
 organizerRouter.post('/tournaments/:id/selection/lottery', org, async (req, res) => {

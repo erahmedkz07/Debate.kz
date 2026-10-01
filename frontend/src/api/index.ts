@@ -150,6 +150,17 @@ export interface TournamentReviews extends ReviewSummary {
 }
 export const getTournamentReviews = (id: string) => http<TournamentReviews>('GET', `/tournaments/${encodeURIComponent(id)}/reviews`)
 export const sendTournamentReview = (id: string, score: number, comment?: string) => http<{ ok: true }>('POST', `/tournaments/${encodeURIComponent(id)}/review`, { score, comment })
+// best speaker / best judge: suggestions and the organizer's choice
+export type AwardKind = 'best_speaker' | 'best_judge'
+export interface AwardCandidates {
+  speakers: { id: string; name: string; team: string; total: number; average: number; rounds: number }[]
+  judges: { id: string; name: string; rating: number; reviews: number; average: number | null }[]
+  otherJudges: { id: string; name: string; rating: number; reviews: number; average: number | null }[]
+  minReviews: number; preliminaryRounds: number
+  chosen: Partial<Record<AwardKind, { speakerId?: string; judgeId?: string; name: string }>>
+}
+export const getAwardCandidates = (id: string) => http<AwardCandidates>('GET', `/tournaments/${encodeURIComponent(id)}/awards`)
+export const setTournamentAward = (id: string, kind: AwardKind, personId: string | null) => http<{ kind: AwardKind; name: string | null }>('PUT', `/tournaments/${encodeURIComponent(id)}/awards`, { kind, personId })
 export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackSummary[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/judge-feedback`)
 
 // ---------- judge ----------

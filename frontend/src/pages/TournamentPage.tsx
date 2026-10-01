@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle,
+  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award,
 } from 'lucide-react'
 import { getSelection, getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
@@ -184,6 +184,19 @@ function Overview({ data }: { data: TournamentDetails }) {
           <h2 className="text-xl font-bold">{t('tournament.about')}</h2>
           <p className="mt-3 leading-relaxed text-muted-foreground">{data.description}</p>
         </Card>
+        {data.status === 'finished' && data.awards && data.awards.length > 0 && (
+          <Card className="p-6">
+            <h2 className="flex items-center gap-2 text-xl font-bold"><Award className="size-5 text-primary" />{t('awards.title')}</h2>
+            <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+              {data.awards.map(a => (
+                <li key={a.kind} className="flex items-center gap-3 rounded-xl bg-accent-soft px-4 py-3">
+                  <Medal className="size-6 shrink-0 text-navy dark:text-accent" />
+                  <span><span className="block text-xs font-semibold text-muted-foreground">{t(a.kind === 'best_judge' ? 'awards.bestJudge' : 'awards.bestSpeaker')}</span><span className="font-bold">{a.name}</span></span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
         {data.lotteryAt && <LotteryCard id={data.id} />}
         <Card className="p-6">
           <h2 className="flex items-center gap-2 text-xl font-bold"><MessageSquareQuote className="size-5 text-primary" />{t('tournament.motions')}</h2>

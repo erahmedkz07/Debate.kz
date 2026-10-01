@@ -1919,5 +1919,36 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const open = (await db.query("select id from tournaments where status <> 'finished' and moderation = 'approved' limit 1")).rows[0].id
   ok((await fan.c('POST', `/tournaments/${open}/review`, { score: 5 })).data?.error === 'tournament_not_finished', 'a tournament is rated after it finishes')
 }
+// ---------- 51. best speaker and best judge: the site suggests, the organizer confirms, diplomas ----------
+{
+  const done = (await db.query("select id from tournaments where name like $1 and status = 'finished' order by created_at desc limit 1", [`Плей-офф ${jtag}`])).rows[0].id
+  const ownerEmail = (await db.query("select u.email from tournament_organizers o join users u on u.id = o.user_id where o.tournament_id = $1 and o.role = 'owner'", [done])).rows[0].email
+  const host = client()
+  await host('POST', '/auth/login', { email: ownerEmail, password: 'secret123' })
+  // three speakers of one debate rate its chair: enough reviews to suggest the judge
+  const deb = (await db.query("select d.id, dj.judge_id, d.proposition_team_id, d.opposition_team_id from debates d join debate_judges dj on dj.debate_id = d.id and dj.is_chair join rounds r on r.id = d.round_id where r.tournament_id = $1 and r.kind = 'preliminary' limit 1", [done])).rows[0]
+  const spk = (await db.query('select id from speakers where team_id in ($1, $2) order by id limit 3', [deb.proposition_team_id, deb.opposition_team_id])).rows
+  for (const [i, sp] of spk.entries()) {
+    const a = await newAccount(`Рецензент ${['Один', 'Два', 'Три'][i]}`)
+    await db.query('update speakers set user_id = $1 where id = $2', [a.id, sp.id])
+    await a.c('POST', `/debates/${deb.id}/feedback`, { judgeId: deb.judge_id, score: 5 - (i === 2 ? 1 : 0) })
+  }
+  const cand = (await host('GET', `/tournaments/${done}/awards`)).data
+  ok(cand.speakers.length === 3 && cand.speakers.every(s => s.rounds >= cand.preliminaryRounds) && cand.speakers[0].total >= cand.speakers[1].total, 'the site suggests the top speakers who spoke in every preliminary round')
+  ok(cand.judges[0]?.id === deb.judge_id && cand.judges[0].reviews === 3 && cand.judges[0].average === 4.7, 'and the judge with the best rating from the speakers (3+ reviews)')
+  ok((await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_speaker', personId: 'nobody' })).data?.error === 'award_person_not_found', 'an award goes to someone of this tournament')
+  ok((await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_speaker', personId: cand.speakers[0].id })).status === 200
+    && (await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_judge', personId: deb.judge_id })).status === 200, 'the organizer confirms the best speaker and the best judge')
+  const awardCerts = async () => (await db.query("select award, name from certificates where tournament_id = $1 and kind = 'award' order by award", [done])).rows
+  let certs = await awardCerts()
+  ok(certs.length === 2 && certs[0].award === 'best_judge' && certs[1].name === cand.speakers[0].name, 'a finished tournament gets the award diplomas at once')
+  const pub = (await client()('GET', `/tournaments/${done}`)).data.awards
+  ok(pub?.length === 2 && pub.some(a => a.kind === 'best_speaker' && a.name === cand.speakers[0].name), 'the tournament page shows the awards')
+  await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_speaker', personId: cand.speakers[1].id })
+  certs = await awardCerts()
+  ok(certs.length === 2 && certs[1].name === cand.speakers[1].name, 'a changed choice replaces the diploma')
+  await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_judge', personId: null })
+  ok((await awardCerts()).length === 1, 'an award can be withdrawn')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

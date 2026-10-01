@@ -141,6 +141,7 @@ export interface TournamentDetails extends Tournament {
   registrationDeadline?: string
   rooms?: string[]
   roomLinks?: Record<string, string> // room name -> video call link
+  awards?: { kind: 'best_speaker' | 'best_judge'; name: string }[] // best speaker / best judge (public after the finish)
   selectionMode?: 'manual' | 'first_come' | 'lottery' // how the places are filled
   clubQuota?: number // at most this many teams per club
   lotteryAt?: string // when the selection lottery was drawn
@@ -286,7 +287,8 @@ export interface AdminAction {
 // ---------- certificates ----------
 export interface Certificate {
   code: string
-  kind: 'speaker' | 'judge'
+  kind: 'speaker' | 'judge' | 'award'
+  award?: 'best_speaker' | 'best_judge' // an award diploma
   name: string
   teamName?: string
   institution?: string
