@@ -1896,5 +1896,28 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   r = await apply(people[5], lt, 5)
   ok(r.data?.status === 'waitlisted' && (await client()('GET', `/tournaments/${lt.id}/selection`)).data.lottery.find(x => x.team === 'Отбор 5')?.rank === 6, 'a late application joins the end of the waitlist')
 }
+// ---------- 50. tournament reviews: everyone who took part rates a finished tournament ----------
+{
+  const done = (await db.query("select id from tournaments where name like $1 and status = 'finished' order by created_at desc limit 1", [`Плей-офф ${jtag}`])).rows[0].id
+  const judgeId = (await db.query('select id from judges where tournament_id = $1 and user_id is not null limit 1', [done])).rows[0].id
+  const jc = await judgeAs(judgeId)
+  ok((await notes(jc)).items.some(n => n.type === 'participant.rateTournament'), 'finishing the tournament asks its judges to rate it')
+  const fan = await newAccount('Оценщик Спикер')
+  const sp = (await db.query('select s.id from speakers s join teams t on t.id = s.team_id where t.tournament_id = $1 and s.user_id is null limit 1', [done])).rows[0].id
+  await db.query('update speakers set user_id = $1 where id = $2', [fan.id, sp])
+  ok((await (await newAccount('Посторонний Зритель')).c('POST', `/tournaments/${done}/review`, { score: 5 })).data?.error === 'not_a_participant', 'only participants and judges rate a tournament')
+  ok((await fan.c('POST', `/tournaments/${done}/review`, { score: 6 })).status === 400, 'the rating is 1 to 5')
+  ok((await fan.c('POST', `/tournaments/${done}/review`, { score: 3 })).status === 201
+    && (await fan.c('POST', `/tournaments/${done}/review`, { score: 4, comment: 'Отличные темы, но задержки между раундами' })).status === 201, 'a speaker rates it and can change the rating')
+  ok((await jc('POST', `/tournaments/${done}/review`, { score: 5 })).status === 201, 'a judge rates it too')
+  const rv = (await client()('GET', `/tournaments/${done}/reviews`)).data
+  ok(rv.count === 2 && rv.average === 4.5 && rv.spread.join() === '1,1,0,0,0', 'the public sees the average and the spread')
+  ok(rv.items.length === 1 && rv.items[0].role === 'speaker' && rv.items[0].comment.startsWith('Отличные') && rv.items[0].userId === undefined && rv.items[0].name === undefined, 'comments are shown without names, with the role only')
+  ok(rv.organizer.count >= 2 && typeof rv.organizer.average === 'number', "the organizer's average across their tournaments is public")
+  const mine = (await fan.c('GET', `/tournaments/${done}/reviews`)).data
+  ok(mine.canReview && mine.mine?.score === 4, 'a participant sees their own rating')
+  const open = (await db.query("select id from tournaments where status <> 'finished' and moderation = 'approved' limit 1")).rows[0].id
+  ok((await fan.c('POST', `/tournaments/${open}/review`, { score: 5 })).data?.error === 'tournament_not_finished', 'a tournament is rated after it finishes')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

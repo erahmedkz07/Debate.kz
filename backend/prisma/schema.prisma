@@ -160,7 +160,8 @@ model User {
   handledSafetyReports SafetyReport[]        @relation("SafetyHandler")
   judgeFeedback        JudgeFeedback[]
 
-  clubReports ClubReport[]
+  clubReports       ClubReport[]
+  tournamentReviews TournamentReview[]
 
   @@map("users")
 }
@@ -240,6 +241,7 @@ model Tournament {
   invites       TournamentInvite[]
   certificates  Certificate[]
   payments      Payment[]
+  reviews       TournamentReview[]
 
   @@index([status, startDate])
   @@index([moderation])
@@ -430,6 +432,23 @@ model JudgeConflict {
 }
 
 // a speaker's rating of a judge of their debate (1..5 and an optional comment); only the organizers read it
+// a participant's or judge's rating of a finished tournament (1..5, optional comment); public, shown without names
+model TournamentReview {
+  id           String     @id @default(cuid())
+  tournamentId String     @map("tournament_id")
+  userId       String     @map("user_id")
+  role         String // speaker | judge: shown next to the review instead of the name
+  score        Int
+  comment      String?
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@map("tournament_reviews")
+}
+
 model JudgeFeedback {
   id        String   @id @default(cuid())
   debateId  String   @map("debate_id")

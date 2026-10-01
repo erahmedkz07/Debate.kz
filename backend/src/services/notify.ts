@@ -202,6 +202,9 @@ export async function notifyTournamentFinished(tournamentId: string) {
       { tournament: t.name, team: team.name, place: p, teams: st.teams.length, inBreak: broke ? !!team.breakSeed : p <= t.breakSize }, '/me?tab=certificates')
   }
   await notify(t.judges.map(j => j.userId), 'judge.tournamentFinished', { tournament: t.name }, '/me?tab=certificates')
+  // like rating a ride: everyone who took part is asked how the tournament went
+  const people = [...t.teams.flatMap(x => x.speakers.map(s => s.userId)), ...t.judges.map(j => j.userId)]
+  await notify(people, 'participant.rateTournament', { tournament: t.name }, `/tournaments/${t.id}?tab=reviews`)
   await notify(await organizersOf(t.id), 'organizer.tournamentFinished',
     { tournament: t.name, winner: t.teams.find(x => place.get(x.id) === 1)?.name ?? '', teams: st.teams.length }, `/dashboard/tournaments/${t.id}/results`)
 }

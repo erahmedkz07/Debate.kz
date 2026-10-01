@@ -31,6 +31,7 @@ import { isBP, placeOf, sidesOf, teamIdOn, useFormatName, useSides } from '@/lib
 import { formatOfTournament } from '@/content/formats'
 import { useRoundName } from '@/lib/rounds'
 import { PlayoffTab } from '@/components/tournament/Bracket'
+import { ReviewsTab } from '@/components/tournament/Reviews'
 import { silentRoundIds } from '@/lib/silent'
 import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
 import { cityName } from '@/content/geo'
@@ -522,7 +523,7 @@ export default function TournamentPage() {
   const { data, loading, error, reload } = useAsync(() => getTournamentById(id), [id])
   // deep links like /tournaments/:id?tab=draw (e.g. from "My debates")
   const [params] = useSearchParams()
-  const tabs = ['overview', 'teams', 'draw', 'playoffs', 'results', 'speakers', 'judges']
+  const tabs = ['overview', 'teams', 'draw', 'playoffs', 'results', 'speakers', 'judges', 'reviews']
   const requestedTab = params.get('tab')
 
   if (error instanceof NotFoundError) return <NotFound />
@@ -567,6 +568,7 @@ export default function TournamentPage() {
             <TabsTrigger value="results">{t('tournament.tabs.results')}</TabsTrigger>
             <TabsTrigger value="speakers">{t('tournament.tabs.speakers')}</TabsTrigger>
             <TabsTrigger value="judges">{t('tournament.tabs.judges')}</TabsTrigger>
+            {data.status === 'finished' && <TabsTrigger value="reviews">{t('reviews.tab')}</TabsTrigger>}
           </TabsList>
           <TabsContent value="overview"><Overview data={data} /></TabsContent>
           <TabsContent value="teams"><TeamsTab data={data} /></TabsContent>
@@ -575,6 +577,7 @@ export default function TournamentPage() {
           <TabsContent value="results"><ResultsTab id={data.id} kind="teams" tournament={data} /></TabsContent>
           <TabsContent value="speakers"><ResultsTab id={data.id} kind="speakers" tournament={data} /></TabsContent>
           <TabsContent value="judges"><JudgesTab data={data} /></TabsContent>
+          <TabsContent value="reviews"><ReviewsTab id={data.id} /></TabsContent>
         </Tabs>
       </div>
     </>

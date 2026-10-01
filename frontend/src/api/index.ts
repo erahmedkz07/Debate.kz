@@ -140,6 +140,16 @@ export interface JudgeFeedbackSummary {
   judgeId: string; count: number; average: number
   items: { score: number; comment?: string; team: string; round: string; room: string; createdAt: string }[]
 }
+// reviews of a finished tournament: public average, comments without names
+export interface ReviewSummary { count: number; average: number | null; spread: number[] }
+export interface TournamentReviews extends ReviewSummary {
+  organizer: ReviewSummary
+  items: { id: string; role: 'speaker' | 'judge'; score: number; comment: string; createdAt: string }[]
+  canReview: boolean
+  mine?: { score: number; comment?: string }
+}
+export const getTournamentReviews = (id: string) => http<TournamentReviews>('GET', `/tournaments/${encodeURIComponent(id)}/reviews`)
+export const sendTournamentReview = (id: string, score: number, comment?: string) => http<{ ok: true }>('POST', `/tournaments/${encodeURIComponent(id)}/review`, { score, comment })
 export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackSummary[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/judge-feedback`)
 
 // ---------- judge ----------
