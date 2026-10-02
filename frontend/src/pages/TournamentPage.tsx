@@ -384,6 +384,12 @@ function RoundBanner({ round }: { round: Round }) {
         <span className="text-xs text-white/60">{formatDate(round.date, { day: 'numeric', month: 'long' })}</span>
       </div>
       <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">«{round.motion}»</p>
+      {round.infoSlide && (
+        <details className="mt-3 rounded-xl bg-white/10 p-3 text-sm">
+          <summary className="cursor-pointer font-semibold">{t('dashboard.rounds.infoSlide')}</summary>
+          <p className="mt-2 whitespace-pre-line text-white/85">{round.infoSlide}</p>
+        </details>
+      )}
     </div>
   )
 }

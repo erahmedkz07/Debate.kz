@@ -2059,5 +2059,17 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const someone = await newAccount('Аналитика Посторонний')
   ok((await someone.c('GET', '/admin/analytics')).status === 403, 'only admins see the analytics')
 }
+// ---------- 55. info slide: the organizer adds it to a round, the public sees it once the round is out ----------
+{
+  const host = await newAccount('Инфослайд Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(300), name: `Инфослайд ${jtag}` })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const round = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+  let r = await host.c('PATCH', `/rounds/${round.id}`, { motion: 'Эта палата запретит домашние задания', infoSlide: 'Домашние задания — работа, которую дают на дом.' })
+  ok(r.status === 200 && r.data.infoSlide === 'Домашние задания — работа, которую дают на дом.', 'an info slide is saved with the motion')
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.rounds[0].infoSlide === undefined, 'the public does not see it before the round is published')
+  r = await host.c('PATCH', `/rounds/${round.id}`, { infoSlide: '' })
+  ok(r.status === 200 && r.data.infoSlide === undefined && (await db.query('select info_slide from rounds where id = $1', [round.id])).rows[0].info_slide === null, 'an emptied info slide is removed')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

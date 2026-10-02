@@ -431,7 +431,8 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
   const updated = await prisma.$transaction(async tx => {
     // completing a round locks all its ballots
     if (d.status === 'completed') await tx.debate.updateMany({ where: { roundId: round.id }, data: { ballotStatus: 'confirmed' } })
-    return tx.round.update({ where: { id: round.id }, data: d })
+    // an emptied info slide is removed
+    return tx.round.update({ where: { id: round.id }, data: { ...d, ...(d.infoSlide !== undefined && { infoSlide: d.infoSlide || null }) } })
   })
   // participants and judges learn their rooms in Telegram
   if (d.status === 'released') background(notifyRoundReleased(round.id))

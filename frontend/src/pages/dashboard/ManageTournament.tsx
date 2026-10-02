@@ -500,14 +500,16 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
   const roundName = useRoundName()
   const { busy, run } = useAction()
   const [motion, setMotion] = useState(round.motion)
+  const [slide, setSlide] = useState(round.infoSlide ?? '')
   useEffect(() => setMotion(round.motion), [round.motion])
-  const dirty = motion.trim() !== round.motion
+  useEffect(() => setSlide(round.infoSlide ?? ''), [round.infoSlide])
+  const dirty = motion.trim() !== round.motion || slide.trim() !== (round.infoSlide ?? '')
   // why "publish" is not available yet, said next to the button instead of a silent grey button
   const blocker = round.status !== 'draft' ? null : !hasDraw ? t('dashboard.rounds.needDraw') : !motion.trim() ? t('dashboard.rounds.needMotion') : null
 
-  const save = async () => { if (await run('save', () => updateRound(round.id, { motion }), t('dashboard.teams.saved'))) reload() }
+  const save = async () => { if (await run('save', () => updateRound(round.id, { motion, infoSlide: slide }), t('dashboard.teams.saved'))) reload() }
   const release = async () => {
-    if (await run('release', () => updateRound(round.id, { motion, status: 'released' }), t('dashboard.rounds.released'))) reload()
+    if (await run('release', () => updateRound(round.id, { motion, infoSlide: slide, status: 'released' }), t('dashboard.rounds.released'))) reload()
   }
   const complete = async () => { if (await run('complete', () => updateRound(round.id, { status: 'completed' }), t('dashboard.rounds.completedToast'))) reload() }
   const setSilent = async (silent: boolean) => { if (await run('silent', () => updateRound(round.id, { silent }), t(silent ? 'dashboard.rounds.closedToast' : 'dashboard.rounds.openedToast'))) reload() }
@@ -545,6 +547,9 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
         <Label htmlFor={`m-${round.id}`}>{t('dashboard.rounds.motion')}</Label>
         <Textarea id={`m-${round.id}`} rows={2} value={motion} disabled={round.status === 'completed'} onChange={e => setMotion(e.target.value)} placeholder={t('dashboard.rounds.motionPlaceholder')} />
         {blocker && <p className="mt-2 text-xs text-muted-foreground">{blocker}</p>}
+        {/* the info slide: facts the speakers need to understand the motion; shown together with it */}
+        <Label htmlFor={`s-${round.id}`} className="mt-3">{t('dashboard.rounds.infoSlide')} <span className="font-normal text-muted-foreground">· {t('common.optional')}</span></Label>
+        <Textarea id={`s-${round.id}`} rows={2} maxLength={2000} value={slide} disabled={round.status === 'completed'} onChange={e => setSlide(e.target.value)} placeholder={t('dashboard.rounds.infoSlidePlaceholder')} />
       </div>
       {round.kind !== 'elimination' && (
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
