@@ -2,10 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import {
-  ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, CalendarClock, ChevronRight, Circle, Clock, DoorOpen, Eye, EyeOff, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
-} from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, UserX, Users, X } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
@@ -491,6 +488,27 @@ function Judges({ data, reload }: SectionProps) {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+// 3 days before the start (and during the tournament): preliminary rounds that still have no motion, on every page
+// of the organizer's dashboard. The watchdog also sends a reminder, but a notification is easy to miss.
+function MissingMotions({ data }: { data: TournamentDetails }) {
+  const { t } = useTranslation()
+  const roundName = useRoundName()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const days = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
+  const missing = data.rounds.filter(r => r.kind !== 'elimination' && r.status === 'draft' && !r.motion.trim())
+  if (data.status === 'finished' || days > 3 || !missing.length) return null
+  return (
+    <Link to={`/dashboard/tournaments/${data.id}/rounds`}
+      className="mt-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm transition-colors hover:border-primary">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+      <span>
+        <b>{days > 0 ? t('dashboard.missingMotions.soon', { count: days }) : t('dashboard.missingMotions.now')}</b>{' '}
+        {t('dashboard.missingMotions.rounds', { rounds: missing.map(r => roundName(r)).join(', ') })}
+      </span>
+    </Link>
   )
 }
 
@@ -1326,6 +1344,7 @@ export default function ManageTournament() {
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{formatDateRange(data.startDate, data.endDate)} · {data.city}</p>
       <ModerationBanner status={data.moderation} note={data.moderationNote} className="mt-4" />
+      <MissingMotions data={data} />
 
       <div className="mt-6 grid gap-6 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-1 lg:px-0">
