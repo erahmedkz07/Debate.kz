@@ -1,4 +1,3 @@
-import type { User } from '../generated/prisma/client.js'
 import { notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
@@ -6,18 +5,17 @@ import { getStandings, publicWhere } from './tournaments.js'
 import { finalPlaces } from './playoffs.js'
 import { hiddenRoundIds } from './silent.js'
 
-// A person's public page: their debate career as a speaker and as a judge, and their awards — open to everyone, unless
-// they switched "hide my profile" on (the personal-data law; many debaters are schoolchildren). Only public tournaments
+// A person's public page: their debate career as a speaker and as a judge, and their awards — open to everyone
+// (the owner decided against a "hide my profile" switch). Only public tournaments
 // and only what is already public there: closed (silent) rounds stay out until the break, judge ratings show only as an
 // average of at least PUBLIC_RATING_MIN reviews, never single comments.
 export const PUBLIC_RATING_MIN = 5
 
 const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null)
 
-export async function publicProfile(userId: string, viewer?: User) {
+export async function publicProfile(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { clubMembership: { include: { club: { select: { id: true, name: true, status: true } } } } } })
-  const self = viewer?.id === userId || viewer?.role === 'admin'
-  if (!user || user.blocked || (user.profileHidden && !self)) throw notFound('profile_not_found')
+  if (!user || user.blocked) throw notFound('profile_not_found')
 
   // ---- as a speaker ----
   const speakerSlots = await prisma.speaker.findMany({
@@ -82,7 +80,6 @@ export async function publicProfile(userId: string, viewer?: User) {
 
   return {
     id: user.id, name: user.name, avatarUrl: user.avatarUrl ?? undefined, city: user.city ?? undefined, since: toDay(user.createdAt),
-    hidden: user.profileHidden, // only the person (or an admin) sees a hidden profile
     ...(user.clubMembership?.club.status === 'approved' && { club: { id: user.clubMembership.club.id, name: user.clubMembership.club.name } }),
     speaker: {
       tournaments: tournaments.sort((a, b) => b.startDate.localeCompare(a.startDate)),

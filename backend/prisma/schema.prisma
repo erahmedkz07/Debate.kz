@@ -127,7 +127,6 @@ model User {
   blocked             Boolean   @default(false)
   emailVerifiedAt     DateTime? @map("email_verified_at")
   consentAt           DateTime? @map("consent_at") // consent to personal data processing
-  profileHidden       Boolean   @default(false) @map("profile_hidden") // "hide my public profile": no career page, no links
   passwordChangedAt   DateTime? @map("password_changed_at") // sessions issued before this are rejected
   telegramChatId      String?   @unique @map("telegram_chat_id") // private chat with the bot (= Telegram user id)
   telegramUsername    String?   @map("telegram_username")

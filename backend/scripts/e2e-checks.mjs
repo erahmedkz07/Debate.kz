@@ -1993,13 +1993,6 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const judgeUser = (await db.query('select user_id, id from judges where tournament_id = $1 and user_id is not null limit 1', [done])).rows[0]
   const jp = (await client()('GET', `/people/${judgeUser.user_id}`)).data
   ok(jp.judge.tournaments.some(x => x.id === done) && jp.judge.rounds >= 1 && jp.judge.rating === undefined, "a judge's page counts rounds and chairs; the rating shows only with 5+ reviews")
-  // the person hides the profile: no page, no links
-  const c = client()
-  await c('POST', '/auth/login', { email: (await db.query('select email from users where id = $1', [pid])).rows[0].email, password: 'secret123' })
-  ok((await c('PATCH', '/me', { name: 'Публичный Спикер', profileHidden: true })).data?.user?.profileHidden === true, 'a person hides the public profile')
-  ok((await client()('GET', `/people/${pid}`)).status === 404 && (await c('GET', `/people/${pid}`)).data.hidden === true, 'a hidden page is closed to others; the person still sees it')
-  const team2 = (await client()('GET', `/tournaments/${done}`)).data.teams.find(x => x.id === champ.id)
-  ok(team2.speakers.find(s => s.id === sp.id)?.userId === undefined, 'and the links disappear')
 }
 // ---------- 53. strikes and reminders: abandoned tournaments, last-minute cancellations ----------
 {

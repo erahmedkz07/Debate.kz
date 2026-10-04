@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Award, CalendarDays, EyeOff, Gavel, MapPin, Medal, Mic, Trophy, Users } from 'lucide-react'
+import { Award, CalendarDays, Gavel, MapPin, Medal, Mic, Trophy, Users } from 'lucide-react'
 import { getPublicProfile, NotFoundError, type PublicProfile } from '@/api'
 import { useAsync } from '@/lib/hooks'
 import { formatDate } from '@/lib/utils'
@@ -36,7 +36,6 @@ export default function PersonPage() {
         </div>
       </PageHeader>
       <div className="container-page space-y-8 py-10">
-        {data.hidden && <p className="flex items-center gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm"><EyeOff className="size-4" />{t('person.hiddenNote')}</p>}
 
         {data.awards.length > 0 && (
           <section>

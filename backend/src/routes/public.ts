@@ -57,7 +57,7 @@ publicRouter.get('/tournaments/:id/standings', async (req, res) => {
 
 // a person's public page: the career as a speaker and a judge, the awards (404 when the profile is hidden)
 publicRouter.get('/people/:id', async (req, res) => {
-  res.json(await publicProfile(param(req, 'id'), req.user))
+  res.json(await publicProfile(param(req, 'id')))
 })
 
 // selection: how many applied for how many places, and the lottery order after the draw

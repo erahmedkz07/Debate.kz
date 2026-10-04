@@ -103,7 +103,7 @@ export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATC
 export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
 // confirmed by the password, or by typing the email for accounts without a password
 export const deleteAccount = (confirm: { password: string } | { email: string }) => http<void>('DELETE', '/me', confirm)
-export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string; profileHidden?: boolean }) =>
+export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
 
 export function uploadAvatar(file: File) {
@@ -163,7 +163,7 @@ export const getAwardCandidates = (id: string) => http<AwardCandidates>('GET', `
 export const setTournamentAward = (id: string, kind: AwardKind, personId: string | null) => http<{ kind: AwardKind; name: string | null }>('PUT', `/tournaments/${encodeURIComponent(id)}/awards`, { kind, personId })
 // a person's public page: career as a speaker and a judge, awards
 export interface PublicProfile {
-  id: string; name: string; avatarUrl?: string; city?: string; since: string; hidden: boolean; club?: { id: string; name: string }
+  id: string; name: string; avatarUrl?: string; city?: string; since: string; club?: { id: string; name: string }
   speaker: {
     tournaments: { id: string; name: string; startDate: string; status: string; team: string; place?: number; teams: number; inBreak: boolean; speakerRank?: number; average?: number }[]
     debates: number; wins: number; average: number | null; best: number | null
