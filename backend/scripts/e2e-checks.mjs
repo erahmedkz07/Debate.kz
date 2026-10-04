@@ -504,6 +504,12 @@ await tgSend(333, { text: `/start ${await linkToken(judge)}` })
 }
 const round1 = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data.rounds[0]
 await fresh('POST', `/rounds/${round1.id}/draw`)
+{
+  // more judges than seats: the organizer makes this judge the chair by hand (equal judges are drawn in a random order)
+  const me = (await db.query("select j.id from judges j join users u on u.id = j.user_id where j.tournament_id = $1 and u.email = 'judge@debate.kz'", [pendingOwn.id])).rows[0].id
+  const debate = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data.debates.find(d => d.roundId === round1.id)
+  await fresh('PATCH', `/debates/${debate.id}`, { chairJudgeId: me, wingJudgeIds: [] })
+}
 await fresh('PATCH', `/rounds/${round1.id}`, { motion: 'Эта палата поддерживает уведомления в Telegram' })
 r = await fresh('PATCH', `/rounds/${round1.id}`, { status: 'released' })
 ok(r.status === 200 && await waitFor(333, /председатель/) && await waitFor(333, /уведомления в Telegram/), 'a released draw tells the judge their room, role and motion')
@@ -2084,6 +2090,44 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await client()('GET', `/tournaments/${t.id}`)).data.rounds[0].infoSlide === undefined, 'the public does not see it before the round is published')
   r = await host.c('PATCH', `/rounds/${round.id}`, { infoSlide: '' })
   ok(r.status === 200 && r.data.infoSlide === undefined && (await db.query('select info_slide from rounds where id = $1', [round.id])).rows[0].info_slide === null, 'an emptied info slide is removed')
+}
+// ---------- 56. judge panels: chairs by the speakers' ratings, judges rotate between teams ----------
+{
+  const host = await newAccount('Ротация Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(310), name: `Ротация ${jtag}`, preliminaryRounds: 3 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Арна', 'Байтерек', 'Ғалым', 'Дала', 'Есіл', 'Жайық', 'Зере', 'Іле']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Бір`, `${n} Екі`, `${n} Үш`] })
+  for (let i = 1; i <= 5; i++) await addJudge(host.c, t.id, `Ротация Судья ${i}`)
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const rounds = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds
+  // the panels of a round straight from the database: judge, chair, the two teams
+  const panels = async roundId => (await db.query(
+    'select j.id judge, j.name, dj.is_chair chair, d.id debate, d.proposition_team_id p, d.opposition_team_id o from debate_judges dj join judges j on j.id = dj.judge_id join debates d on d.id = dj.debate_id where d.round_id = $1', [roundId])).rows
+  await host.c('POST', `/rounds/${rounds[0].id}/draw`, { addSwing: false })
+  const r1 = await panels(rounds[0].id)
+  // the speakers rate the judges of round 1 (two ratings each): judge 1 is rated worst
+  const rate = { 'Ротация Судья 1': 1, 'Ротация Судья 2': 5, 'Ротация Судья 3': 4, 'Ротация Судья 4': 5, 'Ротация Судья 5': 4 }
+  for (const seat of r1) {
+    for (const [email, team] of [['admin@debate.kz', seat.p], ['student@debate.kz', seat.o]]) {
+      await db.query("insert into judge_feedback (id, debate_id, judge_id, user_id, team_id, score) select 'fb' || md5(random()::text), $1, $2, u.id, $3, $4 from users u where u.email = $5",
+        [seat.debate, seat.judge, team, rate[seat.name], email])
+    }
+  }
+  await host.c('POST', `/rounds/${rounds[1].id}/draw`, { addSwing: false })
+  const r2 = await panels(rounds[1].id)
+  const chairs = r2.filter(x => x.chair).map(x => x.name)
+  ok(chairs.length === 4 && !chairs.includes('Ротация Судья 1'), "the judge the speakers rated lowest does not chair")
+  // rotation: with 8 teams there is always a seat away from the teams a judge has seen
+  const before = new Map(r1.map(x => [x.judge, [x.p, x.o]]))
+  const seenIn = (judge, room) => (before.get(judge) ?? []).filter(id => id === room.p || id === room.o).length
+  const repeats = r2.reduce((n, x) => n + seenIn(x.judge, x), 0)
+  // the best possible: every way to seat these chairs in these rooms, and the wing in its best room
+  const rooms = [...new Map(r2.map(x => [x.debate, x])).values()]
+  const chairIds = r2.filter(x => x.chair).map(x => x.judge), wingIds = r2.filter(x => !x.chair).map(x => x.judge)
+  const perms = xs => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => perms([...xs.slice(0, i), ...xs.slice(i + 1)]).map(p => [x, ...p])))
+  const bestChairs = Math.min(...perms(chairIds).map(p => p.reduce((n, judge, i) => n + seenIn(judge, rooms[i]), 0)))
+  const bestWings = wingIds.reduce((n, w) => n + Math.min(...rooms.map(room => seenIn(w, room))), 0)
+  ok(repeats === bestChairs + bestWings, `judges rotate: as few repeated teams as possible (${repeats})`)
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

@@ -40,7 +40,7 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
       prisma.judge.findMany({ where: { tournamentId: tId }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
     ])
     if (judges.length < rooms.length) throw badRequest('not_enough_judges', { need: rooms.length, have: judges.length, teams: teams.length })
-    const judgeConflicts = await seatJudgesAndSave(round, rooms, judges, true, await conflictChecker(tId))
+    const judgeConflicts = await seatJudgesAndSave(round, rooms, await rankJudges(tId, judges), true, await conflictChecker(tId), await seenBy(tId, roundId))
     return { method: 'bracket' as const, protectClubs: false, sameClub: 0, rematches: 0, judgeConflicts }
   }
   // round robin and the bracket methods pair two teams; BP rooms of four use power, high-low or random
@@ -114,45 +114,74 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     report = { sameClub: result.sameClub, rematches: result.rematches }
   }
 
-  const judgeConflicts = await seatJudgesAndSave(round, pairs, judges, false, await conflictChecker(tId))
+  const judgeConflicts = await seatJudgesAndSave(round, pairs, await rankJudges(tId, judges), false, await conflictChecker(tId), await seenBy(tId, roundId))
   return { method, protectClubs, ...report, judgeConflicts }
 }
 
 type RoundWithTournament = { id: string; tournament: { rooms: string[]; roomLinks: unknown } }
-type JudgeRow = { id: string; institutionId: string | null }
+type JudgeRow = { id: string; institutionId: string | null; rating?: number }
 
-// one judge per room: best-rated judges chair, spare judges become wings; a judge never sits with a team of their institution.
-// bracket: elimination debates remember their place in the bracket (the room order)
-async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], judges: JudgeRow[], bracket: boolean, clash: ConflictCheck) {
-  const roundId = round.id
-  const free = [...judges] // best-rated first
-  // chairs: the best-rated judge without a conflict; when none is left, swap with an earlier room whose chair
-  // also fits here and which can take a free judge instead. A conflict that cannot be avoided is counted in the report.
-  const chairs: string[] = []
-  let forced = 0
-  pairs.forEach((room, r) => {
-    let i = free.findIndex(j => !clash(j.id, room))
-    if (i === -1) {
-      for (let k = 0; k < r && i === -1; k++) {
-        if (clash(chairs[k], room)) continue
-        const f = free.findIndex(j => !clash(j.id, pairs[k]))
-        if (f === -1) continue
-        chairs[r] = chairs[k]
-        chairs[k] = free.splice(f, 1)[0].id
-        i = -2
-      }
-      if (i === -2) return
-      i = 0
-      forced++
-    }
-    chairs[r] = free.splice(i, 1)[0].id
+// How strong a judge is for this tournament: the speakers' average rating of them once there are MIN_FEEDBACK
+// ratings (organizers do not rate judges), otherwise a neutral middle. Equal judges come in a random order, so the
+// chairs are not picked alphabetically.
+export const MIN_FEEDBACK = 2
+const NEUTRAL = 3.5
+async function rankJudges<T extends JudgeRow>(tournamentId: string, judges: T[]): Promise<T[]> {
+  const rows = await prisma.judgeFeedback.groupBy({ by: ['judgeId'], where: { judge: { tournamentId } }, _avg: { score: true }, _count: { _all: true } })
+  const strength = new Map(rows.filter(r => r._count._all >= MIN_FEEDBACK).map(r => [r.judgeId, Number(r._avg.score)]))
+  return shuffle(judges).sort((a, b) => (strength.get(b.id) ?? NEUTRAL) - (strength.get(a.id) ?? NEUTRAL) || (b.rating ?? 0) - (a.rating ?? 0))
+}
+
+// which teams each judge has already judged in this tournament (other rounds): judges rotate between rooms
+type Seen = (judgeId: string, teamIds: string[]) => number
+async function seenBy(tournamentId: string, roundId: string): Promise<Seen> {
+  const seats = await prisma.debateJudge.findMany({
+    where: { debate: { round: { tournamentId, id: { not: roundId } } } },
+    select: { judgeId: true, debate: { select: { propositionTeamId: true, oppositionTeamId: true, closingPropositionTeamId: true, closingOppositionTeamId: true } } },
   })
+  const seen = new Map<string, Set<string>>()
+  for (const { judgeId, debate: d } of seats) {
+    const set = seen.get(judgeId) ?? new Set<string>()
+    for (const id of [d.propositionTeamId, d.oppositionTeamId, d.closingPropositionTeamId, d.closingOppositionTeamId]) if (id) set.add(id)
+    seen.set(judgeId, set)
+  }
+  return (judgeId, teamIds) => teamIds.filter(id => seen.get(judgeId)?.has(id)).length
+}
+
+// Panels: as many chairs as rooms come from the strongest judges, spare judges become wings. A judge never sits with
+// a team they have a conflict with (personal, institution, club) and, where the choice allows, not with a team they
+// have already judged. Rooms go in order, the top room first. A conflict that cannot be avoided is counted in the report.
+// bracket: elimination debates remember their place in the bracket (the room order)
+async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], judges: JudgeRow[], bracket: boolean, clash: ConflictCheck, seen: Seen) {
+  const roundId = round.id
+  // chairs for all rooms at once (a choice in one room can block another): a small search with a step limit; the
+  // first answer found is the greedy one. Cost: a conflict outweighs everything, then a chair from outside the
+  // strongest judges, then a team already judged (rotation), then the strength order.
+  const cost = (j: number, room: string[]) => (clash(judges[j].id, room) ? 1e6 : 0) + (j < pairs.length ? 0 : 1e4) + seen(judges[j].id, room) * 100 + j
+  let best: number[] = [], bestCost = Infinity, steps = 0
+  const taken = new Set<number>(), seat: number[] = []
+  const search = (r: number, acc: number) => {
+    if (++steps > 20_000 || acc >= bestCost) return
+    if (r === pairs.length) { best = [...seat]; bestCost = acc; return }
+    const options = judges.map((_, j) => j).filter(j => !taken.has(j)).map(j => ({ j, c: cost(j, pairs[r]) })).sort((x, y) => x.c - y.c)
+    for (const { j, c } of options) {
+      taken.add(j); seat.push(j)
+      search(r + 1, acc + c)
+      seat.pop(); taken.delete(j)
+    }
+  }
+  search(0, 0)
+  const chairs = best.map(j => judges[j].id)
+  const forced = best.filter((j, r) => clash(judges[j].id, pairs[r])).length
+  // the rest become wings, the strongest first
+  const free = judges.filter((_, j) => !best.includes(j))
   const panels = chairs.map(judgeId => [{ judgeId, isChair: true }])
-  // spare judges become wings, round-robin over rooms, never in a room they have a conflict with
-  for (let r = 0; free.length && r < pairs.length * 2; r++) {
-    const room = r % pairs.length
-    const i = free.findIndex(j => !clash(j.id, pairs[room]))
-    if (i !== -1) panels[room].push({ judgeId: free.splice(i, 1)[0].id, isChair: false })
+  // spare judges become wings, the strongest first: each to a room without a conflict, the smallest panel first (one
+  // wing per room before a second one), then a room with no team they have already judged
+  for (const j of free) {
+    const rooms = pairs.map((room, r) => ({ r, n: panels[r].length, s: seen(j.id, room) })).filter(x => !clash(j.id, pairs[x.r]))
+    rooms.sort((a, b) => a.n - b.n || a.s - b.s || a.r - b.r)
+    if (rooms[0] && rooms[0].n < 3) panels[rooms[0].r].push({ judgeId: j.id, isChair: false })
   }
 
   // online tournaments: each room brings its video call link
