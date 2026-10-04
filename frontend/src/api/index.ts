@@ -298,8 +298,8 @@ export const setRegistrationStatus = (regId: string, status: 'confirmed' | 'reje
 
 // ---------- invites (judge / co-organizer) ----------
 
-export const createInvite = (tournamentId: string, kind: 'judge' | 'co_organizer') =>
-  http<{ id: string; kind: string; url: string; expiresAt: string }>('POST', `/tournaments/${tournamentId}/invites`, { kind })
+export const createInvite = (tournamentId: string, kind: 'judge' | 'co_organizer', count = 1) =>
+  http<{ id: string; kind: string; url: string; expiresAt: string; links: { id: string; url: string }[] }>('POST', `/tournaments/${tournamentId}/invites`, { kind, count })
 export const getInvite = (token: string) => or404(http<InvitePreview>('GET', `/invites/${encodeURIComponent(token)}`))
 export const acceptInvite = (token: string) =>
   http<{ ok: true; kind: 'judge' | 'co_organizer'; tournamentId: string }>('POST', `/invites/${encodeURIComponent(token)}/accept`)

@@ -15,21 +15,28 @@ import { coverOf } from '../services/covers.js'
 export const invitesRouter = Router()
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const MAX_LINKS_AT_ONCE = 30
 const EMAIL_INVITES_PER_DAY = 50 // per tournament: stops using the site to spam addresses
 
-// Judges and co-organizers join a tournament only through a single-use invite link from its organizers.
+// Judges and co-organizers join a tournament only through a single-use invite link from its organizers (judges: several
+// links can be made at once, one per judge).
 // Nobody can make themselves a judge: the right exists only inside that one tournament.
 invitesRouter.post('/tournaments/:id/invites', requireAuth(), async (req, res) => {
-  const { kind } = body(req, z.object({ kind: z.enum(['judge', 'co_organizer']) }))
+  // count: several judge links at once (one per judge, each still single-use) for a tournament with many judges
+  const { kind, count } = body(req, z.object({ kind: z.enum(['judge', 'co_organizer']), count: z.number().int().min(1).max(MAX_LINKS_AT_ONCE).default(1) }))
   const tournamentId = param(req, 'id')
   if (kind === 'co_organizer') await assertOwner(req.user, tournamentId)
   else await assertCanManage(req.user, tournamentId)
+  if (kind === 'co_organizer' && count > 1) throw badRequest('one_co_organizer_link')
 
-  const { token, hash } = newToken()
-  const invite = await prisma.tournamentInvite.create({
-    data: { tournamentId, kind, tokenHash: hash, createdById: req.user!.id, expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
-  })
-  res.status(201).json({ id: invite.id, kind, url: `${env.CLIENT_ORIGIN}/invite/${token}`, expiresAt: invite.expiresAt.toISOString() })
+  const expiresAt = new Date(Date.now() + INVITE_TTL_MS)
+  const links: { id: string; url: string }[] = []
+  for (let i = 0; i < count; i++) {
+    const { token, hash } = newToken()
+    const invite = await prisma.tournamentInvite.create({ data: { tournamentId, kind, tokenHash: hash, createdById: req.user!.id, expiresAt } })
+    links.push({ id: invite.id, url: `${env.CLIENT_ORIGIN}/invite/${token}` })
+  }
+  res.status(201).json({ id: links[0].id, kind, url: links[0].url, expiresAt: expiresAt.toISOString(), links })
 })
 
 // Invite a person by email: registered people get a notification with Accept / Decline (and Telegram),

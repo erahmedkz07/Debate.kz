@@ -2133,5 +2133,17 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const bestWings = wingIds.reduce((n, w) => n + Math.min(...rooms.map(room => seenIn(w, room))), 0)
   ok(repeats === bestChairs + bestWings, `judges rotate: as few repeated teams as possible (${repeats})`)
 }
+// ---------- 57. several judge links at once (each still single-use) ----------
+{
+  const host = await newAccount('Ссылки Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(320), name: `Ссылки ${jtag}` })).data
+  let r = await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'judge', count: 5 })
+  ok(r.status === 201 && r.data.links.length === 5 && new Set(r.data.links.map(l => l.url)).size === 5, 'an organizer makes 5 judge links at once, all different')
+  const a = await newAccount('Ссылки Судья Один'), b = await newAccount('Ссылки Судья Два')
+  const token = r.data.links[0].url.split('/invite/')[1]
+  ok((await a.c('POST', `/invites/${token}/accept`)).status === 200 && (await b.c('POST', `/invites/${token}/accept`)).data?.error === 'invite_used', 'each of them still works once')
+  ok((await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'judge', count: 31 })).status === 400, 'at most 30 at once')
+  ok((await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'co_organizer', count: 2 })).data?.error === 'one_co_organizer_link', 'co-organizer links one at a time')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
