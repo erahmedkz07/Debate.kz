@@ -2159,7 +2159,11 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
 // ---------- 58. every speaker has a page; a teammate links their account by the captain's link ----------
 {
   const done = (await db.query("select id from tournaments where name like $1 and status = 'finished' order by created_at desc limit 1", [`Плей-офф ${jtag}`])).rows[0].id
-  const slot = (await db.query('select s.id, s.team_id, s.name from speakers s join teams t on t.id = s.team_id where t.tournament_id = $1 and s.user_id is null and not t.swing order by s.position desc limit 1', [done])).rows[0]
+  // a team with at least two speakers without an account: one becomes the captain, the other is invited
+  const slot = (await db.query(`select s.id, s.team_id, s.name from speakers s join teams t on t.id = s.team_id
+    where t.tournament_id = $1 and s.user_id is null and not t.swing
+      and (select count(*) from speakers x where x.team_id = t.id and x.user_id is null) >= 2
+    order by t.name, s.position desc limit 1`, [done])).rows[0]
   const page = (await client()('GET', `/tournaments/${done}/speakers/${slot.id}`)).data
   ok(page.name === slot.name && page.rounds.length >= 2 && typeof page.rounds[0].score === 'number' && page.team.place >= 1 && page.userId === undefined, 'a speaker without an account has a page in the tournament: rounds, scores, the team place')
   ok((await client()('GET', `/tournaments/${done}/speakers/nope`)).status === 404, 'an unknown speaker is 404')
