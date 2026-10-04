@@ -2132,6 +2132,10 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const bestChairs = Math.min(...perms(chairIds).map(p => p.reduce((n, judge, i) => n + seenIn(judge, rooms[i]), 0)))
   const bestWings = wingIds.reduce((n, w) => n + Math.min(...rooms.map(room => seenIn(w, room))), 0)
   ok(repeats === bestChairs + bestWings, `judges rotate: as few repeated teams as possible (${repeats})`)
+  await host.c('POST', `/rounds/${rounds[2].id}/draw`, { addSwing: false, method: 'slide', presentOnly: false, protectClubs: false })
+  const saved = (await host.c('GET', `/tournaments/${t.id}`)).data.drawOptions
+  ok(saved?.method === 'slide' && saved.addSwing === false && saved.protectClubs === false, 'the draw settings are kept for the next round')
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.drawOptions === undefined, 'only organizers see them')
 }
 // ---------- 57. several judge links at once (each still single-use) ----------
 {

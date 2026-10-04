@@ -149,6 +149,7 @@ export interface TournamentDetails extends Tournament {
   lotteryAt?: string // when the selection lottery was drawn
   pendingRegistrations?: number
   myRole?: OrganizerRole | 'admin'
+  drawOptions?: { presentOnly?: boolean; addSwing?: boolean; method?: string; protectClubs?: boolean } // organizers: the last draw's settings
   schedule: ScheduleItem[]
   rounds: Round[]
   teams: Team[]

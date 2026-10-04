@@ -452,6 +452,8 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
     method: z.enum(['power', 'high_low', 'random', 'slide', 'fold', 'round_robin']).optional(), protectClubs: z.boolean().optional(),
   }).default({}))
   const report = await generateDraw(round.id, opts)
+  // the next round starts from these settings (the club rule only when it was set by hand, its default follows the round)
+  if (round.kind === 'preliminary') await prisma.tournament.update({ where: { id: round.tournamentId }, data: { drawOptions: opts } })
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
   // the report tells the organizer which wishes could not be met (same-club meetings, rematches)
   res.status(201).json({

@@ -786,11 +786,13 @@ function Draw({ data, reload }: SectionProps) {
   const [wingsFor, setWingsFor] = useState<Debate | null>(null)
   const defaultRound = data.rounds.find(r => r.status === 'released') ?? data.rounds.find(r => r.status === 'draft') ?? data.rounds[0]
   const [roundId, setRoundId] = useState(defaultRound?.id)
-  const [presentOnly, setPresentOnly] = useState(false)
-  const [addSwing, setAddSwing] = useState(true)
-  const [method, setMethod] = useState<DrawMethod>('power')
-  // null = the default for the round (clubmates kept apart in the first rounds)
-  const [protectClubs, setProtectClubs] = useState<boolean | null>(null)
+  // the settings of the last draw (kept by the server for every organizer) are where the next round starts
+  const last = data.drawOptions ?? {}
+  const [presentOnly, setPresentOnly] = useState(last.presentOnly ?? false)
+  const [addSwing, setAddSwing] = useState(last.addSwing ?? true)
+  const [method, setMethod] = useState<DrawMethod>((last.method as DrawMethod) ?? 'power')
+  // null = the default for the round (clubmates kept apart in the first rounds); a choice made by hand is kept
+  const [protectClubs, setProtectClubs] = useState<boolean | null>(last.protectClubs ?? null)
   const round = data.rounds.find(r => r.id === roundId)
   if (!round) return <EmptyState title={t('common.empty')} />
 
@@ -808,7 +810,7 @@ function Draw({ data, reload }: SectionProps) {
   const noMotion = !round.motion.trim()
   const generate = async () => {
     let report: DrawReport | undefined
-    const ok = await run('generate', async () => { report = (await generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing, method, protectClubs: protect })).report }, t('dashboard.draw.generated'))
+    const ok = await run('generate', async () => { report = (await generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing, method, ...(protectClubs !== null && { protectClubs }) })).report }, t('dashboard.draw.generated'))
     // wishes the draw could not meet are said out loud, not hidden
     if (ok && report && (report.sameClub || report.rematches || report.judgeConflicts)) {
       toast.warning(t('dashboard.draw.compromise'), {
