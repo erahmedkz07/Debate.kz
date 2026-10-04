@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { BackButton } from '@/components/layout/BackButton'
+import { bareMotion, quoted } from '@/lib/motion'
 
 const TOPICS: MotionTopic[] = ['education', 'technology', 'economy', 'politics', 'international', 'environment', 'society', 'rights', 'media', 'health', 'culture', 'sport']
 
@@ -98,7 +99,7 @@ export default function Motions() {
                     <Badge variant="outline">{t(`motions.lang.${m.language}`)}</Badge>
                     {m.topics.map(topic => <Badge key={topic} variant="primary">{t(`motions.topics.${topic}`)}</Badge>)}
                   </div>
-                  <p className="mt-3 text-lg font-bold leading-snug">«{m.motion}»</p>
+                  <p className="mt-3 text-lg font-bold leading-snug">{quoted(m.motion)}</p>
                   {m.infoSlide && (
                     <details className="mt-3 rounded-xl bg-muted/60 p-3 text-sm">
                       <summary className="cursor-pointer font-semibold">{t('motions.infoSlide')}</summary>
@@ -109,7 +110,7 @@ export default function Motions() {
                     <Link to={`/tournaments/${m.tournament.id}`} className="hover:text-primary hover:underline">
                       {m.tournament.name} · {m.round} · {formatDate(m.date, { day: 'numeric', month: 'short', year: 'numeric' })}
                     </Link>
-                    <Button size="sm" variant="ghost" onClick={() => copy(m.motion)}><Copy className="size-4" />{t('motions.copy')}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => copy(bareMotion(m.motion))}><Copy className="size-4" />{t('motions.copy')}</Button>
                   </div>
                 </Card>
               ))}

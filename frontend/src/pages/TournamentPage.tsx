@@ -35,6 +35,7 @@ import { ReviewsTab } from '@/components/tournament/Reviews'
 import { silentRoundIds } from '@/lib/silent'
 import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
 import { cityName } from '@/content/geo'
+import { quoted } from '@/lib/motion'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -387,7 +388,7 @@ function RoundBanner({ round }: { round: Round }) {
         <Badge variant={round.status === 'completed' ? 'muted' : 'accent'}>{t(`tournament.roundStatus.${round.status}`)}</Badge>
         <span className="text-xs text-white/60">{formatDate(round.date, { day: 'numeric', month: 'long' })}</span>
       </div>
-      <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">«{round.motion}»</p>
+      <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">{quoted(round.motion)}</p>
       {round.infoSlide && (
         <details className="mt-3 rounded-xl bg-white/10 p-3 text-sm">
           <summary className="cursor-pointer font-semibold">{t('dashboard.rounds.infoSlide')}</summary>

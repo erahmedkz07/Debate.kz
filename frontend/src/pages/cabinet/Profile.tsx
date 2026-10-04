@@ -24,6 +24,7 @@ import { CertificatesPanel } from '@/components/profile/CertificatesPanel'
 import { MyClub } from '@/components/club/MyClub'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { RateJudgesDialog } from '@/components/tournament/JudgeFeedback'
+import { quoted } from '@/lib/motion'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger' | 'outline'> = { confirmed: 'success', pending: 'accent', rejected: 'danger', waitlisted: 'outline' }
 
@@ -432,7 +433,7 @@ export default function Profile() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="font-bold">{t(`tournament.${d.side}`)} <span className="font-normal text-muted-foreground">vs</span> {d.opponent.name}</p>
-                    <p className="line-clamp-1 text-sm text-muted-foreground">«{d.round.motion}»</p>
+                    <p className="line-clamp-1 text-sm text-muted-foreground">{quoted(d.round.motion)}</p>
                     <p className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                       <span>{d.tournament.name}</span>
                       <span className="flex items-center gap-1"><DoorOpen className="size-3.5" />{d.debate.room}</span>

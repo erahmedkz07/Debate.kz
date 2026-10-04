@@ -2088,6 +2088,8 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   let r = await host.c('PATCH', `/rounds/${round.id}`, { motion: 'Эта палата запретит домашние задания', infoSlide: 'Домашние задания — работа, которую дают на дом.' })
   ok(r.status === 200 && r.data.infoSlide === 'Домашние задания — работа, которую дают на дом.', 'an info slide is saved with the motion')
   ok((await client()('GET', `/tournaments/${t.id}`)).data.rounds[0].infoSlide === undefined, 'the public does not see it before the round is published')
+  r = await host.c('PATCH', `/rounds/${round.id}`, { motion: '««Эта палата запретит домашние задания»»' })
+  ok(r.data.motion === 'Эта палата запретит домашние задания', 'quotes typed around a motion are dropped (the site adds its own)')
   r = await host.c('PATCH', `/rounds/${round.id}`, { infoSlide: '' })
   ok(r.status === 200 && r.data.infoSlide === undefined && (await db.query('select info_slide from rounds where id = $1', [round.id])).rows[0].info_slide === null, 'an emptied info slide is removed')
 }

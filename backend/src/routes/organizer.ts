@@ -34,6 +34,7 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { FORMAT_CODES, rulesOf, scoringDefaults } from '../services/formats.js'
 import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
+import { bareMotion } from '../lib/motion.js'
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -417,7 +418,7 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
   if (!round) throw notFound('round_not_found')
   await assertCanManage(req.user, round.tournamentId)
   const d = body(req, z.object({
-    motion: z.string().trim().max(500).optional(),
+    motion: z.string().trim().max(500).transform(bareMotion).optional(),
     infoSlide: z.string().trim().max(2000).optional(),
     status: z.enum(['released', 'completed']).optional(),
     silent: z.boolean().optional(), // closed round: results hidden from the public until the break

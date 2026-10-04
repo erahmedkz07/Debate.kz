@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { EntityLogo } from '@/components/ui/entity-logo'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { quoted } from '@/lib/motion'
 
 // The playoffs on the tournament page: the champion, the seeds and the bracket round by round.
 // Two-team formats: one winner goes on from each debate; BP: rooms of four, the top two go on.
@@ -63,7 +64,7 @@ function BracketView({ data, format, category }: { data: BracketPart; format: st
                   <h3 className="font-bold">{t(`playoff.stages.${r.stage}`)}</h3>
                   <Badge variant={r.status === 'completed' ? 'muted' : r.status === 'released' ? 'accent' : 'outline'}>{t(`tournament.roundStatus.${r.status}`)}</Badge>
                 </div>
-                {r.motion && <p className="mb-3 line-clamp-3 text-xs italic text-muted-foreground">«{r.motion}»</p>}
+                {r.motion && <p className="mb-3 line-clamp-3 text-xs italic text-muted-foreground">{quoted(r.motion)}</p>}
                 <div className="flex flex-col justify-around gap-3" style={{ minHeight: `${Math.max(1, data.rounds[0].teamsInRound / (bp ? 4 : 2)) * 7}rem` }}>
                   {r.debates.length
                     ? r.debates.map(d => <MatchCard key={d.id} d={d} byId={byId} format={format} />)

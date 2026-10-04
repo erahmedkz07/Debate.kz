@@ -15,6 +15,7 @@ import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Ornament, OrnamentPattern } from '@/components/brand'
 import { Reveal } from '@/components/motion'
 import { TournamentCard, TournamentCardSkeleton } from '@/components/tournament/TournamentCard'
+import { quoted } from '@/lib/motion'
 
 function SectionTitle({ title, subtitle, center = true }: { title: string; subtitle?: string; center?: boolean }) {
   return (
@@ -85,7 +86,7 @@ function Hero() {
                     <span className="ml-auto rounded-full bg-primary-soft px-2 py-0.5 text-[10px] text-primary">{live.personal ? t('home.hero.yours') : t('home.hero.nowLive')}</span>
                   </div>
                   <p className="mt-1 truncate text-xs font-semibold text-muted-foreground">{live.tournament.name}</p>
-                  <p className="mt-1 line-clamp-3 text-sm font-semibold leading-snug">«{live.round.motion}»</p>
+                  <p className="mt-1 line-clamp-3 text-sm font-semibold leading-snug">{quoted(live.round.motion)}</p>
                 </Link>
               </motion.div>
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.6 }}

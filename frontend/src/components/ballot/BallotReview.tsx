@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { BackButton } from '@/components/layout/BackButton'
 import { BP_POINTS, sidesOf, useSides } from '@/lib/formats'
+import { quoted } from '@/lib/motion'
 
 // What organizers and admins see instead of the form: every judge's ballot as it was sent, read-only.
 // Tournament rules: only the judges decide; the organizer follows who has voted and reads the scores.
@@ -29,7 +30,7 @@ export function BallotReview({ data }: { data: BallotData }) {
         <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">
           {sidesOf(data.rules?.format).map(side => data[side]?.name).filter(Boolean).join(bp ? ' · ' : ' vs ')}
         </p>
-        {data.round.motion && <p className="mt-1 text-sm text-white/80">«{data.round.motion}»</p>}
+        {data.round.motion && <p className="mt-1 text-sm text-white/80">{quoted(data.round.motion)}</p>}
       </div>
 
       <p className="mt-4 flex items-start gap-2 rounded-2xl bg-primary-soft p-4 text-sm">
