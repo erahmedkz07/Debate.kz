@@ -69,27 +69,33 @@ export function pairTeams(input: PairingInput): PairingResult {
     rematches: pairs.filter(([a, b]) => isRematch(a, b)).length,
   })
 
-  // 1) a clean draw: no rematch and (when protected) no clubmates
+  // 1) a clean draw: no rematch and (when protected) no clubmates. Among clean draws the best one keeps teams with
+  //    their own record (a team pulled up or down to another bracket costs most), then stays closest to the ideal
+  //    opponents. The first clean draw found is the greedy one; the search keeps improving it within the step limit.
   {
+    const brackets = input.scoreOf && (method === 'power' || method === 'slide' || method === 'fold')
+    const crossing = (a: string, b: string) => (brackets ? Math.abs((input.scoreOf!.get(a) ?? 0) - (input.scoreOf!.get(b) ?? 0)) : 0)
     let steps = 0
+    let best: [string, string][] | null = null
+    let bestCost = Infinity
     const pairs: [string, string][] = []
     const used = new Set<string>()
     const clean = (a: string, b: string) => !isRematch(a, b) && !(input.protectClubs && sameClub(a, b))
-    const solve = (): boolean => {
-      if (++steps > STEP_LIMIT) return false
+    const solve = (acc: number) => {
+      if (++steps > STEP_LIMIT || acc >= bestCost) return
       const a = order.find(x => !used.has(x))
-      if (!a) return true
+      if (!a) { best = [...pairs]; bestCost = acc; return }
       used.add(a)
-      for (const b of candidatesFor(a, order.filter(x => !used.has(x)))) {
+      for (const [i, b] of candidatesFor(a, order.filter(x => !used.has(x))).entries()) {
         if (!clean(a, b)) continue
         used.add(b); pairs.push([a, b])
-        if (solve()) return true
+        solve(acc + crossing(a, b) * 1000 + i)
         pairs.pop(); used.delete(b)
       }
       used.delete(a)
-      return false
     }
-    if (solve()) return report(pairs)
+    solve(0)
+    if (best) return report(best)
   }
 
   // 2) no clean draw exists: the fewest rematches, then the fewest clubmate meetings (branch and bound).
