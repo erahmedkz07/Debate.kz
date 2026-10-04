@@ -498,7 +498,9 @@ function MissingMotions({ data }: { data: TournamentDetails }) {
   const roundName = useRoundName()
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
   const days = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
-  const missing = data.rounds.filter(r => r.kind !== 'elimination' && r.status === 'draft' && !r.motion.trim())
+  // before the start: every preliminary round; during the tournament: only the next round (motions often come late)
+  const drafts = data.rounds.filter(r => r.kind !== 'elimination' && r.status === 'draft')
+  const missing = (days > 0 ? drafts : drafts.slice(0, 1)).filter(r => !r.motion.trim())
   if (data.status === 'finished' || days > 3 || !missing.length) return null
   return (
     <Link to={`/dashboard/tournaments/${data.id}/rounds`}

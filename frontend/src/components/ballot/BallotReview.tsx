@@ -84,7 +84,7 @@ function Decision({ data, panel }: { data: BallotData; panel: PanelBallot[] }) {
       {strong && (
         <p className="flex items-start gap-2 rounded-2xl bg-accent-soft p-4 text-sm">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          <span><Scale className="mr-1 inline size-4" />{t('ballot.review.disagreement', { points: Math.round(spread * 10) / 10 })}</span>
+          <span><Scale className="mr-1 inline size-4" />{t('ballot.review.disagreement', { count: Math.round(spread * 10) / 10 })}</span>
         </p>
       )}
     </div>
