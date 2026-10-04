@@ -302,6 +302,10 @@ function DrawTab({ data }: { data: TournamentDetails }) {
         ))}
       </div>
       <RoundBanner round={round} />
+      {/* organizers see a closed round's results: a note says the others do not */}
+      {silentRoundIds(data).has(round.id) && !!data.myRole && (
+        <p className="mt-3 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm"><Lock className="mt-0.5 size-4 shrink-0" />{t('tournament.silentOrganizer')}</p>
+      )}
       {silentRoundIds(data).has(round.id) && round.status === 'completed' && !data.myRole && (
         <p className="mt-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentRound')}</p>
       )}
@@ -400,7 +404,9 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
   const roundName = useRoundName()
   // silent rounds: the public table stops before them (organizers see everything)
   const silent = tournament && !tournament.myRole ? silentRoundIds(tournament).size : 0
-  const silentNote = silent > 0 && <p className="mb-4 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentNote', { count: silent })}</p>
+  const hiddenFromOthers = tournament && tournament.myRole ? silentRoundIds(tournament).size : 0
+  const silentNote = silent > 0 ? <p className="mb-4 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentNote', { count: silent })}</p>
+    : hiddenFromOthers > 0 && <p className="mb-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm"><Lock className="mt-0.5 size-4 shrink-0" />{t('tournament.silentTableOrganizer', { count: hiddenFromOthers })}</p>
   // the results as a file: Excel, or the printable report the browser saves as PDF
   const exportBar = (
     <div className="mb-3 flex flex-wrap justify-end gap-2">
