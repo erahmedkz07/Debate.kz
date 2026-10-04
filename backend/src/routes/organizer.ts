@@ -15,7 +15,7 @@ import { awardCandidates, issueAwardCertificates, setAward } from '../services/a
 import { activeStrikes, giveStrike, LATE_CANCEL_DAYS, STRIKE_LIMIT } from '../services/watchdog.js'
 import { REGION_CODES, regionOfCity } from '../lib/regions.js'
 import { ensureCertificates } from '../services/certificates.js'
-import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
+import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished, notifyBreakAnnounced } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
 // video call links: https only (Zoom, Google Meet, Teams…)
@@ -260,7 +260,9 @@ organizerRouter.post('/tournaments/:id/selection/lottery', org, async (req, res)
 
 organizerRouter.post('/tournaments/:id/break', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  res.status(201).json(await announceBreak(param(req, 'id')))
+  const result = await announceBreak(param(req, 'id'))
+  background(notifyBreakAnnounced(param(req, 'id')))
+  res.status(201).json(result)
 })
 
 organizerRouter.delete('/tournaments/:id/break', org, async (req, res) => {
