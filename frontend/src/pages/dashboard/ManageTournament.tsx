@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, UserX, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, UserX, Users, X } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
@@ -926,6 +926,12 @@ function Draw({ data, reload }: SectionProps) {
                         {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
                         {d.judgeIds.some(id => { const j = judge(id); return j && sideList.some(side => conflictReason(j, team(teamIdOn(d, side) ?? ''))) }) && (
                           <span className="inline-flex items-center gap-1 font-semibold text-danger"><ShieldAlert className="size-3.5" />{t('dashboard.draw.hasConflict')}</span>
+                        )}
+                        {/* two-team formats: an even panel can split 1:1, then the chair decides */}
+                        {sideList.length === 2 && d.judgeIds.length >= 2 && d.judgeIds.length % 2 === 0 && (
+                          <span className="inline-flex items-center gap-1 font-semibold text-accent-foreground dark:text-accent" title={t('dashboard.draw.evenPanelHint')}>
+                            <Scale className="size-3.5" />{t('dashboard.draw.evenPanel', { count: d.judgeIds.length })}
+                          </span>
                         )}
                         {editable && d.ballotStatus === 'pending' && (
                           <button type="button" onClick={() => setWingsFor(d)} className="inline-flex cursor-pointer items-center gap-1 font-semibold text-primary hover:underline">
