@@ -11,6 +11,7 @@ import { sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { Logo } from '@/components/brand'
 import { Select } from '@/components/ui/select'
+import { quoted } from '@/lib/motion'
 
 // Projector mode for the venue screen: the motion appears for everyone at the same moment,
 // then the preparation countdown runs; the draw can be shown in large type.
@@ -117,14 +118,17 @@ export default function Projector() {
           <div className="max-w-6xl text-center">
             {motionKnown ? (
               <>
+                {/* the motion comes first and always fits the screen: the longer it is, the smaller the type;
+                    the info slide follows below in reading size */}
+                <p className="text-sm font-bold uppercase tracking-[0.3em] text-accent">{t('projector.motion')}</p>
+                <p className={cn('mt-6 font-extrabold leading-tight',
+                  round.motion.length > 160 ? 'text-3xl sm:text-4xl lg:text-5xl' : round.motion.length > 90 ? 'text-3xl sm:text-5xl lg:text-6xl' : 'text-4xl sm:text-6xl lg:text-7xl')}>{quoted(round.motion)}</p>
                 {round.infoSlide && (
-                  <div className="mx-auto mb-10 max-w-4xl rounded-3xl bg-white/10 p-6 text-left text-xl leading-relaxed sm:text-2xl">
+                  <div className="mx-auto mt-10 max-w-5xl rounded-3xl bg-white/10 p-6 text-left text-lg leading-relaxed sm:text-xl">
                     <p className="mb-2 text-sm font-bold uppercase tracking-wider text-accent">{t('projector.infoSlide')}</p>
                     <p className="whitespace-pre-line">{round.infoSlide}</p>
                   </div>
                 )}
-                <p className="text-sm font-bold uppercase tracking-[0.3em] text-accent">{t('projector.motion')}</p>
-                <p className="mt-6 text-4xl font-extrabold leading-tight sm:text-6xl lg:text-7xl">«{round.motion}»</p>
               </>
             ) : <p className="text-3xl text-white/70">{t('projector.notReleased')}</p>}
           </div>

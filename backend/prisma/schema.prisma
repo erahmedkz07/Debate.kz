@@ -215,6 +215,7 @@ model Tournament {
   abandonedAt       DateTime?     @map("abandoned_at") // archived: not finished 7 days after the end
   remindedMotionsAt DateTime?     @map("reminded_motions_at")
   finishReminders   Int           @default(0) @map("finish_reminders") // 1: "finish it", 2: "the archive in 2 days"
+  drawOptions       Json?         @map("draw_options") // the organizer's last draw settings, kept for the next round
   coverUrl             String?          @map("cover_url")
   organizerName        String           @map("organizer_name")
   description          String           @default("")

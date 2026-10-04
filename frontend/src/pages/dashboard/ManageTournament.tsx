@@ -2,10 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import {
-  ArrowLeft, ArrowLeftRight, BarChart3, Check, CheckCircle2, ClipboardList, ExternalLink, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered,
-  Award, CalendarClock, ChevronRight, Circle, Clock, DoorOpen, Eye, EyeOff, ShieldAlert, Trophy, Mail, UserX, Loader2, Presentation, Megaphone, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, Settings, Shuffle, Trash2, Undo2, UserPlus, Users, X,
-} from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, UserX, Users, X } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
@@ -494,20 +491,45 @@ function Judges({ data, reload }: SectionProps) {
   )
 }
 
+// 3 days before the start (and during the tournament): preliminary rounds that still have no motion, on every page
+// of the organizer's dashboard. The watchdog also sends a reminder, but a notification is easy to miss.
+function MissingMotions({ data }: { data: TournamentDetails }) {
+  const { t } = useTranslation()
+  const roundName = useRoundName()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const days = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
+  // before the start: every preliminary round; during the tournament: only the next round (motions often come late)
+  const drafts = data.rounds.filter(r => r.kind !== 'elimination' && r.status === 'draft')
+  const missing = (days > 0 ? drafts : drafts.slice(0, 1)).filter(r => !r.motion.trim())
+  if (data.status === 'finished' || days > 3 || !missing.length) return null
+  return (
+    <Link to={`/dashboard/tournaments/${data.id}/rounds`}
+      className="mt-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm transition-colors hover:border-primary">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+      <span>
+        <b>{days > 0 ? t('dashboard.missingMotions.soon', { count: days }) : t('dashboard.missingMotions.now')}</b>{' '}
+        {t('dashboard.missingMotions.rounds', { rounds: missing.map(r => roundName(r)).join(', ') })}
+      </span>
+    </Link>
+  )
+}
+
 /* ---------- Rounds ---------- */
 function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean; reload: () => void }) {
   const { t } = useTranslation()
   const roundName = useRoundName()
   const { busy, run } = useAction()
   const [motion, setMotion] = useState(round.motion)
+  const [slide, setSlide] = useState(round.infoSlide ?? '')
   useEffect(() => setMotion(round.motion), [round.motion])
-  const dirty = motion.trim() !== round.motion
+  useEffect(() => setSlide(round.infoSlide ?? ''), [round.infoSlide])
+  const dirty = motion.trim() !== round.motion || slide.trim() !== (round.infoSlide ?? '')
   // why "publish" is not available yet, said next to the button instead of a silent grey button
   const blocker = round.status !== 'draft' ? null : !hasDraw ? t('dashboard.rounds.needDraw') : !motion.trim() ? t('dashboard.rounds.needMotion') : null
 
-  const save = async () => { if (await run('save', () => updateRound(round.id, { motion }), t('dashboard.teams.saved'))) reload() }
+  const save = async () => { if (await run('save', () => updateRound(round.id, { motion, infoSlide: slide }), t('dashboard.teams.saved'))) reload() }
   const release = async () => {
-    if (await run('release', () => updateRound(round.id, { motion, status: 'released' }), t('dashboard.rounds.released'))) reload()
+    if (await run('release', () => updateRound(round.id, { motion, infoSlide: slide, status: 'released' }), t('dashboard.rounds.released'))) reload()
   }
   const complete = async () => { if (await run('complete', () => updateRound(round.id, { status: 'completed' }), t('dashboard.rounds.completedToast'))) reload() }
   const setSilent = async (silent: boolean) => { if (await run('silent', () => updateRound(round.id, { silent }), t(silent ? 'dashboard.rounds.closedToast' : 'dashboard.rounds.openedToast'))) reload() }
@@ -545,6 +567,9 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
         <Label htmlFor={`m-${round.id}`}>{t('dashboard.rounds.motion')}</Label>
         <Textarea id={`m-${round.id}`} rows={2} value={motion} disabled={round.status === 'completed'} onChange={e => setMotion(e.target.value)} placeholder={t('dashboard.rounds.motionPlaceholder')} />
         {blocker && <p className="mt-2 text-xs text-muted-foreground">{blocker}</p>}
+        {/* the info slide: facts the speakers need to understand the motion; shown together with it */}
+        <Label htmlFor={`s-${round.id}`} className="mt-3">{t('dashboard.rounds.infoSlide')} <span className="font-normal text-muted-foreground">· {t('common.optional')}</span></Label>
+        <Textarea id={`s-${round.id}`} rows={2} maxLength={2000} value={slide} disabled={round.status === 'completed'} onChange={e => setSlide(e.target.value)} placeholder={t('dashboard.rounds.infoSlidePlaceholder')} />
       </div>
       {round.kind !== 'elimination' && (
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
@@ -763,11 +788,13 @@ function Draw({ data, reload }: SectionProps) {
   const [wingsFor, setWingsFor] = useState<Debate | null>(null)
   const defaultRound = data.rounds.find(r => r.status === 'released') ?? data.rounds.find(r => r.status === 'draft') ?? data.rounds[0]
   const [roundId, setRoundId] = useState(defaultRound?.id)
-  const [presentOnly, setPresentOnly] = useState(false)
-  const [addSwing, setAddSwing] = useState(true)
-  const [method, setMethod] = useState<DrawMethod>('power')
-  // null = the default for the round (clubmates kept apart in the first rounds)
-  const [protectClubs, setProtectClubs] = useState<boolean | null>(null)
+  // the settings of the last draw (kept by the server for every organizer) are where the next round starts
+  const last = data.drawOptions ?? {}
+  const [presentOnly, setPresentOnly] = useState(last.presentOnly ?? false)
+  const [addSwing, setAddSwing] = useState(last.addSwing ?? true)
+  const [method, setMethod] = useState<DrawMethod>((last.method as DrawMethod) ?? 'power')
+  // null = the default for the round (clubmates kept apart in the first rounds); a choice made by hand is kept
+  const [protectClubs, setProtectClubs] = useState<boolean | null>(last.protectClubs ?? null)
   const round = data.rounds.find(r => r.id === roundId)
   if (!round) return <EmptyState title={t('common.empty')} />
 
@@ -785,7 +812,7 @@ function Draw({ data, reload }: SectionProps) {
   const noMotion = !round.motion.trim()
   const generate = async () => {
     let report: DrawReport | undefined
-    const ok = await run('generate', async () => { report = (await generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing, method, protectClubs: protect })).report }, t('dashboard.draw.generated'))
+    const ok = await run('generate', async () => { report = (await generateDraw(round.id, { presentOnly: presentOnly && present > 0, addSwing, method, ...(protectClubs !== null && { protectClubs }) })).report }, t('dashboard.draw.generated'))
     // wishes the draw could not meet are said out loud, not hidden
     if (ok && report && (report.sameClub || report.rematches || report.judgeConflicts)) {
       toast.warning(t('dashboard.draw.compromise'), {
@@ -903,6 +930,12 @@ function Draw({ data, reload }: SectionProps) {
                         {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
                         {d.judgeIds.some(id => { const j = judge(id); return j && sideList.some(side => conflictReason(j, team(teamIdOn(d, side) ?? ''))) }) && (
                           <span className="inline-flex items-center gap-1 font-semibold text-danger"><ShieldAlert className="size-3.5" />{t('dashboard.draw.hasConflict')}</span>
+                        )}
+                        {/* two-team formats: an even panel can split 1:1, then the chair decides */}
+                        {sideList.length === 2 && d.judgeIds.length >= 2 && d.judgeIds.length % 2 === 0 && (
+                          <span className="inline-flex items-center gap-1 font-semibold text-accent-foreground dark:text-accent" title={t('dashboard.draw.evenPanelHint')}>
+                            <Scale className="size-3.5" />{t('dashboard.draw.evenPanel', { count: d.judgeIds.length })}
+                          </span>
                         )}
                         {editable && d.ballotStatus === 'pending' && (
                           <button type="button" onClick={() => setWingsFor(d)} className="inline-flex cursor-pointer items-center gap-1 font-semibold text-primary hover:underline">
@@ -1193,6 +1226,8 @@ function SettingsSection({ data, reload }: SectionProps) {
   const toggleRegistration = async (open: boolean) => {
     if (await run('reg', () => updateTournament(data.id, { registrationOpen: open }), open ? t('dashboard.stage.regOpened') : t('dashboard.stage.regClosed'))) reload()
   }
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const daysToStart = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
   const stages: TournamentStatus[] = ['registration', 'ongoing', 'finished']
   const stageIndex = stages.indexOf(data.status)
   const next = stages[stageIndex + 1]
@@ -1276,6 +1311,12 @@ function SettingsSection({ data, reload }: SectionProps) {
       </div>
       <Dialog open={!!stageTo} onOpenChange={o => !o && setStageTo(null)}>
         <DialogContent heading={stageTo ? t(`dashboard.stage.to.${stageTo}`) : ''} description={stageTo ? t(`dashboard.stage.confirm.${stageTo}`) : ''}>
+          {/* starting before the start date is allowed (a rehearsal, a moved day), but never by accident */}
+          {stageTo === 'ongoing' && daysToStart > 0 && (
+            <p className="mb-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />{t('dashboard.stage.early', { count: daysToStart, date: formatDate(data.startDate, { day: 'numeric', month: 'long' }) })}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
             <Button disabled={busy === 'stage'} onClick={changeStage}>{busy === 'stage' && <Loader2 className="size-4 animate-spin" />}{t('common.confirm')}</Button>
@@ -1321,6 +1362,7 @@ export default function ManageTournament() {
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{formatDateRange(data.startDate, data.endDate)} · {data.city}</p>
       <ModerationBanner status={data.moderation} note={data.moderationNote} className="mt-4" />
+      <MissingMotions data={data} />
 
       <div className="mt-6 grid gap-6 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-1 lg:px-0">

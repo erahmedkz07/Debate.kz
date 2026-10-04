@@ -15,7 +15,7 @@ import { awardCandidates, issueAwardCertificates, setAward } from '../services/a
 import { activeStrikes, giveStrike, LATE_CANCEL_DAYS, STRIKE_LIMIT } from '../services/watchdog.js'
 import { REGION_CODES, regionOfCity } from '../lib/regions.js'
 import { ensureCertificates } from '../services/certificates.js'
-import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished } from '../services/notify.js'
+import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished, notifyBreakAnnounced } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
 // video call links: https only (Zoom, Google Meet, Teams…)
@@ -34,6 +34,7 @@ import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { FORMAT_CODES, rulesOf, scoringDefaults } from '../services/formats.js'
 import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
+import { bareMotion } from '../lib/motion.js'
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -260,7 +261,9 @@ organizerRouter.post('/tournaments/:id/selection/lottery', org, async (req, res)
 
 organizerRouter.post('/tournaments/:id/break', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  res.status(201).json(await announceBreak(param(req, 'id')))
+  const result = await announceBreak(param(req, 'id'))
+  background(notifyBreakAnnounced(param(req, 'id')))
+  res.status(201).json(result)
 })
 
 organizerRouter.delete('/tournaments/:id/break', org, async (req, res) => {
@@ -415,7 +418,7 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
   if (!round) throw notFound('round_not_found')
   await assertCanManage(req.user, round.tournamentId)
   const d = body(req, z.object({
-    motion: z.string().trim().max(500).optional(),
+    motion: z.string().trim().max(500).transform(bareMotion).optional(),
     infoSlide: z.string().trim().max(2000).optional(),
     status: z.enum(['released', 'completed']).optional(),
     silent: z.boolean().optional(), // closed round: results hidden from the public until the break
@@ -431,7 +434,8 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
   const updated = await prisma.$transaction(async tx => {
     // completing a round locks all its ballots
     if (d.status === 'completed') await tx.debate.updateMany({ where: { roundId: round.id }, data: { ballotStatus: 'confirmed' } })
-    return tx.round.update({ where: { id: round.id }, data: d })
+    // an emptied info slide is removed
+    return tx.round.update({ where: { id: round.id }, data: { ...d, ...(d.infoSlide !== undefined && { infoSlide: d.infoSlide || null }) } })
   })
   // participants and judges learn their rooms in Telegram
   if (d.status === 'released') background(notifyRoundReleased(round.id))
@@ -448,6 +452,8 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
     method: z.enum(['power', 'high_low', 'random', 'slide', 'fold', 'round_robin']).optional(), protectClubs: z.boolean().optional(),
   }).default({}))
   const report = await generateDraw(round.id, opts)
+  // the next round starts from these settings (the club rule only when it was set by hand, its default follows the round)
+  if (round.kind === 'preliminary') await prisma.tournament.update({ where: { id: round.tournamentId }, data: { drawOptions: opts } })
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
   // the report tells the organizer which wishes could not be met (same-club meetings, rematches)
   res.status(201).json({

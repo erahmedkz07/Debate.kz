@@ -38,21 +38,23 @@ export async function publicProfile(userId: string, viewer?: User) {
       ...(row && row.total > 0 && { speakerRank: row.rank, average: row.average }),
     })
   }
-  // speeches of completed preliminary rounds that are already public; the score of a speech is the panel average
+  // debates of completed rounds that are already public, the playoffs included (wins / debates); the speaking average
+  // counts preliminary rounds only, like the speaker table. The score of a speech is the panel average.
   const hidden = new Set<string>()
   for (const t of new Set(speakerSlots.map(s => s.team.tournamentId))) for (const id of await hiddenRoundIds(t)) hidden.add(id)
   const scores = await prisma.speakerScore.findMany({
-    where: { speaker: { userId, team: { tournament: publicWhere } }, position: { lte: 3 }, ballot: { debate: { round: { status: 'completed', kind: 'preliminary' } } } },
-    include: { ballot: { include: { debate: true } } },
+    where: { speaker: { userId, team: { tournament: publicWhere } }, position: { lte: 3 }, ballot: { debate: { round: { status: 'completed' } } } },
+    include: { ballot: { include: { debate: { include: { round: { select: { kind: true } } } } } } },
   })
   const bySpeech = new Map<string, number[]>()
   const debates = new Map<string, boolean>() // debate -> won
   for (const sc of scores) {
     const d = sc.ballot.debate
     if (hidden.has(d.roundId)) continue
+    debates.set(d.id, d.ranking.length ? d.ranking[0] === sc.side : d.winner === sc.side)
+    if (d.round.kind !== 'preliminary') continue
     const k = `${d.id}:${sc.position}`
     bySpeech.set(k, [...(bySpeech.get(k) ?? []), Number(sc.score)])
-    debates.set(d.id, d.ranking.length ? d.ranking[0] === sc.side : d.winner === sc.side)
   }
   const speeches = [...bySpeech.values()].map(list => avg(list)!)
 

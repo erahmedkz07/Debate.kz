@@ -26,6 +26,7 @@ import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { formatOfTournament } from '@/content/formats'
 import { BP_POINTS, BP_SIDES, TWO_SIDES } from '@/lib/formats'
 import NotFound from './NotFound'
+import { quoted } from '@/lib/motion'
 
 type Range = { min: number; max: number; step: number }
 
@@ -307,7 +308,7 @@ export default function Ballot() {
           <OnlineLink url={data.debate.onlineUrl} className="text-accent" />
         </div>
         <h1 className="mt-3 text-xs font-bold uppercase tracking-wider text-white/70">{t('ballot.title')} · {t('ballot.motion')}</h1>
-        <p className="mt-1 text-lg font-bold leading-snug sm:text-xl">«{data.round.motion}»</p>
+        <p className="mt-1 text-lg font-bold leading-snug sm:text-xl">{quoted(data.round.motion)}</p>
         <p className="mt-3 text-xs text-white/70">
           {format.name[lang]} · {t('ballot.speakerRange', { min: SPEAKER.min, max: SPEAKER.max })}{REPLY && ` · ${t(rules.format === 'APF' ? 'ballot.rebuttalRange' : 'ballot.replyRange', { min: REPLY.min, max: REPLY.max })}`}
         </p>

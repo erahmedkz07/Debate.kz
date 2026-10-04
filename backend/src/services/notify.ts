@@ -134,6 +134,21 @@ export async function notifyRoundCompleted(roundId: string) {
   }
 }
 
+// the break is announced: every speaker learns whether their team broke, and the closed rounds open up
+export async function notifyBreakAnnounced(tournamentId: string) {
+  const t = await prisma.tournament.findUnique({
+    where: { id: tournamentId },
+    select: { name: true, teams: { where: { swing: false }, select: { name: true, breakSeed: true, speakers: { select: { userId: true } } } } },
+  })
+  if (!t) return
+  const link = `/tournaments/${tournamentId}?tab=results`
+  for (const team of t.teams) {
+    const to = team.speakers.map(s => s.userId)
+    if (team.breakSeed) await notify(to, 'participant.breakIn', { tournament: t.name, team: team.name, seed: team.breakSeed }, link)
+    else await notify(to, 'participant.breakOut', { tournament: t.name, team: team.name }, link)
+  }
+}
+
 // a team applied: the tournament's organizers should review it
 export async function notifyNewRegistration(regId: string) {
   const r = await prisma.teamRegistration.findUnique({ where: { id: regId }, include: { tournament: { select: { id: true, name: true } } } })

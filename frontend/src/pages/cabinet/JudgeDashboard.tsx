@@ -16,6 +16,7 @@ import { Card } from '@/components/ui/card'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { CabinetHeader } from '@/pages/dashboard/DashboardLayout'
+import { quoted } from '@/lib/motion'
 
 function AssignmentCard({ a }: { a: JudgeAssignment }) {
   const { t } = useTranslation()
@@ -41,7 +42,7 @@ function AssignmentCard({ a }: { a: JudgeAssignment }) {
         </div>
       </div>
       <div className="p-5">
-        <p className="text-sm italic text-muted-foreground">«{a.round.motion}»</p>
+        <p className="text-sm italic text-muted-foreground">{quoted(a.round.motion)}</p>
         <div className={cn('mt-4 grid items-center gap-3 text-center', bp ? 'grid-cols-2' : 'grid-cols-[1fr_auto_1fr]')}>
           {sideList.map((side, i) => {
             const team = a[side]!

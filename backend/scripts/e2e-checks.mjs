@@ -504,6 +504,12 @@ await tgSend(333, { text: `/start ${await linkToken(judge)}` })
 }
 const round1 = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data.rounds[0]
 await fresh('POST', `/rounds/${round1.id}/draw`)
+{
+  // more judges than seats: the organizer makes this judge the chair by hand (equal judges are drawn in a random order)
+  const me = (await db.query("select j.id from judges j join users u on u.id = j.user_id where j.tournament_id = $1 and u.email = 'judge@debate.kz'", [pendingOwn.id])).rows[0].id
+  const debate = (await fresh('GET', `/tournaments/${pendingOwn.id}`)).data.debates.find(d => d.roundId === round1.id)
+  await fresh('PATCH', `/debates/${debate.id}`, { chairJudgeId: me, wingJudgeIds: [] })
+}
 await fresh('PATCH', `/rounds/${round1.id}`, { motion: 'Эта палата поддерживает уведомления в Telegram' })
 r = await fresh('PATCH', `/rounds/${round1.id}`, { status: 'released' })
 ok(r.status === 200 && await waitFor(333, /председатель/) && await waitFor(333, /уведомления в Telegram/), 'a released draw tells the judge their room, role and motion')
@@ -1513,6 +1519,20 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     'the break seeds the top four of the standings 1–4')
   ok(r.data.rounds.map(x => x.stage).join() === 'semi,final' && r.data.rounds.every(x => x.status === 'draft'), 'a break of four makes a semifinal and a final')
   ok((await host.c('POST', `/tournaments/${po.id}/break`)).data?.error === 'break_already_announced', 'the break is announced once')
+  {
+    // speakers with an account learn whether their team broke (re-announced to see the letters of this announcement)
+    const inside = await newAccount('Брейк Прошёл'), outside = await newAccount('Брейк Непрошёл')
+    const slot = async (teamId, id) => db.query('update speakers set user_id = $1 where id = (select id from speakers where team_id = $2 order by position limit 1)', [id, teamId])
+    await slot(seeds[0].team.id, inside.id)
+    await slot(table[table.length - 1].team.id, outside.id)
+    await host.c('DELETE', `/tournaments/${po.id}/break`)
+    await host.c('POST', `/tournaments/${po.id}/break`)
+    await sleep(300)
+    const got = async (a, type) => (await notes(a.c)).items.find(n => n.type === type)
+    const inN = await got(inside, 'participant.breakIn')
+    ok(inN?.data.seed === 1 && inN.data.team === seeds[0].team.name, 'a speaker of a breaking team gets "you are in the playoffs" with the seed')
+    ok(!!(await got(outside, 'participant.breakOut')), 'a speaker of a team that did not break is told too')
+  }
   ok((await host.c('DELETE', `/tournaments/${po.id}/break`)).status === 204 && (await details(host.c, po.id)).rounds.length === 2, 'the break can be cancelled before it starts')
   r = await host.c('POST', `/tournaments/${po.id}/break`)
   ok(r.status === 201, 'and announced again')
@@ -1966,6 +1986,8 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const entry = pro.speaker?.tournaments.find(x => x.id === done)
   ok(entry && entry.place === 1 && entry.team === champ.name && pro.speaker.debates >= 2 && typeof pro.speaker.average === 'number', "a speaker's page lists the tournament, the place and the speaking record")
   ok(pro.awards.some(a => a.tournament.id === done), 'and the awards (diplomas) of finished tournaments')
+  const played = Number((await db.query("select count(*) from debates d join rounds r on r.id = d.round_id where r.tournament_id = $1 and r.status = 'completed' and $2 in (d.proposition_team_id, d.opposition_team_id)", [done, champ.id])).rows[0].count)
+  ok(pro.speaker.debates === played && played > 2, 'wins / debates count the playoffs too (the average stays on the preliminary rounds)')
   const team = (await client()('GET', `/tournaments/${done}`)).data.teams.find(x => x.id === champ.id)
   ok(team.speakers.find(s => s.id === sp.id)?.userId === pid, 'speaker names link to the page')
   const judgeUser = (await db.query('select user_id, id from judges where tournament_id = $1 and user_id is not null limit 1', [done])).rows[0]
@@ -2058,6 +2080,74 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(!/@|gender|"email"|"phone"/i.test(json), 'no personal data in the analytics')
   const someone = await newAccount('Аналитика Посторонний')
   ok((await someone.c('GET', '/admin/analytics')).status === 403, 'only admins see the analytics')
+}
+// ---------- 55. info slide: the organizer adds it to a round, the public sees it once the round is out ----------
+{
+  const host = await newAccount('Инфослайд Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(300), name: `Инфослайд ${jtag}` })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const round = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+  let r = await host.c('PATCH', `/rounds/${round.id}`, { motion: 'Эта палата запретит домашние задания', infoSlide: 'Домашние задания — работа, которую дают на дом.' })
+  ok(r.status === 200 && r.data.infoSlide === 'Домашние задания — работа, которую дают на дом.', 'an info slide is saved with the motion')
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.rounds[0].infoSlide === undefined, 'the public does not see it before the round is published')
+  r = await host.c('PATCH', `/rounds/${round.id}`, { motion: '««Эта палата запретит домашние задания»»' })
+  ok(r.data.motion === 'Эта палата запретит домашние задания', 'quotes typed around a motion are dropped (the site adds its own)')
+  r = await host.c('PATCH', `/rounds/${round.id}`, { infoSlide: '' })
+  ok(r.status === 200 && r.data.infoSlide === undefined && (await db.query('select info_slide from rounds where id = $1', [round.id])).rows[0].info_slide === null, 'an emptied info slide is removed')
+}
+// ---------- 56. judge panels: chairs by the speakers' ratings, judges rotate between teams ----------
+{
+  const host = await newAccount('Ротация Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(310), name: `Ротация ${jtag}`, preliminaryRounds: 3 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Арна', 'Байтерек', 'Ғалым', 'Дала', 'Есіл', 'Жайық', 'Зере', 'Іле']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Бір`, `${n} Екі`, `${n} Үш`] })
+  for (let i = 1; i <= 5; i++) await addJudge(host.c, t.id, `Ротация Судья ${i}`)
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const rounds = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds
+  // the panels of a round straight from the database: judge, chair, the two teams
+  const panels = async roundId => (await db.query(
+    'select j.id judge, j.name, dj.is_chair chair, d.id debate, d.proposition_team_id p, d.opposition_team_id o from debate_judges dj join judges j on j.id = dj.judge_id join debates d on d.id = dj.debate_id where d.round_id = $1', [roundId])).rows
+  await host.c('POST', `/rounds/${rounds[0].id}/draw`, { addSwing: false })
+  const r1 = await panels(rounds[0].id)
+  // the speakers rate the judges of round 1 (two ratings each): judge 1 is rated worst
+  const rate = { 'Ротация Судья 1': 1, 'Ротация Судья 2': 5, 'Ротация Судья 3': 4, 'Ротация Судья 4': 5, 'Ротация Судья 5': 4 }
+  for (const seat of r1) {
+    for (const [email, team] of [['admin@debate.kz', seat.p], ['student@debate.kz', seat.o]]) {
+      await db.query("insert into judge_feedback (id, debate_id, judge_id, user_id, team_id, score) select 'fb' || md5(random()::text), $1, $2, u.id, $3, $4 from users u where u.email = $5",
+        [seat.debate, seat.judge, team, rate[seat.name], email])
+    }
+  }
+  await host.c('POST', `/rounds/${rounds[1].id}/draw`, { addSwing: false })
+  const r2 = await panels(rounds[1].id)
+  const chairs = r2.filter(x => x.chair).map(x => x.name)
+  ok(chairs.length === 4 && !chairs.includes('Ротация Судья 1'), "the judge the speakers rated lowest does not chair")
+  // rotation: with 8 teams there is always a seat away from the teams a judge has seen
+  const before = new Map(r1.map(x => [x.judge, [x.p, x.o]]))
+  const seenIn = (judge, room) => (before.get(judge) ?? []).filter(id => id === room.p || id === room.o).length
+  const repeats = r2.reduce((n, x) => n + seenIn(x.judge, x), 0)
+  // the best possible: every way to seat these chairs in these rooms, and the wing in its best room
+  const rooms = [...new Map(r2.map(x => [x.debate, x])).values()]
+  const chairIds = r2.filter(x => x.chair).map(x => x.judge), wingIds = r2.filter(x => !x.chair).map(x => x.judge)
+  const perms = xs => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => perms([...xs.slice(0, i), ...xs.slice(i + 1)]).map(p => [x, ...p])))
+  const bestChairs = Math.min(...perms(chairIds).map(p => p.reduce((n, judge, i) => n + seenIn(judge, rooms[i]), 0)))
+  const bestWings = wingIds.reduce((n, w) => n + Math.min(...rooms.map(room => seenIn(w, room))), 0)
+  ok(repeats === bestChairs + bestWings, `judges rotate: as few repeated teams as possible (${repeats})`)
+  await host.c('POST', `/rounds/${rounds[2].id}/draw`, { addSwing: false, method: 'slide', presentOnly: false, protectClubs: false })
+  const saved = (await host.c('GET', `/tournaments/${t.id}`)).data.drawOptions
+  ok(saved?.method === 'slide' && saved.addSwing === false && saved.protectClubs === false, 'the draw settings are kept for the next round')
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.drawOptions === undefined, 'only organizers see them')
+}
+// ---------- 57. several judge links at once (each still single-use) ----------
+{
+  const host = await newAccount('Ссылки Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(320), name: `Ссылки ${jtag}` })).data
+  let r = await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'judge', count: 5 })
+  ok(r.status === 201 && r.data.links.length === 5 && new Set(r.data.links.map(l => l.url)).size === 5, 'an organizer makes 5 judge links at once, all different')
+  const a = await newAccount('Ссылки Судья Один'), b = await newAccount('Ссылки Судья Два')
+  const token = r.data.links[0].url.split('/invite/')[1]
+  ok((await a.c('POST', `/invites/${token}/accept`)).status === 200 && (await b.c('POST', `/invites/${token}/accept`)).data?.error === 'invite_used', 'each of them still works once')
+  ok((await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'judge', count: 31 })).status === 400, 'at most 30 at once')
+  ok((await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'co_organizer', count: 2 })).data?.error === 'one_co_organizer_link', 'co-organizer links one at a time')
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

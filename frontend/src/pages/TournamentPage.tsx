@@ -35,6 +35,7 @@ import { ReviewsTab } from '@/components/tournament/Reviews'
 import { silentRoundIds } from '@/lib/silent'
 import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
 import { cityName } from '@/content/geo'
+import { quoted } from '@/lib/motion'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -302,6 +303,10 @@ function DrawTab({ data }: { data: TournamentDetails }) {
         ))}
       </div>
       <RoundBanner round={round} />
+      {/* organizers see a closed round's results: a note says the others do not */}
+      {silentRoundIds(data).has(round.id) && !!data.myRole && (
+        <p className="mt-3 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm"><Lock className="mt-0.5 size-4 shrink-0" />{t('tournament.silentOrganizer')}</p>
+      )}
       {silentRoundIds(data).has(round.id) && round.status === 'completed' && !data.myRole && (
         <p className="mt-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentRound')}</p>
       )}
@@ -383,7 +388,13 @@ function RoundBanner({ round }: { round: Round }) {
         <Badge variant={round.status === 'completed' ? 'muted' : 'accent'}>{t(`tournament.roundStatus.${round.status}`)}</Badge>
         <span className="text-xs text-white/60">{formatDate(round.date, { day: 'numeric', month: 'long' })}</span>
       </div>
-      <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">«{round.motion}»</p>
+      <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">{quoted(round.motion)}</p>
+      {round.infoSlide && (
+        <details className="mt-3 rounded-xl bg-white/10 p-3 text-sm">
+          <summary className="cursor-pointer font-semibold">{t('dashboard.rounds.infoSlide')}</summary>
+          <p className="mt-2 whitespace-pre-line text-white/85">{round.infoSlide}</p>
+        </details>
+      )}
     </div>
   )
 }
@@ -394,7 +405,9 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
   const roundName = useRoundName()
   // silent rounds: the public table stops before them (organizers see everything)
   const silent = tournament && !tournament.myRole ? silentRoundIds(tournament).size : 0
-  const silentNote = silent > 0 && <p className="mb-4 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentNote', { count: silent })}</p>
+  const hiddenFromOthers = tournament && tournament.myRole ? silentRoundIds(tournament).size : 0
+  const silentNote = silent > 0 ? <p className="mb-4 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentNote', { count: silent })}</p>
+    : hiddenFromOthers > 0 && <p className="mb-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm"><Lock className="mt-0.5 size-4 shrink-0" />{t('tournament.silentTableOrganizer', { count: hiddenFromOthers })}</p>
   // the results as a file: Excel, or the printable report the browser saves as PDF
   const exportBar = (
     <div className="mb-3 flex flex-wrap justify-end gap-2">

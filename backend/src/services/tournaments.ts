@@ -149,6 +149,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
       rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, pendingRegistrations: t.registrations.length,
       selectionMode: t.selectionMode, clubQuota: t.clubQuota ?? undefined,
+      ...(t.drawOptions && { drawOptions: t.drawOptions as Record<string, unknown> }),
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
     // best speaker / best judge: public once the tournament is finished, organizers see their choice before
