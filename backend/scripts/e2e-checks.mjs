@@ -1986,6 +1986,8 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const entry = pro.speaker?.tournaments.find(x => x.id === done)
   ok(entry && entry.place === 1 && entry.team === champ.name && pro.speaker.debates >= 2 && typeof pro.speaker.average === 'number', "a speaker's page lists the tournament, the place and the speaking record")
   ok(pro.awards.some(a => a.tournament.id === done), 'and the awards (diplomas) of finished tournaments')
+  const played = Number((await db.query("select count(*) from debates d join rounds r on r.id = d.round_id where r.tournament_id = $1 and r.status = 'completed' and $2 in (d.proposition_team_id, d.opposition_team_id)", [done, champ.id])).rows[0].count)
+  ok(pro.speaker.debates === played && played > 2, 'wins / debates count the playoffs too (the average stays on the preliminary rounds)')
   const team = (await client()('GET', `/tournaments/${done}`)).data.teams.find(x => x.id === champ.id)
   ok(team.speakers.find(s => s.id === sp.id)?.userId === pid, 'speaker names link to the page')
   const judgeUser = (await db.query('select user_id, id from judges where tournament_id = $1 and user_id is not null limit 1', [done])).rows[0]
