@@ -1222,6 +1222,8 @@ function SettingsSection({ data, reload }: SectionProps) {
   const toggleRegistration = async (open: boolean) => {
     if (await run('reg', () => updateTournament(data.id, { registrationOpen: open }), open ? t('dashboard.stage.regOpened') : t('dashboard.stage.regClosed'))) reload()
   }
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const daysToStart = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
   const stages: TournamentStatus[] = ['registration', 'ongoing', 'finished']
   const stageIndex = stages.indexOf(data.status)
   const next = stages[stageIndex + 1]
@@ -1305,6 +1307,12 @@ function SettingsSection({ data, reload }: SectionProps) {
       </div>
       <Dialog open={!!stageTo} onOpenChange={o => !o && setStageTo(null)}>
         <DialogContent heading={stageTo ? t(`dashboard.stage.to.${stageTo}`) : ''} description={stageTo ? t(`dashboard.stage.confirm.${stageTo}`) : ''}>
+          {/* starting before the start date is allowed (a rehearsal, a moved day), but never by accident */}
+          {stageTo === 'ongoing' && daysToStart > 0 && (
+            <p className="mb-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />{t('dashboard.stage.early', { count: daysToStart, date: formatDate(data.startDate, { day: 'numeric', month: 'long' }) })}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
             <Button disabled={busy === 'stage'} onClick={changeStage}>{busy === 'stage' && <Loader2 className="size-4 animate-spin" />}{t('common.confirm')}</Button>
