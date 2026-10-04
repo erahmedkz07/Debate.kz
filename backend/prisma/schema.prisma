@@ -352,6 +352,7 @@ model Speaker {
   team     Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user     User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   scores   SpeakerScore[]
+  invites  SpeakerInvite[]
 
   @@index([teamId])
   @@map("speakers")
@@ -441,6 +442,22 @@ model JudgeConflict {
 // a participant's or judge's rating of a finished tournament (1..5, optional comment); public, shown without names
 // "best speaker" / "best judge" the organizer chose (from the site's suggestions); a diploma after the finish
 // a strike for an organizer: an abandoned tournament or a last-minute cancellation; 3 active ones block new tournaments
+// a link a captain (or an organizer) sends to a teammate typed in by name: accepting it links their account to the
+// speaker slot, so the tournament joins their career
+model SpeakerInvite {
+  id          String    @id @default(cuid())
+  speakerId   String    @map("speaker_id")
+  tokenHash   String    @unique @map("token_hash")
+  createdById String    @map("created_by_id")
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  speaker     Speaker   @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  @@index([speakerId])
+  @@map("speaker_invites")
+}
+
 model OrganizerStrike {
   id             String    @id @default(cuid())
   userId         String    @map("user_id")

@@ -2156,5 +2156,27 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'judge', count: 31 })).status === 400, 'at most 30 at once')
   ok((await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'co_organizer', count: 2 })).data?.error === 'one_co_organizer_link', 'co-organizer links one at a time')
 }
+// ---------- 58. every speaker has a page; a teammate links their account by the captain's link ----------
+{
+  const done = (await db.query("select id from tournaments where name like $1 and status = 'finished' order by created_at desc limit 1", [`Плей-офф ${jtag}`])).rows[0].id
+  const slot = (await db.query('select s.id, s.team_id, s.name from speakers s join teams t on t.id = s.team_id where t.tournament_id = $1 and s.user_id is null and not t.swing order by s.position desc limit 1', [done])).rows[0]
+  const page = (await client()('GET', `/tournaments/${done}/speakers/${slot.id}`)).data
+  ok(page.name === slot.name && page.rounds.length >= 2 && typeof page.rounds[0].score === 'number' && page.team.place >= 1 && page.userId === undefined, 'a speaker without an account has a page in the tournament: rounds, scores, the team place')
+  ok((await client()('GET', `/tournaments/${done}/speakers/nope`)).status === 404, 'an unknown speaker is 404')
+  // the captain: a speaker of the same team with an account
+  const captain = await newAccount('Капитан Ссылка')
+  await db.query('update speakers set user_id = $1 where id = (select id from speakers where team_id = $2 and user_id is null and id <> $3 order by position limit 1)', [captain.id, slot.team_id, slot.id])
+  const stranger = await newAccount('Чужой Капитан')
+  ok((await stranger.c('POST', `/speakers/${slot.id}/invite`)).data?.error === 'team_or_organizers_only', 'only the team or the organizers invite a teammate')
+  const inv = (await captain.c('POST', `/speakers/${slot.id}/invite`)).data
+  const token = inv.url.split('/speaker-invite/')[1]
+  ok((await client()('GET', `/speaker-invites/${token}`)).data?.state === 'valid', 'the link shows the slot it links')
+  const mate = await newAccount('Сокомандник Привязка')
+  ok((await mate.c('POST', `/speaker-invites/${token}/accept`)).status === 200, 'the teammate links their account')
+  ok((await client()('GET', `/tournaments/${done}/speakers/${slot.id}`)).data.userId === mate.id && (await client()('GET', `/people/${mate.id}`)).data.speaker.tournaments.some(x => x.id === done), 'the tournament is now in their career')
+  ok((await stranger.c('POST', `/speaker-invites/${token}/accept`)).data?.error === 'invite_used', 'a link works once')
+  ok((await captain.c('POST', `/speakers/${slot.id}/invite`)).data?.error === 'speaker_already_linked', 'a linked slot cannot be invited again')
+  ok((await notes(captain.c)).items.some(n => n.type === 'participant.teammateLinked'), 'the captain learns the teammate linked')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

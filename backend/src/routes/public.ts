@@ -8,7 +8,7 @@ import { getBracket } from '../services/playoffs.js'
 import { notFound } from '../lib/errors.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { selectionOf } from '../services/selection.js'
-import { publicProfile } from '../services/people.js'
+import { publicProfile, speakerInTournament } from '../services/people.js'
 
 export const publicRouter = Router()
 
@@ -45,6 +45,11 @@ publicRouter.get('/tournaments', async (req, res) => {
 
 publicRouter.get('/tournaments/:id', async (req, res) => {
   res.json(await getTournamentDetails(param(req, 'id'), req.user))
+})
+
+// every speaker's page in a tournament (an account is not needed)
+publicRouter.get('/tournaments/:id/speakers/:speakerId', async (req, res) => {
+  res.json(await speakerInTournament(param(req, 'id'), param(req, 'speakerId')))
 })
 
 publicRouter.get('/tournaments/:id/standings', async (req, res) => {

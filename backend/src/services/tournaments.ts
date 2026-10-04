@@ -229,7 +229,7 @@ export async function getStandings(tournamentId: string, hide: Set<string> = new
 
   const speakerRows = teams.flatMap(team => team.speakers.map(s => {
     const total = speakerSum.get(s.id) ?? 0, n = speakerRounds.get(s.id) ?? 0
-    return { speaker: { id: s.id, name: s.name, teamId: team.id }, team: toTeam(team), total: round1(total), average: n ? round1(total / n) : 0 }
+    return { speaker: { id: s.id, name: s.name, teamId: team.id, ...(s.userId && { userId: s.userId }) }, team: toTeam(team), total: round1(total), average: n ? round1(total / n) : 0 }
   })).sort((a, b) => b.total - a.total)
 
   return {

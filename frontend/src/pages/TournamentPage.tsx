@@ -36,6 +36,7 @@ import { silentRoundIds } from '@/lib/silent'
 import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
 import { cityName } from '@/content/geo'
 import { quoted } from '@/lib/motion'
+import { SpeakerInviteButton } from '@/components/tournament/SpeakerInviteButton'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -248,8 +249,16 @@ function Overview({ data }: { data: TournamentDetails }) {
   )
 }
 
+// a speaker's name links to their career (an account) or to their page in this tournament
+function SpeakerName({ speaker, tournamentId, className = 'hover:text-primary hover:underline' }: { speaker: { id: string; name: string; userId?: string }; tournamentId: string; className?: string }) {
+  return <Link to={speaker.userId ? `/people/${speaker.userId}` : `/tournaments/${tournamentId}/speakers/${speaker.id}`} className={className}>{speaker.name}</Link>
+}
+
 function TeamsTab({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
+  const { user } = useAuth()
+  // the team's own speakers and the organizers can invite a teammate typed in by name to link their account
+  const manager = !!data.myRole
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {data.teams.map(team => (
@@ -262,7 +271,12 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
             </div>
           </div>
           <ul className="mt-4 space-y-1.5 border-t border-border pt-4">
-            {team.speakers.map(s => <li key={s.id} className="text-sm">{s.userId ? <Link to={`/people/${s.userId}`} className="hover:text-primary hover:underline">{s.name}</Link> : s.name}</li>)}
+            {team.speakers.map(s => (
+              <li key={s.id} className="text-sm">
+                <SpeakerName speaker={s} tournamentId={data.id} />
+                {!s.userId && (manager || team.speakers.some(x => x.userId && x.userId === user?.id)) && <SpeakerInviteButton speakerId={s.id} name={s.name} />}
+              </li>
+            ))}
           </ul>
           <span className="sr-only">{t('tournament.speakers')}</span>
         </Card>
@@ -501,7 +515,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
           {data.speakers.slice(0, 30).map(r => (
             <tr key={r.speaker.id} className="hover:bg-muted/40">
               <td className="px-4 py-3">{medal(r.rank)}</td>
-              <td className="px-4 py-3"><p className="font-bold">{r.speaker.userId ? <Link to={`/people/${r.speaker.userId}`} className="hover:text-primary hover:underline">{r.speaker.name}</Link> : r.speaker.name}</p><p className="text-xs text-muted-foreground">{r.team.name} · {r.team.institution}</p></td>
+              <td className="px-4 py-3"><p className="font-bold"><SpeakerName speaker={r.speaker} tournamentId={id} /></p><p className="text-xs text-muted-foreground">{r.team.name} · {r.team.institution}</p></td>
               <td className="px-4 py-3 text-right tabular-nums">{r.average.toFixed(1)}</td>
               <td className="px-4 py-3 text-right font-bold tabular-nums">{r.total.toFixed(1)}</td>
             </tr>

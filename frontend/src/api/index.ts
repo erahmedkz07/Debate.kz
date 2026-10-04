@@ -180,6 +180,21 @@ export interface PublicProfile {
   }
   awards: { tournament: { id: string; name: string }; date: string; kind: 'best_speaker' | 'best_judge' | 'category_champion' | 'team_place' | 'speaker_place'; place?: number; speakerPlace?: number; category?: string; code: string }[]
 }
+// every speaker's page inside a tournament (an account is not needed)
+export interface SpeakerPageData {
+  id: string; name: string; userId?: string
+  tournament: { id: string; name: string; startDate: string; status: string }
+  team: { id: string; name: string; institution?: string; place?: number; teams: number; inBreak: boolean }
+  rank?: number; average?: number; total?: number; speakers?: number
+  rounds: { round: string; number: number; kind: string; motion: string; side: Side; opponents: string; result: string | null; score?: number; reply?: number }[]
+}
+export const getSpeakerPage = (tournamentId: string, speakerId: string) =>
+  or404(http<SpeakerPageData>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/speakers/${encodeURIComponent(speakerId)}`))
+// a teammate typed in by name links their account by the captain's (or an organizer's) single-use link
+export const createSpeakerInvite = (speakerId: string) => http<{ url: string; expiresAt: string }>('POST', `/speakers/${encodeURIComponent(speakerId)}/invite`)
+export const getSpeakerInvite = (token: string) =>
+  or404(http<{ state: 'valid' | 'used' | 'expired'; speaker: string; team: string; tournament: { id: string; name: string; startDate: string } }>('GET', `/speaker-invites/${encodeURIComponent(token)}`))
+export const acceptSpeakerInvite = (token: string) => http<{ ok: true; tournamentId: string; userId: string }>('POST', `/speaker-invites/${encodeURIComponent(token)}/accept`)
 export const getPublicProfile = (id: string) => or404(http<PublicProfile>('GET', `/people/${encodeURIComponent(id)}`))
 export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackSummary[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/judge-feedback`)
 
