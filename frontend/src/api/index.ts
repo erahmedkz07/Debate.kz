@@ -140,15 +140,21 @@ export interface JudgeFeedbackSummary {
   judgeId: string; count: number; average: number
   items: { score: number; comment?: string; team: string; round: string; room: string; createdAt: string }[]
 }
-// reviews of a finished tournament: public average, comments without names
+// reviews of a finished tournament: public average, comments with the author's name, the organizers' answers
 export interface ReviewSummary { count: number; average: number | null; spread: number[] }
 export interface TournamentReviews extends ReviewSummary {
   organizer: ReviewSummary
-  items: { id: string; role: 'speaker' | 'judge'; score: number; comment: string; createdAt: string }[]
+  items: {
+    id: string; role: 'speaker' | 'judge'; score: number; comment: string; createdAt: string
+    author: { id: string; name: string; avatarUrl?: string }
+    reply?: { text: string; by: string; at: string }
+  }[]
   canReview: boolean
+  canReply: boolean
   mine?: { score: number; comment?: string }
 }
 export const getTournamentReviews = (id: string) => http<TournamentReviews>('GET', `/tournaments/${encodeURIComponent(id)}/reviews`)
+export const replyToReview = (reviewId: string, text: string) => http<{ ok: true }>('POST', `/reviews/${encodeURIComponent(reviewId)}/reply`, { text })
 export const sendTournamentReview = (id: string, score: number, comment?: string) => http<{ ok: true }>('POST', `/tournaments/${encodeURIComponent(id)}/review`, { score, comment })
 // best speaker / best judge: suggestions and the organizer's choice
 export type AwardKind = 'best_speaker' | 'best_judge'

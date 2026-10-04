@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Gavel, Loader2, MessageSquare, Star, User } from 'lucide-react'
-import { getTournamentReviews, sendTournamentReview } from '@/api'
+import { CornerDownRight, Gavel, Loader2, MessageSquare, Reply, Star, User } from 'lucide-react'
+import { getTournamentReviews, replyToReview, sendTournamentReview, type TournamentReviews } from '@/api'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { formatDate } from '@/lib/utils'
@@ -14,7 +15,8 @@ import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { Stars } from './JudgeFeedback'
 
 // Reviews of a finished tournament: the average and how the scores spread, the organizer's average across their
-// tournaments, comments without names (only "speaker" / "judge"), and the form for those who took part.
+// tournaments, comments with the author's name and role (a review is someone's word), the organizers' public answers,
+// and the form for those who took part.
 export function ReviewsTab({ id }: { id: string }) {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getTournamentReviews(id), [id])
@@ -73,10 +75,14 @@ export function ReviewsTab({ id }: { id: string }) {
               <li key={r.id}>
                 <Card className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Badge variant="outline">{r.role === 'judge' ? <Gavel className="size-3" /> : <User className="size-3" />}{t(`reviews.roles.${r.role}`)}</Badge>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Link to={`/people/${r.author.id}`} className="font-semibold hover:text-primary hover:underline">{r.author.name}</Link>
+                      <Badge variant="outline">{r.role === 'judge' ? <Gavel className="size-3" /> : <User className="size-3" />}{t(`reviews.roles.${r.role}`)}</Badge>
+                    </span>
                     <span className="flex items-center gap-2"><Stars value={r.score} size="size-4" /><span className="text-xs text-muted-foreground">{formatDate(r.createdAt.slice(0, 10))}</span></span>
                   </div>
                   <p className="mt-2 text-sm leading-relaxed">{r.comment}</p>
+                  <ReviewReply review={r} canReply={data.canReply} onSaved={reload} />
                 </Card>
               </li>
             ))}
@@ -84,5 +90,53 @@ export function ReviewsTab({ id }: { id: string }) {
         )}
       </div>
     </div>
+  )
+}
+
+// the organizers' public answer under a review; organizers write, change or remove it
+function ReviewReply({ review, canReply, onSaved }: { review: TournamentReviews['items'][number]; canReply: boolean; onSaved: () => void }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState(review.reply?.text ?? '')
+  const [busy, setBusy] = useState(false)
+  const save = async () => {
+    setBusy(true)
+    try {
+      await replyToReview(review.id, text.trim())
+      toast.success(t(text.trim() ? 'reviews.replySaved' : 'reviews.replyRemoved'))
+      setOpen(false)
+      onSaved()
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      {review.reply && !open && (
+        <div className="mt-3 flex gap-2 rounded-xl bg-muted/60 p-3 text-sm">
+          <CornerDownRight className="mt-0.5 size-4 shrink-0 text-primary" />
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground">{t('reviews.replyBy', { name: review.reply.by })} · {formatDate(review.reply.at.slice(0, 10))}</p>
+            <p className="mt-1 leading-relaxed">{review.reply.text}</p>
+          </div>
+        </div>
+      )}
+      {canReply && !open && (
+        <button type="button" onClick={() => setOpen(true)} className="mt-2 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-primary hover:underline">
+          <Reply className="size-3.5" />{t(review.reply ? 'reviews.editReply' : 'reviews.reply')}
+        </button>
+      )}
+      {open && (
+        <div className="mt-3">
+          <Textarea rows={3} maxLength={1000} value={text} onChange={e => setText(e.target.value)} placeholder={t('reviews.replyPlaceholder')} aria-label={t('reviews.reply')} />
+          <div className="mt-2 flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { setOpen(false); setText(review.reply?.text ?? '') }}>{t('common.cancel')}</Button>
+            <Button size="sm" disabled={busy || (!text.trim() && !review.reply)} onClick={save}>{busy && <Loader2 className="size-4 animate-spin" />}{t('reviews.replySend')}</Button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

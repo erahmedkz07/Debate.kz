@@ -1932,7 +1932,21 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await jc('POST', `/tournaments/${done}/review`, { score: 5 })).status === 201, 'a judge rates it too')
   const rv = (await client()('GET', `/tournaments/${done}/reviews`)).data
   ok(rv.count === 2 && rv.average === 4.5 && rv.spread.join() === '1,1,0,0,0', 'the public sees the average and the spread')
-  ok(rv.items.length === 1 && rv.items[0].role === 'speaker' && rv.items[0].comment.startsWith('Отличные') && rv.items[0].userId === undefined && rv.items[0].name === undefined, 'comments are shown without names, with the role only')
+  ok(rv.items.length === 1 && rv.items[0].role === 'speaker' && rv.items[0].comment.startsWith('Отличные') && rv.items[0].author?.id === fan.id && rv.items[0].author.name === 'Оценщик Спикер', "a comment carries its author's name and role")
+  {
+    // the organizer answers publicly; the author is told; others cannot answer
+    const ownerEmail = (await db.query("select u.email from tournament_organizers o join users u on u.id = o.user_id where o.tournament_id = $1 and o.role = 'owner'", [done])).rows[0].email
+    const owner = client()
+    await owner('POST', '/auth/login', { email: ownerEmail, password: 'secret123' })
+    ok((await owner('GET', `/tournaments/${done}/reviews`)).data.canReply === true && rv.canReply === false, 'only organizers may answer reviews')
+    ok((await fan.c('POST', `/reviews/${rv.items[0].id}/reply`, { text: 'Сам себе отвечу' })).data?.error === 'organizers_only', 'a participant cannot answer for the organizer')
+    ok((await owner('POST', `/reviews/${rv.items[0].id}/reply`, { text: 'Спасибо! Задержки были из-за проектора, исправим.' })).status === 200, 'the organizer answers a review')
+    const answered = (await client()('GET', `/tournaments/${done}/reviews`)).data.items[0]
+    ok(answered.reply?.text.startsWith('Спасибо') && !!answered.reply.by, 'the answer is public, with who answered')
+    ok((await notes(fan.c)).items.some(n => n.type === 'participant.reviewReply'), 'the author of the review is told')
+    await owner('POST', `/reviews/${rv.items[0].id}/reply`, { text: '' })
+    ok((await client()('GET', `/tournaments/${done}/reviews`)).data.items[0].reply === undefined, 'an empty answer removes it')
+  }
   ok(rv.organizer.count >= 2 && typeof rv.organizer.average === 'number', "the organizer's average across their tournaments is public")
   const mine = (await fan.c('GET', `/tournaments/${done}/reviews`)).data
   ok(mine.canReview && mine.mine?.score === 4, 'a participant sees their own rating')

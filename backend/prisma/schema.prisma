@@ -474,9 +474,12 @@ model TournamentReview {
   id           String     @id @default(cuid())
   tournamentId String     @map("tournament_id")
   userId       String     @map("user_id")
-  role         String // speaker | judge: shown next to the review instead of the name
+  role         String // speaker | judge: shown next to the author's name
   score        Int
   comment      String?
+  reply        String? // the organizers' public answer to the review
+  replyBy      String?    @map("reply_by") // the name of the organizer who answered
+  repliedAt    DateTime?  @map("replied_at")
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
