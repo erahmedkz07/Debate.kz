@@ -5,11 +5,13 @@ import { prisma } from '../lib/prisma.js'
 import { badRequest, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { publicWhere } from '../services/tournaments.js'
+import { isOrganizerOf, publicWhere } from '../services/tournaments.js'
+import { background, notify } from '../services/notify.js'
 
 // Reviews of a finished tournament, like rating a ride: when the organizer finishes the tournament, its speakers and
 // judges are asked to rate it 1–5 with an optional comment. The rating is public (the tournament page, and the
-// organizer's average across their tournaments), the reviews are shown without names — only "speaker" or "judge".
+// organizer's average across their tournaments). Reviews carry the author's name and role, so a review is someone's
+// word, not an anonymous one; the organizers can answer each review publicly, and the author is told.
 export const reviewsRouter = Router()
 
 // who took part: a speaker of one of its teams, or a judge
@@ -35,7 +37,7 @@ export function summarize(scores: number[]) {
 reviewsRouter.get('/tournaments/:id/reviews', async (req, res) => {
   const t = await prisma.tournament.findFirst({ where: { id: param(req, 'id'), ...publicWhere }, include: { organizers: { where: { role: 'owner' } } } })
   if (!t) throw notFound('tournament_not_found')
-  const reviews = await prisma.tournamentReview.findMany({ where: { tournamentId: t.id }, orderBy: { createdAt: 'desc' } })
+  const reviews = await prisma.tournamentReview.findMany({ where: { tournamentId: t.id }, include: { user: { select: { id: true, name: true, avatarUrl: true } } }, orderBy: { createdAt: 'desc' } })
   // the organizer's reputation: all reviews of the tournaments they own
   const ownerId = t.organizers[0]?.userId
   const ownerScores = ownerId
@@ -47,8 +49,13 @@ reviewsRouter.get('/tournaments/:id/reviews', async (req, res) => {
   res.json({
     ...summarize(reviews.map(r => r.score)),
     organizer: summarize(ownerScores),
-    items: reviews.filter(r => r.comment).map(r => ({ id: r.id, role: r.role, score: r.score, comment: r.comment, createdAt: r.createdAt.toISOString() })),
+    items: reviews.filter(r => r.comment).map(r => ({
+      id: r.id, role: r.role, score: r.score, comment: r.comment, createdAt: r.createdAt.toISOString(),
+      author: { id: r.user.id, name: r.user.name, avatarUrl: r.user.avatarUrl ?? undefined },
+      ...(r.reply && { reply: { text: r.reply, by: r.replyBy ?? '', at: r.repliedAt!.toISOString() } }),
+    })),
     canReview: !!myRole,
+    canReply: await isOrganizerOf(me, t.id),
     ...(mine && { mine: { score: mine.score, comment: mine.comment ?? undefined } }),
   })
 })
@@ -67,4 +74,18 @@ reviewsRouter.post('/tournaments/:id/review', requireAuth(), async (req, res) =>
     update: data,
   })
   res.status(201).json({ ok: true })
+})
+
+// the organizers answer a review publicly (an empty text removes the answer); the author learns about it
+reviewsRouter.post('/reviews/:id/reply', requireAuth(), async (req, res) => {
+  const { text } = body(req, z.object({ text: z.string().trim().max(1000) }))
+  const review = await prisma.tournamentReview.findUnique({ where: { id: param(req, 'id') }, include: { tournament: { select: { id: true, name: true } } } })
+  if (!review) throw notFound('review_not_found')
+  if (!(await isOrganizerOf(req.user, review.tournamentId))) throw forbidden('organizers_only')
+  await prisma.tournamentReview.update({
+    where: { id: review.id },
+    data: text ? { reply: text, replyBy: req.user!.name, repliedAt: new Date() } : { reply: null, replyBy: null, repliedAt: null },
+  })
+  if (text) background(notify([review.userId], 'participant.reviewReply', { tournament: review.tournament.name }, `/tournaments/${review.tournamentId}?tab=reviews`))
+  res.json({ ok: true })
 })

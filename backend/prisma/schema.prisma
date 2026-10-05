@@ -127,7 +127,6 @@ model User {
   blocked             Boolean   @default(false)
   emailVerifiedAt     DateTime? @map("email_verified_at")
   consentAt           DateTime? @map("consent_at") // consent to personal data processing
-  profileHidden       Boolean   @default(false) @map("profile_hidden") // "hide my public profile": no career page, no links
   passwordChangedAt   DateTime? @map("password_changed_at") // sessions issued before this are rejected
   telegramChatId      String?   @unique @map("telegram_chat_id") // private chat with the bot (= Telegram user id)
   telegramUsername    String?   @map("telegram_username")
@@ -353,6 +352,7 @@ model Speaker {
   team     Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user     User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   scores   SpeakerScore[]
+  invites  SpeakerInvite[]
 
   @@index([teamId])
   @@map("speakers")
@@ -442,6 +442,22 @@ model JudgeConflict {
 // a participant's or judge's rating of a finished tournament (1..5, optional comment); public, shown without names
 // "best speaker" / "best judge" the organizer chose (from the site's suggestions); a diploma after the finish
 // a strike for an organizer: an abandoned tournament or a last-minute cancellation; 3 active ones block new tournaments
+// a link a captain (or an organizer) sends to a teammate typed in by name: accepting it links their account to the
+// speaker slot, so the tournament joins their career
+model SpeakerInvite {
+  id          String    @id @default(cuid())
+  speakerId   String    @map("speaker_id")
+  tokenHash   String    @unique @map("token_hash")
+  createdById String    @map("created_by_id")
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  speaker     Speaker   @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  @@index([speakerId])
+  @@map("speaker_invites")
+}
+
 model OrganizerStrike {
   id             String    @id @default(cuid())
   userId         String    @map("user_id")
@@ -475,9 +491,12 @@ model TournamentReview {
   id           String     @id @default(cuid())
   tournamentId String     @map("tournament_id")
   userId       String     @map("user_id")
-  role         String // speaker | judge: shown next to the review instead of the name
+  role         String // speaker | judge: shown next to the author's name
   score        Int
   comment      String?
+  reply        String? // the organizers' public answer to the review
+  replyBy      String?    @map("reply_by") // the name of the organizer who answered
+  repliedAt    DateTime?  @map("replied_at")
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)

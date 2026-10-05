@@ -1,23 +1,22 @@
-import type { User } from '../generated/prisma/client.js'
 import { notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
 import { getStandings, publicWhere } from './tournaments.js'
+import { resultOf, sidesInDebate } from './formats.js'
 import { finalPlaces } from './playoffs.js'
 import { hiddenRoundIds } from './silent.js'
 
-// A person's public page: their debate career as a speaker and as a judge, and their awards — open to everyone, unless
-// they switched "hide my profile" on (the personal-data law; many debaters are schoolchildren). Only public tournaments
+// A person's public page: their debate career as a speaker and as a judge, and their awards — open to everyone
+// (the owner decided against a "hide my profile" switch). Only public tournaments
 // and only what is already public there: closed (silent) rounds stay out until the break, judge ratings show only as an
 // average of at least PUBLIC_RATING_MIN reviews, never single comments.
 export const PUBLIC_RATING_MIN = 5
 
 const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null)
 
-export async function publicProfile(userId: string, viewer?: User) {
+export async function publicProfile(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { clubMembership: { include: { club: { select: { id: true, name: true, status: true } } } } } })
-  const self = viewer?.id === userId || viewer?.role === 'admin'
-  if (!user || user.blocked || (user.profileHidden && !self)) throw notFound('profile_not_found')
+  if (!user || user.blocked) throw notFound('profile_not_found')
 
   // ---- as a speaker ----
   const speakerSlots = await prisma.speaker.findMany({
@@ -82,7 +81,6 @@ export async function publicProfile(userId: string, viewer?: User) {
 
   return {
     id: user.id, name: user.name, avatarUrl: user.avatarUrl ?? undefined, city: user.city ?? undefined, since: toDay(user.createdAt),
-    hidden: user.profileHidden, // only the person (or an admin) sees a hidden profile
     ...(user.clubMembership?.club.status === 'approved' && { club: { id: user.clubMembership.club.id, name: user.clubMembership.club.name } }),
     speaker: {
       tournaments: tournaments.sort((a, b) => b.startDate.localeCompare(a.startDate)),
@@ -106,5 +104,51 @@ export async function publicProfile(userId: string, viewer?: User) {
       ...(c.breakCategory && c.categoryPlace === 1 && { category: c.breakCategory }),
       code: c.code, // certificates are public by their code anyway (QR check)
     })),
+  }
+}
+
+// A speaker's page inside one tournament, for every speaker (an account is not needed): the place in the speaker
+// table, the team's place, and each public round — side, opponent, result, the speech score (panel average) and the
+// reply. Closed rounds stay out until the break, like everywhere. With an account, the page links to the career.
+export async function speakerInTournament(tournamentId: string, speakerId: string) {
+  const speaker = await prisma.speaker.findFirst({
+    where: { id: speakerId, team: { tournamentId, swing: false, tournament: publicWhere } },
+    include: { team: { include: { tournament: true, institution: true } } },
+  })
+  if (!speaker) throw notFound('speaker_not_found')
+  const t = speaker.team.tournament
+  const hide = await hiddenRoundIds(t.id)
+  const standings = await getStandings(t.id, hide)
+  const row = standings.speakers.find(x => x.speaker.id === speaker.id)
+  const final = t.status === 'finished' ? await finalPlaces(t.id) : null
+  const teamPlace = final?.get(speaker.teamId) ?? standings.teams.find(x => x.team.id === speaker.teamId)?.rank
+  const debates = await prisma.debate.findMany({
+    where: {
+      round: { tournamentId: t.id, status: 'completed', id: { notIn: [...hide] } },
+      OR: [{ propositionTeamId: speaker.teamId }, { oppositionTeamId: speaker.teamId }, { closingPropositionTeamId: speaker.teamId }, { closingOppositionTeamId: speaker.teamId }],
+    },
+    include: {
+      round: true, proposition: true, opposition: true, closingProposition: true, closingOpposition: true,
+      ballots: { include: { scores: { where: { speakerId: speaker.id } } } },
+    },
+    orderBy: { round: { number: 'asc' } },
+  })
+  const rounds = debates.map(d => {
+    const side = sidesInDebate(d).find(x => x.teamId === speaker.teamId)!.side
+    const names = { proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition }
+    const opponents = sidesInDebate(d).filter(x => x.side !== side).map(x => names[x.side]!.name).join(', ')
+    const speech = avg(d.ballots.flatMap(b => b.scores.filter(s => s.position <= 3).map(s => Number(s.score))))
+    const reply = avg(d.ballots.flatMap(b => b.scores.filter(s => s.position === 4).map(s => Number(s.score))))
+    return {
+      round: d.round.name, number: d.round.number, kind: d.round.kind, motion: d.round.motion, side, opponents,
+      result: resultOf(d, side), ...(speech !== null && { score: speech }), ...(reply !== null && { reply }),
+    }
+  })
+  return {
+    id: speaker.id, name: speaker.name, ...(speaker.userId && { userId: speaker.userId }),
+    tournament: { id: t.id, name: t.name, startDate: toDay(t.startDate), status: t.status },
+    team: { id: speaker.team.id, name: speaker.team.name, institution: speaker.team.institution?.name ?? undefined, place: teamPlace ?? undefined, teams: standings.teams.length, inBreak: !!speaker.team.breakSeed },
+    ...(row && row.total > 0 && { rank: row.rank, average: row.average, total: row.total, speakers: standings.speakers.length }),
+    rounds,
   }
 }

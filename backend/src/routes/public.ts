@@ -8,7 +8,7 @@ import { getBracket } from '../services/playoffs.js'
 import { notFound } from '../lib/errors.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { selectionOf } from '../services/selection.js'
-import { publicProfile } from '../services/people.js'
+import { publicProfile, speakerInTournament } from '../services/people.js'
 
 export const publicRouter = Router()
 
@@ -47,6 +47,11 @@ publicRouter.get('/tournaments/:id', async (req, res) => {
   res.json(await getTournamentDetails(param(req, 'id'), req.user))
 })
 
+// every speaker's page in a tournament (an account is not needed)
+publicRouter.get('/tournaments/:id/speakers/:speakerId', async (req, res) => {
+  res.json(await speakerInTournament(param(req, 'id'), param(req, 'speakerId')))
+})
+
 publicRouter.get('/tournaments/:id/standings', async (req, res) => {
   const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') }, select: { visible: true, moderation: true, abandonedAt: true } })
   if (!t || !isPublic(t)) throw notFound('tournament_not_found')
@@ -57,7 +62,7 @@ publicRouter.get('/tournaments/:id/standings', async (req, res) => {
 
 // a person's public page: the career as a speaker and a judge, the awards (404 when the profile is hidden)
 publicRouter.get('/people/:id', async (req, res) => {
-  res.json(await publicProfile(param(req, 'id'), req.user))
+  res.json(await publicProfile(param(req, 'id')))
 })
 
 // selection: how many applied for how many places, and the lottery order after the draw

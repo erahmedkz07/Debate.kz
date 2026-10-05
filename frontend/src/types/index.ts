@@ -242,7 +242,6 @@ export interface User {
   club?: Ref // required in the profile before applying to tournaments
   clubTeam?: Ref
   safeguardingOfficer?: boolean // handles behaviour reports
-  profileHidden?: boolean // "hide my public profile"
 }
 
 export interface TeamRegistration {

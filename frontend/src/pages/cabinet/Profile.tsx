@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input, Label, Switch } from '@/components/ui/input'
+import { Input, Label } from '@/components/ui/input'
 import { SideTabsList, SideTabsTrigger, Tabs, TabsContent } from '@/components/ui/tabs'
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { OrnamentPattern } from '@/components/brand'
@@ -186,35 +186,16 @@ function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 }
 
 // password and account removal live here as compact rows; the forms open in dialogs
-// the public career page and the switch that hides it (the personal-data law; many debaters are schoolchildren)
+// the public career page: every debater has one, open to everyone (the user decided against a "hide" switch)
 function PublicProfileCard() {
   const { t } = useTranslation()
-  const { user, signIn } = useAuth()
-  const [busy, setBusy] = useState(false)
+  const { user } = useAuth()
   if (!user) return null
-  const toggle = async (hidden: boolean) => {
-    setBusy(true)
-    try {
-      // the session keeps the club and the roles; only the flag changes
-      const updated = await updateProfile({ name: user.name, phone: user.phone, institution: user.institution, city: user.city, profileHidden: hidden })
-      signIn({ ...user, profileHidden: updated.profileHidden })
-      toast.success(t(hidden ? 'person.hiddenToast' : 'person.shownToast'))
-    } catch (e) {
-      toast.error(errorMessage(e, t))
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
     <Card className="p-6">
       <h3 className="flex items-center gap-2 font-bold"><UserRound className="size-4 text-primary" />{t('person.cardTitle')}</h3>
       <p className="mt-1 text-sm text-muted-foreground">{t('person.cardText')}</p>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <Link to={`/people/${user.id}`} className="text-sm font-semibold text-primary hover:underline">{t('person.open')}</Link>
-        <span className={cn('flex items-center gap-2 text-sm font-medium', busy && 'pointer-events-none opacity-60')}>
-          <Switch checked={!!user.profileHidden} onChange={v => void toggle(v)} label={t('person.hide')} />{t('person.hide')}
-        </span>
-      </div>
+      <Link to={`/people/${user.id}`} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">{t('person.open')} →</Link>
     </Card>
   )
 }

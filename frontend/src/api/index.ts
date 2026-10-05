@@ -103,7 +103,7 @@ export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATC
 export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
 // confirmed by the password, or by typing the email for accounts without a password
 export const deleteAccount = (confirm: { password: string } | { email: string }) => http<void>('DELETE', '/me', confirm)
-export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string; profileHidden?: boolean }) =>
+export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
 
 export function uploadAvatar(file: File) {
@@ -140,15 +140,21 @@ export interface JudgeFeedbackSummary {
   judgeId: string; count: number; average: number
   items: { score: number; comment?: string; team: string; round: string; room: string; createdAt: string }[]
 }
-// reviews of a finished tournament: public average, comments without names
+// reviews of a finished tournament: public average, comments with the author's name, the organizers' answers
 export interface ReviewSummary { count: number; average: number | null; spread: number[] }
 export interface TournamentReviews extends ReviewSummary {
   organizer: ReviewSummary
-  items: { id: string; role: 'speaker' | 'judge'; score: number; comment: string; createdAt: string }[]
+  items: {
+    id: string; role: 'speaker' | 'judge'; score: number; comment: string; createdAt: string
+    author: { id: string; name: string; avatarUrl?: string }
+    reply?: { text: string; by: string; at: string }
+  }[]
   canReview: boolean
+  canReply: boolean
   mine?: { score: number; comment?: string }
 }
 export const getTournamentReviews = (id: string) => http<TournamentReviews>('GET', `/tournaments/${encodeURIComponent(id)}/reviews`)
+export const replyToReview = (reviewId: string, text: string) => http<{ ok: true }>('POST', `/reviews/${encodeURIComponent(reviewId)}/reply`, { text })
 export const sendTournamentReview = (id: string, score: number, comment?: string) => http<{ ok: true }>('POST', `/tournaments/${encodeURIComponent(id)}/review`, { score, comment })
 // best speaker / best judge: suggestions and the organizer's choice
 export type AwardKind = 'best_speaker' | 'best_judge'
@@ -163,7 +169,7 @@ export const getAwardCandidates = (id: string) => http<AwardCandidates>('GET', `
 export const setTournamentAward = (id: string, kind: AwardKind, personId: string | null) => http<{ kind: AwardKind; name: string | null }>('PUT', `/tournaments/${encodeURIComponent(id)}/awards`, { kind, personId })
 // a person's public page: career as a speaker and a judge, awards
 export interface PublicProfile {
-  id: string; name: string; avatarUrl?: string; city?: string; since: string; hidden: boolean; club?: { id: string; name: string }
+  id: string; name: string; avatarUrl?: string; city?: string; since: string; club?: { id: string; name: string }
   speaker: {
     tournaments: { id: string; name: string; startDate: string; status: string; team: string; place?: number; teams: number; inBreak: boolean; speakerRank?: number; average?: number }[]
     debates: number; wins: number; average: number | null; best: number | null
@@ -174,6 +180,21 @@ export interface PublicProfile {
   }
   awards: { tournament: { id: string; name: string }; date: string; kind: 'best_speaker' | 'best_judge' | 'category_champion' | 'team_place' | 'speaker_place'; place?: number; speakerPlace?: number; category?: string; code: string }[]
 }
+// every speaker's page inside a tournament (an account is not needed)
+export interface SpeakerPageData {
+  id: string; name: string; userId?: string
+  tournament: { id: string; name: string; startDate: string; status: string }
+  team: { id: string; name: string; institution?: string; place?: number; teams: number; inBreak: boolean }
+  rank?: number; average?: number; total?: number; speakers?: number
+  rounds: { round: string; number: number; kind: string; motion: string; side: Side; opponents: string; result: string | null; score?: number; reply?: number }[]
+}
+export const getSpeakerPage = (tournamentId: string, speakerId: string) =>
+  or404(http<SpeakerPageData>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/speakers/${encodeURIComponent(speakerId)}`))
+// a teammate typed in by name links their account by the captain's (or an organizer's) single-use link
+export const createSpeakerInvite = (speakerId: string) => http<{ url: string; expiresAt: string }>('POST', `/speakers/${encodeURIComponent(speakerId)}/invite`)
+export const getSpeakerInvite = (token: string) =>
+  or404(http<{ state: 'valid' | 'used' | 'expired'; speaker: string; team: string; tournament: { id: string; name: string; startDate: string } }>('GET', `/speaker-invites/${encodeURIComponent(token)}`))
+export const acceptSpeakerInvite = (token: string) => http<{ ok: true; tournamentId: string; userId: string }>('POST', `/speaker-invites/${encodeURIComponent(token)}/accept`)
 export const getPublicProfile = (id: string) => or404(http<PublicProfile>('GET', `/people/${encodeURIComponent(id)}`))
 export const getJudgeFeedback = (tournamentId: string) => http<JudgeFeedbackSummary[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/judge-feedback`)
 

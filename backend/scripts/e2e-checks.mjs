@@ -1932,7 +1932,21 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await jc('POST', `/tournaments/${done}/review`, { score: 5 })).status === 201, 'a judge rates it too')
   const rv = (await client()('GET', `/tournaments/${done}/reviews`)).data
   ok(rv.count === 2 && rv.average === 4.5 && rv.spread.join() === '1,1,0,0,0', 'the public sees the average and the spread')
-  ok(rv.items.length === 1 && rv.items[0].role === 'speaker' && rv.items[0].comment.startsWith('Отличные') && rv.items[0].userId === undefined && rv.items[0].name === undefined, 'comments are shown without names, with the role only')
+  ok(rv.items.length === 1 && rv.items[0].role === 'speaker' && rv.items[0].comment.startsWith('Отличные') && rv.items[0].author?.id === fan.id && rv.items[0].author.name === 'Оценщик Спикер', "a comment carries its author's name and role")
+  {
+    // the organizer answers publicly; the author is told; others cannot answer
+    const ownerEmail = (await db.query("select u.email from tournament_organizers o join users u on u.id = o.user_id where o.tournament_id = $1 and o.role = 'owner'", [done])).rows[0].email
+    const owner = client()
+    await owner('POST', '/auth/login', { email: ownerEmail, password: 'secret123' })
+    ok((await owner('GET', `/tournaments/${done}/reviews`)).data.canReply === true && rv.canReply === false, 'only organizers may answer reviews')
+    ok((await fan.c('POST', `/reviews/${rv.items[0].id}/reply`, { text: 'Сам себе отвечу' })).data?.error === 'organizers_only', 'a participant cannot answer for the organizer')
+    ok((await owner('POST', `/reviews/${rv.items[0].id}/reply`, { text: 'Спасибо! Задержки были из-за проектора, исправим.' })).status === 200, 'the organizer answers a review')
+    const answered = (await client()('GET', `/tournaments/${done}/reviews`)).data.items[0]
+    ok(answered.reply?.text.startsWith('Спасибо') && !!answered.reply.by, 'the answer is public, with who answered')
+    ok((await notes(fan.c)).items.some(n => n.type === 'participant.reviewReply'), 'the author of the review is told')
+    await owner('POST', `/reviews/${rv.items[0].id}/reply`, { text: '' })
+    ok((await client()('GET', `/tournaments/${done}/reviews`)).data.items[0].reply === undefined, 'an empty answer removes it')
+  }
   ok(rv.organizer.count >= 2 && typeof rv.organizer.average === 'number', "the organizer's average across their tournaments is public")
   const mine = (await fan.c('GET', `/tournaments/${done}/reviews`)).data
   ok(mine.canReview && mine.mine?.score === 4, 'a participant sees their own rating')
@@ -1993,13 +2007,6 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const judgeUser = (await db.query('select user_id, id from judges where tournament_id = $1 and user_id is not null limit 1', [done])).rows[0]
   const jp = (await client()('GET', `/people/${judgeUser.user_id}`)).data
   ok(jp.judge.tournaments.some(x => x.id === done) && jp.judge.rounds >= 1 && jp.judge.rating === undefined, "a judge's page counts rounds and chairs; the rating shows only with 5+ reviews")
-  // the person hides the profile: no page, no links
-  const c = client()
-  await c('POST', '/auth/login', { email: (await db.query('select email from users where id = $1', [pid])).rows[0].email, password: 'secret123' })
-  ok((await c('PATCH', '/me', { name: 'Публичный Спикер', profileHidden: true })).data?.user?.profileHidden === true, 'a person hides the public profile')
-  ok((await client()('GET', `/people/${pid}`)).status === 404 && (await c('GET', `/people/${pid}`)).data.hidden === true, 'a hidden page is closed to others; the person still sees it')
-  const team2 = (await client()('GET', `/tournaments/${done}`)).data.teams.find(x => x.id === champ.id)
-  ok(team2.speakers.find(s => s.id === sp.id)?.userId === undefined, 'and the links disappear')
 }
 // ---------- 53. strikes and reminders: abandoned tournaments, last-minute cancellations ----------
 {
@@ -2148,6 +2155,32 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await a.c('POST', `/invites/${token}/accept`)).status === 200 && (await b.c('POST', `/invites/${token}/accept`)).data?.error === 'invite_used', 'each of them still works once')
   ok((await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'judge', count: 31 })).status === 400, 'at most 30 at once')
   ok((await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'co_organizer', count: 2 })).data?.error === 'one_co_organizer_link', 'co-organizer links one at a time')
+}
+// ---------- 58. every speaker has a page; a teammate links their account by the captain's link ----------
+{
+  const done = (await db.query("select id from tournaments where name like $1 and status = 'finished' order by created_at desc limit 1", [`Плей-офф ${jtag}`])).rows[0].id
+  // a team with at least two speakers without an account: one becomes the captain, the other is invited
+  const slot = (await db.query(`select s.id, s.team_id, s.name from speakers s join teams t on t.id = s.team_id
+    where t.tournament_id = $1 and s.user_id is null and not t.swing
+      and (select count(*) from speakers x where x.team_id = t.id and x.user_id is null) >= 2
+    order by t.name, s.position desc limit 1`, [done])).rows[0]
+  const page = (await client()('GET', `/tournaments/${done}/speakers/${slot.id}`)).data
+  ok(page.name === slot.name && page.rounds.length >= 2 && typeof page.rounds[0].score === 'number' && page.team.place >= 1 && page.userId === undefined, 'a speaker without an account has a page in the tournament: rounds, scores, the team place')
+  ok((await client()('GET', `/tournaments/${done}/speakers/nope`)).status === 404, 'an unknown speaker is 404')
+  // the captain: a speaker of the same team with an account
+  const captain = await newAccount('Капитан Ссылка')
+  await db.query('update speakers set user_id = $1 where id = (select id from speakers where team_id = $2 and user_id is null and id <> $3 order by position limit 1)', [captain.id, slot.team_id, slot.id])
+  const stranger = await newAccount('Чужой Капитан')
+  ok((await stranger.c('POST', `/speakers/${slot.id}/invite`)).data?.error === 'team_or_organizers_only', 'only the team or the organizers invite a teammate')
+  const inv = (await captain.c('POST', `/speakers/${slot.id}/invite`)).data
+  const token = inv.url.split('/speaker-invite/')[1]
+  ok((await client()('GET', `/speaker-invites/${token}`)).data?.state === 'valid', 'the link shows the slot it links')
+  const mate = await newAccount('Сокомандник Привязка')
+  ok((await mate.c('POST', `/speaker-invites/${token}/accept`)).status === 200, 'the teammate links their account')
+  ok((await client()('GET', `/tournaments/${done}/speakers/${slot.id}`)).data.userId === mate.id && (await client()('GET', `/people/${mate.id}`)).data.speaker.tournaments.some(x => x.id === done), 'the tournament is now in their career')
+  ok((await stranger.c('POST', `/speaker-invites/${token}/accept`)).data?.error === 'invite_used', 'a link works once')
+  ok((await captain.c('POST', `/speakers/${slot.id}/invite`)).data?.error === 'speaker_already_linked', 'a linked slot cannot be invited again')
+  ok((await notes(captain.c)).items.some(n => n.type === 'participant.teammateLinked'), 'the captain learns the teammate linked')
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
