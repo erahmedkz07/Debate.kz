@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
+import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, UserX, Users, X } from 'lucide-react'
@@ -42,6 +42,7 @@ import { AwardsCard } from '@/components/tournament/AwardsCard'
 import { regionOfCity } from '@/content/geo'
 import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedback'
 import { formatOfTournament } from '@/content/formats'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -1219,6 +1220,11 @@ function SettingsSection({ data, reload }: SectionProps) {
   const { busy, run } = useAction()
   const [form, setForm] = useState({ name: data.name, description: data.description, visible: data.visible ?? true })
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // parts of the settings; the rooms and categories matter only before the tournament is over
+  const [params, setParams] = useSearchParams()
+  const parts = ['general', 'place', ...(data.status !== 'finished' ? ['conduct'] : []), 'access', ...(data.myRole === 'owner' || data.myRole === 'admin' ? ['danger'] : [])]
+  const part = parts.includes(params.get('part') ?? '') ? params.get('part')! : 'general'
+  const setPart = (v: string) => setParams(prev => { const n = new URLSearchParams(prev); n.set('part', v); return n }, { replace: true })
   const [stageTo, setStageTo] = useState<TournamentStatus | null>(null)
   const changeStage = async () => {
     if (await run('stage', () => updateTournament(data.id, { status: stageTo! }), t('dashboard.stage.changed'))) { setStageTo(null); reload() }
@@ -1270,44 +1276,64 @@ function SettingsSection({ data, reload }: SectionProps) {
             )}
           </div>
         </Card>
-        {data.status !== 'finished' && <DetailsCard data={data} reload={reload} />}
-        <Card className="space-y-4 p-6">
-          <h3 className="font-bold">{t('dashboard.settings.general')}</h3>
-          <div><Label htmlFor="s-name">{t('wizard.name')}</Label><Input id="s-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
-          <div><Label htmlFor="s-desc">{t('wizard.description')}</Label><Textarea id="s-desc" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
-          <Switch label={t('dashboard.settings.visibility')} checked={form.visible} onChange={v => setForm({ ...form, visible: v })} />
-          <div className="flex justify-end"><Button disabled={busy === 'save' || form.name.trim().length < 3} onClick={save}>{t('common.save')}</Button></div>
-        </Card>
-        <CoverCard tournamentId={data.id} cover={data.cover} onChanged={reload} />
-        {data.status !== 'finished' && <RoomsCard data={data} reload={reload} />}
-        {data.status !== 'finished' && !data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}
-        {/* Pro (more than 20 teams): Kaspi QR payment; otherwise a short note about the free plan */}
-        {data.plan === 'pro' ? <PaymentCard tournamentId={data.id} /> : (
-          <Card className="flex items-center justify-between gap-4 p-6">
-            <div>
-              <h3 className="font-bold">{t('dashboard.settings.plan')}</h3>
-              <p className="text-sm text-muted-foreground">{t('dashboard.settings.planFree')}</p>
-            </div>
-            <Button asChild variant="outline"><Link to="/pricing">{t('nav.pricing')}</Link></Button>
-          </Card>
-        )}
-        {isOwner && (
-          <Card className="flex flex-wrap items-center justify-between gap-4 p-6">
-            <div>
-              <h3 className="font-bold">{t('dashboard.settings.coOrganizers')}</h3>
-              <p className="text-sm text-muted-foreground">{t('dashboard.settings.coOrganizersText')}</p>
-            </div>
-            <InviteButton tournamentId={data.id} kind="co_organizer" />
-            <div className="w-full"><EmailInvites tournamentId={data.id} kind="co_organizer" plain /></div>
-          </Card>
-        )}
-        {isOwner && (
-          <Card className="border-danger/40 p-6">
-            <h3 className="font-bold text-danger">{t('dashboard.settings.danger')}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.settings.dangerText')}</p>
-            <Button variant="danger" className="mt-4" onClick={() => setConfirmDelete(true)}><Trash2 className="size-4" />{t('dashboard.settings.deleteTournament')}</Button>
-          </Card>
-        )}
+        {/* the settings in parts: one short part at a time, the part stays in the address (?part=) */}
+        <Tabs value={part} onValueChange={setPart}>
+          <TabsList aria-label={t('dashboard.nav.settings')}>
+            {parts.map(k => <TabsTrigger key={k} value={k}>{t(`dashboard.settings.parts.${k}`)}</TabsTrigger>)}
+          </TabsList>
+          <TabsContent value="general" className="space-y-5">
+            <Card className="space-y-4 p-6">
+              <h3 className="font-bold">{t('dashboard.settings.general')}</h3>
+              <div><Label htmlFor="s-name">{t('wizard.name')}</Label><Input id="s-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
+              <div><Label htmlFor="s-desc">{t('wizard.description')}</Label><Textarea id="s-desc" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
+              <Switch label={t('dashboard.settings.visibility')} checked={form.visible} onChange={v => setForm({ ...form, visible: v })} />
+              <div className="flex justify-end"><Button disabled={busy === 'save' || form.name.trim().length < 3} onClick={save}>{t('common.save')}</Button></div>
+            </Card>
+            <CoverCard tournamentId={data.id} cover={data.cover} onChanged={reload} />
+          </TabsContent>
+          <TabsContent value="place" className="space-y-5">
+            {data.status !== 'finished' ? <DetailsCard data={data} reload={reload} /> : <Card className="p-6 text-sm text-muted-foreground">{t('dashboard.settings.finishedNote')}</Card>}
+          </TabsContent>
+          {parts.includes('conduct') && (
+            <TabsContent value="conduct" className="space-y-5">
+              <RoomsCard data={data} reload={reload} />
+              {!data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}
+            </TabsContent>
+          )}
+          <TabsContent value="access" className="space-y-5">
+            {/* Pro (more than 20 teams): Kaspi QR payment; otherwise a short note about the free plan */}
+            {data.plan === 'pro' ? <PaymentCard tournamentId={data.id} /> : (
+              <Card className="flex items-center justify-between gap-4 p-6">
+                <div>
+                  <h3 className="font-bold">{t('dashboard.settings.plan')}</h3>
+                  <p className="text-sm text-muted-foreground">{t('dashboard.settings.planFree')}</p>
+                </div>
+                <Button asChild variant="outline"><Link to="/pricing">{t('nav.pricing')}</Link></Button>
+              </Card>
+            )}
+            {isOwner && (
+              <Card className="flex flex-wrap items-center justify-between gap-4 p-6">
+                <div>
+                  <h3 className="font-bold">{t('dashboard.settings.coOrganizers')}</h3>
+                  <p className="text-sm text-muted-foreground">{t('dashboard.settings.coOrganizersText')}</p>
+                </div>
+                <InviteButton tournamentId={data.id} kind="co_organizer" />
+                <div className="w-full"><EmailInvites tournamentId={data.id} kind="co_organizer" plain /></div>
+              </Card>
+            )}
+          </TabsContent>
+          {isOwner && (
+            <TabsContent value="danger" className="space-y-5">
+            {isOwner && (
+              <Card className="border-danger/40 p-6">
+                <h3 className="font-bold text-danger">{t('dashboard.settings.danger')}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.settings.dangerText')}</p>
+                <Button variant="danger" className="mt-4" onClick={() => setConfirmDelete(true)}><Trash2 className="size-4" />{t('dashboard.settings.deleteTournament')}</Button>
+              </Card>
+            )}
+            </TabsContent>
+          )}
+        </Tabs>
       </div>
       <Dialog open={!!stageTo} onOpenChange={o => !o && setStageTo(null)}>
         <DialogContent heading={stageTo ? t(`dashboard.stage.to.${stageTo}`) : ''} description={stageTo ? t(`dashboard.stage.confirm.${stageTo}`) : ''}>
