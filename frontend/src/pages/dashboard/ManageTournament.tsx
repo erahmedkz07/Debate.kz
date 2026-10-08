@@ -10,7 +10,7 @@ import {
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
-import { cn, formatDate, formatDateRange, formatDateTime, initials } from '@/lib/utils'
+import { cn, formatDate, formatDateRange, formatDateTime, initials, todayKz } from '@/lib/utils'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -497,7 +497,7 @@ function Judges({ data, reload }: SectionProps) {
 function MissingMotions({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
   const roundName = useRoundName()
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const today = todayKz()
   const days = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
   // before the start: every preliminary round; during the tournament: only the next round (motions often come late)
   const drafts = data.rounds.filter(r => r.kind !== 'elimination' && r.status === 'draft')
@@ -1052,7 +1052,7 @@ function DetailsCard({ data, reload }: SectionProps) {
   const dirty = JSON.stringify(f) !== JSON.stringify(initial)
   const minTeams = Math.max(4, data.teams.length)
   const limitBad = !Number.isInteger(f.maxTeams) || f.maxTeams < minTeams || f.maxTeams > 128
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayKz()
   const save = async () => {
     const city = placeCity(f)
     if (!f.region || city.length < 2) return void toast.error(t('place.cityRequired'))
@@ -1232,7 +1232,7 @@ function SettingsSection({ data, reload }: SectionProps) {
   const toggleRegistration = async (open: boolean) => {
     if (await run('reg', () => updateTournament(data.id, { registrationOpen: open }), open ? t('dashboard.stage.regOpened') : t('dashboard.stage.regClosed'))) reload()
   }
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const today = todayKz()
   const daysToStart = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
   const stages: TournamentStatus[] = ['registration', 'ongoing', 'finished']
   const stageIndex = stages.indexOf(data.status)

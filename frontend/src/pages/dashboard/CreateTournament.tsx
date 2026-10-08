@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/states'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { useAsync } from '@/lib/hooks'
-import { cn, formatDateRange } from '@/lib/utils'
+import { cn, formatDateRange, todayKz } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { FieldError, Input, Label, Switch, Textarea } from '@/components/ui/input'
@@ -65,7 +65,7 @@ export default function CreateTournament() {
   })
   const v = watch()
   // tournaments cannot start in the past
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayKz()
   const paid = Number(v.maxTeams) > FREE_LIMIT
   // above the free limit the organizer pays right in the wizard: QR, amount, reference, then the receipt
   const steps: Step[] = paid ? ['basic', 'format', 'registration', 'payment', 'summary'] : ['basic', 'format', 'registration', 'summary']
