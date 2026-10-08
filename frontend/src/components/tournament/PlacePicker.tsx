@@ -3,9 +3,10 @@ import { regionByCode, REGIONS } from '@/content/geo'
 import { Input, Label } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
-// The tournament's place in two steps: the region, then a city of it (or a village typed in),
-// plus an optional district (a list for Astana, Almaty, Shymkent) or address. Cities are stored by their Russian name.
-export interface Place { region: string; city: string; district: string }
+// The tournament's place: the region, a city of it (or a village typed in), the district (аудан) — a list for Astana,
+// Almaty and Shymkent, typed in for any other place — and the venue itself: street, school, building.
+// Cities are stored by their Russian name.
+export interface Place { region: string; city: string; district: string; venue: string }
 
 const OTHER = '__other__'
 
@@ -17,9 +18,10 @@ export function PlacePicker({ value, onChange, invalid }: { value: Place; onChan
   // a single-city region (Astana, Almaty, Shymkent) picks its city by itself
   const pickRegion = (code: string) => {
     const r = regionByCode(code)!
-    onChange({ region: code, city: r.cities.length === 1 ? r.cities[0].ru : '', district: '' })
+    onChange({ ...value, region: code, city: r.cities.length === 1 ? r.cities[0].ru : '', district: '' })
   }
   const typing = !!region && region.cities.length > 1 && !known && value.city !== '' || value.city === OTHER
+  const optional = <span className="font-normal text-muted-foreground">({t('place.optional')})</span>
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div>
@@ -42,14 +44,20 @@ export function PlacePicker({ value, onChange, invalid }: { value: Place; onChan
         </div>
       )}
       {region && (
-        <div className={region.cities.length > 1 ? 'sm:col-span-2' : undefined}>
-          <Label htmlFor="place-district">{region.districts ? t('place.district') : t('place.address')} <span className="font-normal text-muted-foreground">({t('place.optional')})</span></Label>
+        <div>
+          <Label htmlFor="place-district">{t('place.district')} {optional}</Label>
           {region.districts ? (
             <Select id="place-district" value={value.district || '—'} onValueChange={d => onChange({ ...value, district: d === '—' ? '' : d })}
               options={[{ value: '—', label: t('place.anyDistrict') }, ...region.districts.map(d => ({ value: d.ru, label: d[lang] }))]} />
           ) : (
-            <Input id="place-district" maxLength={80} value={value.district} placeholder={t('place.addressPlaceholder')} onChange={e => onChange({ ...value, district: e.target.value })} />
+            <Input id="place-district" maxLength={80} value={value.district} placeholder={t('place.districtPlaceholder')} onChange={e => onChange({ ...value, district: e.target.value })} />
           )}
+        </div>
+      )}
+      {region && (
+        <div className={region.cities.length > 1 ? 'sm:col-span-2' : undefined}>
+          <Label htmlFor="place-venue">{t('place.venue')} {optional}</Label>
+          <Input id="place-venue" maxLength={160} value={value.venue} placeholder={t('place.venuePlaceholder')} onChange={e => onChange({ ...value, venue: e.target.value })} />
         </div>
       )}
     </div>

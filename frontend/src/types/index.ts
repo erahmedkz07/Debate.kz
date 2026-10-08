@@ -15,7 +15,8 @@ export interface Tournament {
   endDate: string
   format: TournamentFormat
   region?: string // region code (content/geo.ts)
-  district?: string // a district of a big city or an address
+  district?: string // the district (аудан)
+  venue?: string // the venue: street, school, building
   level: TournamentLevel
   status: TournamentStatus
   teamsCount: number

@@ -248,7 +248,7 @@ export const submitBallot = (debateId: string, payload: BallotPayload) =>
 export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/tournaments')
 
 export interface CreateTournamentInput {
-  name: string; city: string; region?: string; district?: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
+  name: string; city: string; region?: string; district?: string; venue?: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
   preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
@@ -259,7 +259,7 @@ export const createTournament = (data: CreateTournamentInput) => http<Tournament
 export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })
 export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
-  city: string; region: string; district: string | null; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
+  city: string; region: string; district: string | null; venue: string | null; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
   breakCategories: { key: string; name: string; size: number }[]
   selectionMode: 'manual' | 'first_come' | 'lottery'

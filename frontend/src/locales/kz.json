@@ -2306,13 +2306,14 @@
     "otherCity": "Басқа елді мекен…",
     "villagePlaceholder": "Ауылдың немесе кенттің атауы",
     "district": "Аудан",
-    "address": "Аудан немесе мекенжай",
     "optional": "міндетті емес",
     "anyDistrict": "Көрсетілмеген",
-    "addressPlaceholder": "Мысалы, Абай к-сі, 10 немесе №5 мектеп",
     "regionRequired": "Өңірді таңдаңыз",
     "cityRequired": "Қаланы немесе елді мекенді көрсетіңіз",
-    "allRegions": "Барлық өңірлер"
+    "allRegions": "Барлық өңірлер",
+    "districtPlaceholder": "Мысалы, Жаңаарқа ауданы",
+    "venue": "Өтетін орны",
+    "venuePlaceholder": "Көше, үй, мектеп — мысалы, Абай к-сі, 10, №5 мектеп-лицей"
   },
   "reviews": {
     "tab": "Пікірлер",

@@ -1046,7 +1046,7 @@ function Ballots({ data }: SectionProps) {
 function DetailsCard({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
-  const initial = { region: data.region ?? regionOfCity(data.city)?.code ?? '', city: data.city, district: data.district ?? '', startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
+  const initial = { region: data.region ?? regionOfCity(data.city)?.code ?? '', city: data.city, district: data.district ?? '', venue: data.venue ?? '', startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
   const [f, setF] = useState(initial)
   useEffect(() => setF(initial), [data]) // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = JSON.stringify(f) !== JSON.stringify(initial)
@@ -1056,7 +1056,7 @@ function DetailsCard({ data, reload }: SectionProps) {
   const save = async () => {
     const city = placeCity(f)
     if (!f.region || city.length < 2) return void toast.error(t('place.cityRequired'))
-    if (await run('details', () => updateTournament(data.id, { ...f, city, district: f.district.trim() || null, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
+    if (await run('details', () => updateTournament(data.id, { ...f, city, district: f.district.trim() || null, venue: f.venue.trim() || null, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
   }
   return (
     <Card className="space-y-4 p-6">
@@ -1066,7 +1066,7 @@ function DetailsCard({ data, reload }: SectionProps) {
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <PlacePicker value={{ region: f.region, city: f.city, district: f.district }} onChange={p => setF({ ...f, ...p })} />
+          <PlacePicker value={{ region: f.region, city: f.city, district: f.district, venue: f.venue }} onChange={p => setF({ ...f, ...p })} />
         </div>
         <div>
           <Label htmlFor="d-max">{t('wizard.maxTeams')}</Label>

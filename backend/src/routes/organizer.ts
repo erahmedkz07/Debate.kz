@@ -68,6 +68,7 @@ const createSchema = z.object({
   // the place: region (when missing, found from the city), city or village, and optionally a district or address
   region: z.enum(REGION_CODES).optional(),
   district: z.string().trim().max(80).optional(),
+  venue: z.string().trim().max(160).optional(),
   maxTeams: z.number().int().min(4).max(128),
   registrationOpen: z.boolean().default(true),
   requireApproval: z.boolean().default(true),
@@ -99,7 +100,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
     data: {
       name: d.name, city: d.city, startDate: start, endDate: end, level: d.level, format: d.format, description: d.description,
       coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, maxTeams: d.maxTeams,
-      region: d.region ?? regionOfCity(d.city), district: d.district || null,
+      region: d.region ?? regionOfCity(d.city), district: d.district || null, venue: d.venue || null,
       registrationOpen: d.registrationOpen, requireApproval: d.requireApproval,
       registrationDeadline: d.registrationDeadline ? fromDay(d.registrationDeadline) : null,
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
@@ -139,6 +140,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     city: z.string().trim().min(2).max(60).optional(),
     region: z.enum(REGION_CODES).optional(),
     district: z.string().trim().max(80).nullable().optional(),
+    venue: z.string().trim().max(160).nullable().optional(),
     startDate: day.optional(),
     endDate: day.optional(),
     registrationDeadline: day.nullable().optional(),
@@ -180,6 +182,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   // a new city without a region: take the city's region
   if (rest.city && !rest.region) data.region = regionOfCity(rest.city) ?? cur.region
   if (rest.district !== undefined) data.district = rest.district || null
+  if (rest.venue !== undefined) data.venue = rest.venue || null
   if (rest.breakCategories) {
     if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
     if (new Set(rest.breakCategories.map(c => c.key)).size !== rest.breakCategories.length) throw badRequest('invalid_break_categories')

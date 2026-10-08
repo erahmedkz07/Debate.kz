@@ -43,6 +43,7 @@ export default function CreateTournament() {
     region: z.string().min(1, t('place.regionRequired')),
     city: z.string().trim().min(2, t('place.cityRequired')).refine(c => c !== '__other__', t('place.cityRequired')),
     district: z.string().optional(),
+    venue: z.string().optional(),
     startDate: z.string().min(1, t('auth.errors.required')),
     endDate: z.string().min(1, t('auth.errors.required')),
     level: z.enum(['school', 'university', 'mixed']),
@@ -61,7 +62,7 @@ export default function CreateTournament() {
 
   const { register, handleSubmit, trigger, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, region: '', city: '', district: '', startDate: '', endDate: '', regDeadline: '' },
+    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, region: '', city: '', district: '', venue: '', startDate: '', endDate: '', regDeadline: '' },
   })
   const v = watch()
   // tournaments cannot start in the past
@@ -96,7 +97,7 @@ export default function CreateTournament() {
     }
     try {
       const created = await createTournament({
-        name: f.name.trim(), city: f.city.trim(), region: f.region, district: f.district?.trim() || undefined, startDate: f.startDate, endDate: f.endDate, level: f.level,
+        name: f.name.trim(), city: f.city.trim(), region: f.region, district: f.district?.trim() || undefined, venue: f.venue?.trim() || undefined, startDate: f.startDate, endDate: f.endDate, level: f.level,
         description: f.description?.trim() ?? '', preliminaryRounds: Number(f.prelims), breakSize: Number(f.breakSize),
         maxTeams: Number(f.maxTeams), registrationOpen: f.regOpen, requireApproval: f.approval,
         registrationDeadline: f.regDeadline || undefined,
@@ -158,12 +159,13 @@ export default function CreateTournament() {
                     <Input id="name" placeholder={t('wizard.namePlaceholder')} aria-invalid={!!errors.name} {...register('name')} />
                     <FieldError message={errors.name?.message} />
                   </div>
-                  <PlacePicker value={{ region: v.region ?? '', city: v.city ?? '', district: v.district ?? '' }}
+                  <PlacePicker value={{ region: v.region ?? '', city: v.city ?? '', district: v.district ?? '', venue: v.venue ?? '' }}
                     invalid={{ region: errors.region?.message, city: errors.city?.message }}
                     onChange={p => {
                       setValue('region', p.region, { shouldValidate: !!errors.region })
                       setValue('city', p.city, { shouldValidate: !!errors.city })
                       setValue('district', p.district)
+                      setValue('venue', p.venue)
                     }} />
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
@@ -302,7 +304,7 @@ export default function CreateTournament() {
                   {cover && <img src={cover} alt="" className="h-40 w-full rounded-2xl object-cover" />}
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-2xl bg-muted/60 p-5 text-sm sm:grid-cols-2">
                     {[
-                      [t('wizard.city'), [cityName(v.city ?? '', lang), regionByCode(v.region)?.[lang], v.district].filter(x => x && x !== '__other__').join(', ')],
+                      [t('wizard.city'), [v.venue, v.district, cityName(v.city ?? '', lang), regionByCode(v.region)?.[lang]].filter(x => x && x !== '__other__').join(', ')],
                       [t('wizard.level'), t(`level.${v.level}`)],
                       [t('wizard.startDate'), v.startDate && v.endDate ? formatDateRange(v.startDate, v.endDate) : '—'],
                       [t('wizard.format'), formatOfTournament(v.format).name[lang]],
