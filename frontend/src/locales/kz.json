@@ -2326,9 +2326,11 @@
     "regionRequired": "Өңірді таңдаңыз",
     "cityRequired": "Қаланы немесе елді мекенді көрсетіңіз",
     "allRegions": "Барлық өңірлер",
-    "districtPlaceholder": "Мысалы, Жаңаарқа ауданы",
+    "districtPlaceholder": "Аудан атауы",
     "venue": "Өтетін орны",
-    "venuePlaceholder": "Көше, үй, мектеп — мысалы, Абай к-сі, 10, №5 мектеп-лицей"
+    "venuePlaceholder": "Көше, үй, мектеп — мысалы, Абай к-сі, 10, №5 мектеп-лицей",
+    "regionFirst": "Алдымен өңірді таңдаңыз",
+    "otherDistrict": "Басқа аудан…"
   },
   "reviews": {
     "tab": "Пікірлер",

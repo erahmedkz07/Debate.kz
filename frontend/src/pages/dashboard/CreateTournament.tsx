@@ -22,7 +22,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 
 import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
 import { formatOfTournament, TOURNAMENT_FORMATS } from '@/content/formats'
-import { PlacePicker } from '@/components/tournament/PlacePicker'
+import { PlacePicker, placeDistrict } from '@/components/tournament/PlacePicker'
 import { cityName, regionByCode } from '@/content/geo'
 import { NumberChoice } from '@/components/ui/number-choice'
 type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
@@ -101,7 +101,7 @@ export default function CreateTournament() {
     }
     try {
       const created = await createTournament({
-        name: f.name.trim(), city: f.city.trim(), region: f.region, district: f.district?.trim() || undefined, venue: f.venue?.trim() || undefined, startDate: f.startDate, endDate: f.endDate, level: f.level,
+        name: f.name.trim(), city: f.city.trim(), region: f.region, district: placeDistrict({ region: f.region, city: f.city, district: f.district ?? '', venue: '' }) || undefined, venue: f.venue?.trim() || undefined, startDate: f.startDate, endDate: f.endDate, level: f.level,
         description: f.description?.trim() ?? '', preliminaryRounds: Number(f.prelims), breakSize: Number(f.breakSize),
         maxTeams: Number(f.maxTeams), registrationOpen: f.regOpen, requireApproval: f.approval,
         registrationDeadline: f.regDeadline || undefined,
@@ -171,19 +171,19 @@ export default function CreateTournament() {
                       setValue('district', p.district)
                       setValue('venue', p.venue)
                     }} />
-                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <div>
-                      <Label>{t('wizard.level')}</Label>
-                      <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1">
-                        {(['school', 'university', 'mixed'] as const).map(l => (
-                          <button key={l} type="button" onClick={() => setValue('level', l)} aria-pressed={v.level === l}
-                            title={l === 'mixed' ? t('level.mixedHint') : t(`level.${l}`)} aria-label={t(`level.${l}`)}
-                            className={cn('h-9 cursor-pointer truncate rounded-lg px-1 text-sm font-semibold transition-all', v.level === l ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
-                            {t(`levelShort.${l}`)}
-                          </button>
-                        ))}
-                      </div>
+                  <div>
+                    <Label>{t('wizard.level')}</Label>
+                    <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1">
+                      {(['school', 'university', 'mixed'] as const).map(l => (
+                        <button key={l} type="button" onClick={() => setValue('level', l)} aria-pressed={v.level === l}
+                          title={l === 'mixed' ? t('level.mixedHint') : t(`level.${l}`)} aria-label={t(`level.${l}`)}
+                          className={cn('h-10 cursor-pointer truncate rounded-lg px-1 text-sm font-semibold transition-all', v.level === l ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                          {t(`levelShort.${l}`)}
+                        </button>
+                      ))}
                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="start">{t('wizard.startDate')}</Label>
                       <DatePicker id="start" value={v.startDate} invalid={!!errors.startDate} min={today}

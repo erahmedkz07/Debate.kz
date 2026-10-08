@@ -37,7 +37,7 @@ import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { conflictReason } from '@/lib/conflicts'
-import { PlacePicker, placeCity } from '@/components/tournament/PlacePicker'
+import { PlacePicker, placeCity, placeDistrict } from '@/components/tournament/PlacePicker'
 import { AwardsCard } from '@/components/tournament/AwardsCard'
 import { regionOfCity } from '@/content/geo'
 import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedback'
@@ -1057,7 +1057,7 @@ function DetailsCard({ data, reload }: SectionProps) {
   const save = async () => {
     const city = placeCity(f)
     if (!f.region || city.length < 2) return void toast.error(t('place.cityRequired'))
-    if (await run('details', () => updateTournament(data.id, { ...f, city, district: f.district.trim() || null, venue: f.venue.trim() || null, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
+    if (await run('details', () => updateTournament(data.id, { ...f, city, district: placeDistrict({ ...f, venue: f.venue }) || null, venue: f.venue.trim() || null, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
   }
   return (
     <Card className="space-y-4 p-6">
