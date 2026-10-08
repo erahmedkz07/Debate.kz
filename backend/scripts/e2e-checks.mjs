@@ -2124,6 +2124,12 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
         [seat.debate, seat.judge, team, rate[seat.name], email])
     }
   }
+  // round 1 is over (results straight in the database: this section checks the panels, not the ballots)
+  const finish = async roundId => {
+    await db.query("update debates set winner = 'proposition', ballot_status = 'confirmed' where round_id = $1", [roundId])
+    await db.query("update rounds set status = 'completed' where id = $1", [roundId])
+  }
+  await finish(rounds[0].id)
   await host.c('POST', `/rounds/${rounds[1].id}/draw`, { addSwing: false })
   const r2 = await panels(rounds[1].id)
   const chairs = r2.filter(x => x.chair).map(x => x.name)
@@ -2139,6 +2145,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const bestChairs = Math.min(...perms(chairIds).map(p => p.reduce((n, judge, i) => n + seenIn(judge, rooms[i]), 0)))
   const bestWings = wingIds.reduce((n, w) => n + Math.min(...rooms.map(room => seenIn(w, room))), 0)
   ok(repeats === bestChairs + bestWings, `judges rotate: as few repeated teams as possible (${repeats})`)
+  await finish(rounds[1].id)
   await host.c('POST', `/rounds/${rounds[2].id}/draw`, { addSwing: false, method: 'slide', presentOnly: false, protectClubs: false })
   const saved = (await host.c('GET', `/tournaments/${t.id}`)).data.drawOptions
   ok(saved?.method === 'slide' && saved.addSwing === false && saved.protectClubs === false, 'the draw settings are kept for the next round')
@@ -2181,6 +2188,53 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await stranger.c('POST', `/speaker-invites/${token}/accept`)).data?.error === 'invite_used', 'a link works once')
   ok((await captain.c('POST', `/speakers/${slot.id}/invite`)).data?.error === 'speaker_already_linked', 'a linked slot cannot be invited again')
   ok((await notes(captain.c)).items.some(n => n.type === 'participant.teammateLinked'), 'the captain learns the teammate linked')
+}
+// ---------- 59. audit 2026-10: dates, team renames, replaced speakers, draw order, notifications of deleted tournaments ----------
+{
+  const host = await newAccount('Аудит Организатор')
+  // B1: impossible dates are a 400, not a 500
+  let r = await host.c('POST', '/tournaments', { ...tBody(400), name: `Аудит даты ${jtag}`, startDate: '2026-02-31', endDate: '2026-03-01' })
+  ok(r.status === 400, 'an impossible date (31 February) is refused with 400')
+  // B2: a tournament cannot start in the past (the watchdog would archive it at once and strike its owner)
+  r = await host.c('POST', '/tournaments', { ...tBody(401), name: `Аудит прошлое ${jtag}`, startDate: '2020-05-01', endDate: '2020-05-02' })
+  ok(r.data?.error === 'start_in_past', 'a tournament cannot be created in the past')
+
+  // B3–B5: the applicant's slot is linked even with the words swapped; a rename keeps the application; a replaced speaker is unlinked
+  const t = (await host.c('POST', '/tournaments', { ...tBody(402), name: `Аудит команды ${jtag}`, requireApproval: false })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const cap = await newAccount('Аудит Капитанов')
+  const club = (await cap.c('POST', '/clubs', { name: `Аудит клуб ${jtag}`, city: 'Астана' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+  await cap.c('POST', `/clubs/${club.id}/teams`, { name: 'Аудит Тим', join: true })
+  r = await cap.c('POST', `/tournaments/${t.id}/registrations`, {
+    teamName: 'Аудит Тим', institution: 'Лицей', speakers: ['капитанов   аудит', 'Второй Спикер', 'Третий Спикер'], phone: '+7 701 555 44 33', guardianConsent: true,
+  })
+  const regStatus = (await db.query('select status from team_registrations where id = $1', [r.data.id])).rows[0]?.status
+  if (regStatus !== 'confirmed') await host.c('PATCH', `/registrations/${r.data.id}`, { status: 'confirmed' })
+  let team = (await host.c('GET', `/tournaments/${t.id}`)).data.teams.find(x => x.name === 'Аудит Тим')
+  ok(team?.speakers[0].userId === cap.id, 'the applicant is linked to their slot even when the name is written another way')
+  r = await host.c('PATCH', `/teams/${team.id}`, { name: 'Аудит Тим 2', institution: 'Лицей', speakers: ['Капитанов Аудит', 'Новый Человек', 'Третий Спикер'] })
+  ok(r.status === 200, 'the organizer renames the team and replaces a speaker')
+  ok((await db.query('select team_name from team_registrations where tournament_id = $1', [t.id])).rows[0]?.team_name === 'Аудит Тим 2', "the team's application follows the new name")
+  const slots = (await db.query('select name, user_id from speakers where team_id = $1 order by position', [team.id])).rows
+  ok(slots[0].user_id === cap.id, 'the same person in a slot stays linked')
+  await db.query('update speakers set user_id = $1 where team_id = $2 and position = 2', [cap.id, team.id])
+  await host.c('PATCH', `/teams/${team.id}`, { name: 'Аудит Тим 2', institution: 'Лицей', speakers: ['Капитанов Аудит', 'Совсем Другой', 'Третий Спикер'] })
+  ok((await db.query('select user_id from speakers where team_id = $1 and position = 2', [team.id])).rows[0].user_id === null, 'a speaker replaced by another person is unlinked from the old account')
+
+  // B6: a round is drawn only after the earlier preliminary rounds are completed
+  for (const n of ['Аудит А', 'Аудит Б', 'Аудит В']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  for (let i = 1; i <= 2; i++) await addJudge(host.c, t.id, `Аудит Судья ${i}`)
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const rounds = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds
+  ok((await host.c('POST', `/rounds/${rounds[0].id}/draw`, { addSwing: false })).status === 201, 'round 1 is drawn')
+  ok((await host.c('POST', `/rounds/${rounds[1].id}/draw`, { addSwing: false })).data?.error === 'previous_round_unfinished', 'round 2 waits until round 1 is completed')
+
+  // B8: deleting a tournament removes the notifications that point into it
+  const before = Number((await db.query("select count(*) from notifications where link like $1", [`%/tournaments/${t.id}%`])).rows[0].count)
+  await host.c('DELETE', `/tournaments/${t.id}`)
+  const after = Number((await db.query("select count(*) from notifications where link like $1", [`%/tournaments/${t.id}%`])).rows[0].count)
+  ok(before > 0 && after === 0, 'a deleted tournament leaves no notifications that lead nowhere')
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

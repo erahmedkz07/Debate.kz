@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
-import { fromDay, toDay, todayKz } from '../lib/dates.js'
+import { fromDay, isRealDay, toDay, todayKz } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
@@ -15,7 +15,7 @@ import { awardCandidates, issueAwardCertificates, setAward } from '../services/a
 import { activeStrikes, giveStrike, LATE_CANCEL_DAYS, STRIKE_LIMIT } from '../services/watchdog.js'
 import { REGION_CODES, regionOfCity } from '../lib/regions.js'
 import { ensureCertificates } from '../services/certificates.js'
-import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished, notifyBreakAnnounced } from '../services/notify.js'
+import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished, notifyBreakAnnounced, forgetTournamentNotifications } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
 // video call links: https only (Zoom, Google Meet, Teams…)
@@ -35,8 +35,9 @@ import path from 'node:path'
 import { FORMAT_CODES, rulesOf, scoringDefaults } from '../services/formats.js'
 import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
 import { bareMotion } from '../lib/motion.js'
+import { sameName } from '../lib/names.js'
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const day = z.string().refine(isRealDay, 'invalid_date')
 
 // ---------- tournaments ----------
 
@@ -81,6 +82,8 @@ const createSchema = z.object({
 organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const d = body(req, createSchema)
   const isAdmin = req.user!.role === 'admin'
+  // a tournament in the past would be archived by the watchdog at once (and give its owner a strike)
+  if (d.startDate < todayKz()) throw badRequest('start_in_past')
   if (!isAdmin) {
     const active = await prisma.tournament.count({
       where: { status: { not: 'finished' }, moderation: { not: 'rejected' }, abandonedAt: null, organizers: { some: { userId: req.user!.id, role: 'owner' } } },
@@ -278,6 +281,7 @@ organizerRouter.delete('/tournaments/:id', org, async (req, res) => {
   // deleting a tournament teams already got places in, less than 3 days before the start (or after it): a strike
   const late = t.status !== 'finished' && t._count.teams > 0
     && fromDay(todayKz()).getTime() >= t.startDate.getTime() - LATE_CANCEL_DAYS * 86_400_000
+  await forgetTournamentNotifications(t.id)
   await prisma.tournament.delete({ where: { id: t.id } })
   const owner = t.organizers[0]?.userId
   if (late && owner && req.user!.role !== 'admin') await giveStrike(owner, t, 'late_cancel')
@@ -326,7 +330,14 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
   const d = body(req, teamSchema)
   assertSpeakers(existing.tournament.format, d.speakers)
   const team = await prisma.$transaction(async tx => {
-    await Promise.all(existing.speakers.map((s, i) => tx.speaker.update({ where: { id: s.id }, data: { name: d.speakers[i] } })))
+    // a slot whose name really changed is another person now: the old account is unlinked (its career keeps clean)
+    await Promise.all(existing.speakers.map((s, i) => tx.speaker.update({
+      where: { id: s.id }, data: { name: d.speakers[i], ...(!sameName(s.name, d.speakers[i]) && { userId: null }) },
+    })))
+    // the team's application follows its new name (the captain's check-in and their cabinet find the team by it)
+    if (d.name !== existing.name) {
+      await tx.teamRegistration.updateMany({ where: { tournamentId: existing.tournamentId, teamName: existing.name }, data: { teamName: d.name } })
+    }
     return tx.team.update({
       where: { id: existing.id },
       data: { name: d.name, city: d.city, institutionId: await institutionId(d.institution, existing.tournament.level) },

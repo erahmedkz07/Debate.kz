@@ -43,6 +43,9 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     const judgeConflicts = await seatJudgesAndSave(round, rooms, await rankJudges(tId, judges), true, await conflictChecker(tId), await seenBy(tId, roundId))
     return { method: 'bracket' as const, protectClubs: false, sameClub: 0, rematches: 0, judgeConflicts }
   }
+  // power pairing reads the table and the rematch rule reads earlier debates: the earlier preliminary rounds must be over
+  const unfinished = await prisma.round.count({ where: { tournamentId: tId, kind: 'preliminary', number: { lt: round.number }, status: { not: 'completed' } } })
+  if (unfinished) throw badRequest('previous_round_unfinished')
   // round robin and the bracket methods pair two teams; BP rooms of four use power, high-low or random
   if (isBP(round.tournament.format) && (opts.method === 'round_robin' || BRACKET_METHODS.includes(opts.method ?? 'power'))) throw badRequest('method_not_for_bp')
   const [teams, judges, previous] = await Promise.all([
