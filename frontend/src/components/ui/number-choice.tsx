@@ -33,7 +33,7 @@ export function NumberChoice({ id, value, onChange, presets, min, max, size, cla
       {custom && (
         <>
           <Input className="mt-2" type="number" inputMode="numeric" min={min} max={max} value={text} autoFocus
-            onChange={e => type(e.target.value)} aria-label={ariaLabel} aria-invalid={bad} />
+            onChange={e => type(e.target.value)} aria-label={ariaLabel ?? t('common.otherNumber')} aria-invalid={bad} />
           {bad && <p className="mt-1 text-xs text-danger">{t('common.numberRange', { min, max })}</p>}
         </>
       )}

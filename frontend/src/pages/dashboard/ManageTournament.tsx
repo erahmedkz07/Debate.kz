@@ -33,7 +33,7 @@ import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
 import { PaymentCard } from '@/components/payments/PaymentCard'
 import { FREE_TEAM_LIMIT } from '@/lib/plans'
 import { EntityLogo } from '@/components/ui/entity-logo'
-import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
+import { BP_BREAKS, isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { conflictReason } from '@/lib/conflicts'
@@ -1109,7 +1109,7 @@ function CategoriesCard({ data, reload }: SectionProps) {
   const [list, setList] = useState(saved)
   const [name, setName] = useState('')
   useEffect(() => setList(data.breakCategories ?? []), [data.breakCategories])
-  const sizes = isBP(data.format) ? [4, 8, 16, 32] : [2, 4, 8, 16]
+  const sizes = isBP(data.format) ? BP_BREAKS : [2, 4, 8, 16]
   const dirty = JSON.stringify(list) !== JSON.stringify(saved)
   const add = () => {
     const n = name.trim()

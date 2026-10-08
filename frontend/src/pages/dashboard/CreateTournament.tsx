@@ -22,6 +22,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 
 import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
 import { formatOfTournament, TOURNAMENT_FORMATS } from '@/content/formats'
+import { BP_BREAKS } from '@/lib/formats'
 import { PlacePicker, placeDistrict } from '@/components/tournament/PlacePicker'
 import { cityName, regionByCode } from '@/content/geo'
 import { NumberChoice } from '@/components/ui/number-choice'
@@ -30,14 +31,26 @@ type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
 // how many top seeds skip the first playoff round when the break is not a power of two (6 -> 2 byes)
 const byesOf = (n: number) => (n >= 2 ? 2 ** Math.ceil(Math.log2(n)) - n : 0)
 
+// The wizard keeps a draft on this device (per account): a refresh or a closed tab does not lose what was typed.
+// The organizer's own picture is a local file and cannot be kept; a template cover is.
+interface Draft { values: Record<string, unknown>; step: number; cover: string | null }
+const draftKey = (uid: string) => `tournament-draft:${uid}`
+function readDraft(uid: string): Draft | null {
+  try { const s = localStorage.getItem(draftKey(uid)); return s ? JSON.parse(s) as Draft : null } catch { return null }
+}
+const saveDraft = (uid: string, d: Draft) => { try { localStorage.setItem(draftKey(uid), JSON.stringify(d)) } catch { /* private mode: no draft */ } }
+const dropDraft = (uid: string) => { try { localStorage.removeItem(draftKey(uid)) } catch { /* nothing to drop */ } }
+
 export default function CreateTournament() {
   const { t, i18n } = useTranslation()
   const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [step, setStep] = useState(0)
+  const uid = user?.id ?? ''
+  const [draft, setDraft] = useState(() => readDraft(uid))
+  const [step, setStep] = useState(draft?.step ?? 0)
   // the cover: a ready template (saved with the tournament) or the organizer's own picture (uploaded right after)
-  const [cover, setCover] = useState<string | null>(null)
+  const [cover, setCover] = useState<string | null>(draft?.cover ?? null)
   const [coverFile, setCoverFile] = useState<File | null>(null)
   const { data: templates = [] } = useAsync(getCoverTemplates)
   const [dragging, setDragging] = useState(false)
@@ -64,11 +77,21 @@ export default function CreateTournament() {
   }).refine(v => !v.startDate || !v.endDate || v.endDate >= v.startDate, { path: ['endDate'], message: t('wizard.errors.dates') })
   type Form = z.input<typeof schema>
 
-  const { register, handleSubmit, trigger, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
+  const blank: Form = { name: '', level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, region: '', city: '', district: '', venue: '', startDate: '', endDate: '', regDeadline: '', description: '' }
+  const { register, handleSubmit, trigger, watch, setValue, reset, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, region: '', city: '', district: '', venue: '', startDate: '', endDate: '', regDeadline: '' },
+    defaultValues: { ...blank, ...(draft?.values as Partial<Form>) },
   })
   const v = watch()
+  const snapshot = JSON.stringify(v)
+  // an untouched form keeps no draft
+  const started = step > 0 || !!v.name?.trim() || !!v.region
+  useEffect(() => {
+    if (!uid) return
+    if (started) saveDraft(uid, { values: JSON.parse(snapshot), step, cover: coverFile ? null : cover })
+    else dropDraft(uid)
+  }, [uid, started, snapshot, step, cover, coverFile])
+  const startOver = () => { dropDraft(uid); setDraft(null); reset(blank); setStep(0); setCover(null); setCoverFile(null) }
   // tournaments cannot start in the past
   const today = todayKz()
   const paid = Number(v.maxTeams) > FREE_LIMIT
@@ -116,6 +139,7 @@ export default function CreateTournament() {
       }
       // the own picture goes up after the tournament exists; if it fails, the tournament keeps a template
       if (coverFile) await uploadTournamentCover(created.id, coverFile).catch(() => toast.warning(t('wizard.coverFailed')))
+      dropDraft(uid)
       toast.success(t('wizard.created'), { description: paid ? t('wizard.paymentSent') : user?.role === 'admin' ? undefined : t('moderation.sentForReview') })
       navigate(`/dashboard/tournaments/${created.id}/teams`)
     } catch (e) {
@@ -134,23 +158,35 @@ export default function CreateTournament() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
       <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="size-4" />{t('dashboard.myTournaments')}</Link>
-      <h1 className="mt-4 text-3xl font-extrabold tracking-tight">{t('wizard.title')}</h1>
+      <div className="mt-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <h1 className="text-3xl font-extrabold tracking-tight">{t('wizard.title')}</h1>
+        {started && (
+          <button type="button" onClick={startOver} className="cursor-pointer text-sm font-semibold text-muted-foreground underline-offset-4 hover:text-primary hover:underline">
+            {t('wizard.startOver')}
+          </button>
+        )}
+      </div>
+      {draft && <p className="mt-1 text-sm text-muted-foreground">{t('wizard.draftRestored')}</p>}
 
       {/* stepper */}
       <ol className="mt-8 flex items-center">
         {steps.map((s, i) => (
           <li key={s} className={cn('flex items-center', i < steps.length - 1 && 'flex-1')}>
-            <button type="button" disabled={i > step} onClick={() => setStep(i)} className="flex cursor-pointer items-center gap-2 disabled:cursor-default">
+            <button type="button" disabled={i > step} onClick={() => setStep(i)} aria-current={i === step ? 'step' : undefined} className="flex cursor-pointer items-center gap-2 disabled:cursor-default">
               <span className={cn('grid size-9 shrink-0 place-items-center rounded-full text-sm font-bold transition-all',
                 i < step ? 'bg-success text-white' : i === step ? 'bg-primary text-primary-foreground ring-4 ring-primary/20' : 'bg-muted text-muted-foreground')}>
                 {i < step ? <Check className="size-4" /> : i + 1}
               </span>
-              <span className={cn('hidden text-sm font-semibold sm:block', i === step ? 'text-foreground' : 'text-muted-foreground')}>{t(`wizard.steps.${s}`)}</span>
+              {/* phones show only the numbers (the current step is named below); screen readers always hear the name */}
+              <span className={cn('sr-only text-sm font-semibold sm:not-sr-only', i === step ? 'text-foreground' : 'text-muted-foreground')}>{t(`wizard.steps.${s}`)}</span>
             </button>
             {i < steps.length - 1 && <span className={cn('mx-3 h-0.5 flex-1 rounded-full', i < step ? 'bg-success' : 'bg-border')} />}
           </li>
         ))}
       </ol>
+      <p className="mt-3 text-sm font-semibold sm:hidden" aria-hidden>
+        <span className="text-muted-foreground">{t('wizard.stepOf', { n: step + 1, total: steps.length })} · </span>{t(`wizard.steps.${steps[step]}`)}
+      </p>
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <Card className="mt-8 overflow-hidden p-6 sm:p-8">
@@ -242,13 +278,16 @@ export default function CreateTournament() {
                       const f = formatOfTournament(code)
                       const on = v.format === code
                       return (
-                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => { setValue('format', code); if (code === 'BP' && ![4, 8, 16, 32].includes(Number(v.breakSize))) setValue('breakSize', 4) }}
-                          className={cn('relative cursor-pointer rounded-2xl border-2 p-5 text-left transition-all', on ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
+                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => { setValue('format', code); if (code === 'BP' && !BP_BREAKS.includes(Number(v.breakSize))) setValue('breakSize', 4) }}
+                          className={cn('relative flex cursor-pointer items-start gap-3 rounded-2xl border-2 p-4 pr-10 text-left transition-all sm:block sm:p-5', on ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
                           {on && <Check className="absolute right-4 top-4 size-5 text-primary" />}
-                          <span className={cn('inline-grid h-8 min-w-8 place-items-center rounded-lg bg-gradient-to-br px-2 text-xs font-extrabold text-white', f.accent)}>{f.short}</span>
-                          <p className="mt-3 font-bold">{f.name[lang]}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">{f.teams[lang]}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{t('wizard.formatScale', { min: f.score.speaker[0], max: f.score.speaker[1] })}</p>
+                          {/* phones: a compact row (badge beside the text), so eight formats do not make a long scroll */}
+                          <span className={cn('inline-grid h-8 min-w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br px-2 text-xs font-extrabold text-white', f.accent)}>{f.short}</span>
+                          <span className="block min-w-0 sm:mt-3">
+                            <span className="block font-bold">{f.name[lang]}</span>
+                            <span className="mt-1 block text-sm text-muted-foreground">{f.teams[lang]}</span>
+                            <span className="mt-1 hidden text-xs text-muted-foreground sm:block">{t('wizard.formatScale', { min: f.score.speaker[0], max: f.score.speaker[1] })}</span>
+                          </span>
                         </button>
                       )
                     })}
@@ -262,7 +301,7 @@ export default function CreateTournament() {
                       <Label htmlFor="break">{t('wizard.breakSize')}</Label>
                       {v.format === 'BP' ? (
                         <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
-                          options={[4, 8, 16, 32].map(n => ({ value: String(n), label: String(n) }))} />
+                          options={BP_BREAKS.map(n => ({ value: String(n), label: String(n) }))} />
                       ) : (
                         <NumberChoice id="break" value={Number(v.breakSize)} onChange={n => setValue('breakSize', n)} presets={[2, 4, 8, 16]} min={2} max={64} />
                       )}
@@ -315,9 +354,9 @@ export default function CreateTournament() {
                   {cover && <img src={cover} alt="" className="h-40 w-full rounded-2xl object-cover" />}
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-2xl bg-muted/60 p-5 text-sm sm:grid-cols-2">
                     {[
-                      [t('wizard.city'), [v.venue, v.district, cityName(v.city ?? '', lang), regionByCode(v.region)?.[lang]].filter(x => x && x !== '__other__').join(', ')],
+                      [t('wizard.place'), [v.venue, v.district, cityName(v.city ?? '', lang), regionByCode(v.region)?.[lang]].filter(x => x && x !== '__other__').join(', ')],
                       [t('wizard.level'), t(`level.${v.level}`)],
-                      [t('wizard.startDate'), v.startDate && v.endDate ? formatDateRange(v.startDate, v.endDate) : '—'],
+                      [t('wizard.dates'), v.startDate && v.endDate ? formatDateRange(v.startDate, v.endDate) : '—'],
                       [t('wizard.format'), formatOfTournament(v.format).name[lang]],
                       [t('wizard.prelims'), String(v.prelims)],
                       [t('wizard.breakSize'), String(v.breakSize)],

@@ -5,6 +5,8 @@ import type { Debate, Side } from '@/types'
 export const BP_SIDES: Side[] = ['proposition', 'opposition', 'closingProposition', 'closingOpposition']
 export const TWO_SIDES: Side[] = ['proposition', 'opposition']
 export const isBP = (format?: string) => format === 'BP'
+// BP breaks fill whole rooms of four: the sizes the server accepts
+export const BP_BREAKS = [4, 8, 16, 32, 64]
 // the sides of a debate in speaking order: two, or four in British Parliamentary
 export const sidesOf = (format?: string) => (isBP(format) ? BP_SIDES : TWO_SIDES)
 export const teamIdOn = (d: Debate, side: Side) => ({
