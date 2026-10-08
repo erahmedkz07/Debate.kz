@@ -25,7 +25,7 @@ const links = [
 ] as const
 
 export function LangSwitch({ className, onDark }: { className?: string; onDark?: boolean }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { user, signIn } = useAuth()
   // a signed-in person's choice is kept in the account too: the Telegram bot then writes in the same language
   const choose = (l: 'ru' | 'kz') => {
@@ -33,7 +33,7 @@ export function LangSwitch({ className, onDark }: { className?: string; onDark?:
     if (user && user.language !== l) setAccountLanguage(l).then(signIn, () => undefined)
   }
   return (
-    <div className={cn('flex rounded-xl p-1 text-xs font-bold', onDark ? 'bg-white/15' : 'bg-muted', className)} role="group" aria-label="Language">
+    <div className={cn('flex rounded-xl p-1 text-xs font-bold', onDark ? 'bg-white/15' : 'bg-muted', className)} role="group" aria-label={t('a11y.language')}>
       {(['ru', 'kz'] as const).map(l => (
         <button
           key={l}

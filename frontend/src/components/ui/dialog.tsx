@@ -2,6 +2,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import i18n from '@/lib/i18n'
 
 export const Dialog = DialogPrimitive.Root
 export const DialogTrigger = DialogPrimitive.Trigger
@@ -22,7 +23,7 @@ export function DialogContent({ className, children, heading, description, ...pr
           {description ?? heading}
         </DialogPrimitive.Description>
         <div className="mt-5">{children}</div>
-        <DialogPrimitive.Close className="absolute right-4 top-4 cursor-pointer rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close">
+        <DialogPrimitive.Close className="absolute right-4 top-4 cursor-pointer rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={i18n.t('common.close')}>
           <X className="size-5" />
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
@@ -46,7 +47,7 @@ export function SheetContent({ className, children, heading, side = 'right', ...
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <DialogPrimitive.Title className="text-lg font-bold">{heading}</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">{heading}</DialogPrimitive.Description>
-          <DialogPrimitive.Close className="cursor-pointer rounded-lg p-1.5 text-muted-foreground hover:bg-muted" aria-label="Close">
+          <DialogPrimitive.Close className="cursor-pointer rounded-lg p-1.5 text-muted-foreground hover:bg-muted" aria-label={i18n.t('common.close')}>
             <X className="size-5" />
           </DialogPrimitive.Close>
         </div>

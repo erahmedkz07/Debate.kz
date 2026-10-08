@@ -45,11 +45,9 @@ export async function setLanguage(lng: 'ru' | 'kz') {
 // the saved language is ready before the first render
 export const i18nReady = saved === 'kz' ? setLanguage('kz').catch(() => undefined) : Promise.resolve()
 
-// the tab title and the page language follow the chosen language
-const titles = { ru: 'Debate.kz — дебатные турниры', kz: 'Debate.kz — дебат турнирлері' }
+// the page language follows the chosen language (the tab title is set per page by TitleSync)
 const applyLang = (lng: string) => {
   document.documentElement.lang = lng === 'kz' ? 'kk' : 'ru'
-  document.title = titles[lng === 'kz' ? 'kz' : 'ru']
 }
 applyLang(i18n.language)
 i18n.on('languageChanged', lng => {

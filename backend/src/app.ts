@@ -31,6 +31,7 @@ import { reviewsRouter } from './routes/reviews.js'
 import { mailOutbox } from './lib/mail.js'
 import { UPLOADS_DIR } from './lib/uploads.js'
 import { speakerInvitesRouter } from './routes/speakerInvites.js'
+import rateLimit from 'express-rate-limit'
 
 export function redactUrl(url: string) {
   const [path, query] = url.split('?')
@@ -49,6 +50,8 @@ export function createApp() {
   app.use(helmet())
   // cookies are sent cross-origin only to the known frontend
   app.use(cors({ origin: env.CLIENT_ORIGIN, credentials: true }))
+  // a ceiling against floods and scrapers, generous on purpose: a whole school class can share one address
+  if (isProd) app.use('/api', rateLimit({ windowMs: 60_000, limit: 1200, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } }))
   app.use(express.json({ limit: '100kb' }))
   app.use(cookieParser())
   // secrets never reach the access log: Google's one-time code and state, invite tokens in the path

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Header } from './Header'
 import { Footer } from './Footer'
 
@@ -12,6 +13,27 @@ export function ScrollToTop() {
       window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
     }
   }, [pathname, hash])
+  return null
+}
+
+// The browser tab says which page is open: "<the page's heading> — Debate.kz" (the home page keeps the site's name).
+// The heading is read from the page itself, so every page, a tournament or a person, gets its own title without each
+// page setting it; it follows the language and data that arrive later.
+export function TitleSync() {
+  const { pathname } = useLocation()
+  const { t, i18n } = useTranslation()
+  useEffect(() => {
+    const site = t('meta.siteTitle')
+    const apply = () => {
+      const h1 = document.querySelector('main h1, h1')?.textContent?.trim()
+      const title = pathname === '/' || !h1 ? site : `${h1.length > 60 ? `${h1.slice(0, 57)}…` : h1} — Debate.kz`
+      if (document.title !== title) document.title = title // the observer fires often (timers): touch the tab only on change
+    }
+    apply()
+    const observer = new MutationObserver(apply)
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+    return () => observer.disconnect()
+  }, [pathname, i18n.language, t])
   return null
 }
 

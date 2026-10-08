@@ -67,14 +67,14 @@ function ScoreInput({ label, value, onChange, range, invalid }: { label: string;
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="min-w-0 truncate text-sm font-medium">{label}</span>
       <div className="flex shrink-0 items-center gap-1">
-        <button type="button" onClick={() => bump(-range.step)} className="grid size-9 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label="-"><Minus className="size-4" /></button>
+        <button type="button" onClick={() => bump(-range.step)} className="grid size-9 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: −${range.step}`}><Minus className="size-4" /></button>
         <input
           inputMode="decimal" value={value} onChange={e => onChange(e.target.value.replace(',', '.'))} aria-label={label} aria-invalid={invalid}
           placeholder={`${range.min}–${range.max}`}
           className={cn('h-9 w-16 rounded-lg border-2 bg-card text-center text-sm font-bold tabular-nums focus:outline-none focus:ring-4 focus:ring-primary/15',
             invalid ? 'border-danger' : 'border-border focus:border-primary')}
         />
-        <button type="button" onClick={() => bump(range.step)} className="grid size-9 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label="+"><Plus className="size-4" /></button>
+        <button type="button" onClick={() => bump(range.step)} className="grid size-9 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: +${range.step}`}><Plus className="size-4" /></button>
       </div>
     </div>
   )

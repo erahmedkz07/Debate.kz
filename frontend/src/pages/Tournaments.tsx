@@ -84,7 +84,7 @@ export default function Tournaments() {
           <Input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('tournaments.searchPlaceholder')}
             className="h-14 rounded-2xl pl-12 text-base shadow-lg shadow-primary/5" aria-label={t('common.search')} />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer rounded-full p-1 text-muted-foreground hover:bg-muted" aria-label="Clear">
+            <button onClick={() => setSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer rounded-full p-1 text-muted-foreground hover:bg-muted" aria-label={t('a11y.clearSearch')}>
               <X className="size-4" />
             </button>
           )}
@@ -187,7 +187,7 @@ export default function Tournaments() {
         </div>
 
         {data && totalPages > 1 && (
-          <nav className="mt-10 flex items-center justify-center gap-2" aria-label="Pagination">
+          <nav className="mt-10 flex items-center justify-center gap-2" aria-label={t('a11y.pagination')}>
             <Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage(p => p - 1)} aria-label={t('common.back')}><ChevronLeft className="size-4" /></Button>
             {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
               <Button key={n} variant={n === page ? 'primary' : 'ghost'} size="icon" onClick={() => setPage(n)} aria-current={n === page ? 'page' : undefined}>{n}</Button>

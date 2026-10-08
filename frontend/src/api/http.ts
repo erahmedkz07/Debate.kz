@@ -21,9 +21,14 @@ export async function http<T>(method: string, path: string, body?: unknown): Pro
   }
   if (res.status === 204) return undefined as T
   const data = await res.json().catch(() => null)
+  // the session ended elsewhere (logged out on another device, password changed, blocked): the app signs the person out
+  // and sends them to the login page instead of showing a generic error (wrong passwords at /auth are not this case)
+  if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event(SESSION_EXPIRED))
   if (!res.ok) throw new ApiError(res.status, data?.error ?? 'unknown_error', data?.details)
   return data as T
 }
+
+export const SESSION_EXPIRED = 'debatekz:session-expired'
 
 // multipart upload (e.g. avatar); the browser sets the boundary header itself
 export async function upload<T>(path: string, form: FormData): Promise<T> {
