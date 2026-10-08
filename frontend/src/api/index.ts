@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem, Side, PlayoffStage,
+  Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentFormat, TournamentStatus, User, ScheduleItem, Side, PlayoffStage,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
 import i18n from '@/lib/i18n'
@@ -253,7 +253,7 @@ export interface CreateTournamentInput {
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
-  format?: 'WSDC' | 'APF' | 'POPPER' | 'BP'
+  format?: TournamentFormat
 }
 export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
 export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })

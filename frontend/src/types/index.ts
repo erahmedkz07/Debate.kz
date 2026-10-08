@@ -2,7 +2,7 @@
 
 export type TournamentLevel = 'school' | 'university' | 'mixed' // mixed: school and university teams together
 export type TournamentStatus = 'registration' | 'ongoing' | 'finished'
-export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER' | 'BP'
+export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER' | 'BP' | 'LD' | 'PF' | 'ASIAN' | 'AUSTRALS'
 // WSDC, APF, Karl Popper: proposition / opposition; British Parliamentary adds the closing half
 export type Side = 'proposition' | 'opposition' | 'closingProposition' | 'closingOpposition'
 export type Lang = 'ru' | 'kz'

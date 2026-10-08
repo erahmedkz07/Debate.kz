@@ -298,7 +298,7 @@ const teamSchema = z.object({
   name: z.string().trim().min(2).max(60),
   institution: z.string().trim().min(2).max(150),
   city: z.string().trim().max(60).optional(),
-  speakers: z.array(z.string().trim().min(3).max(100)).min(2).max(3), // the tournament's format says how many
+  speakers: z.array(z.string().trim().min(3).max(100)).min(1).max(3), // the tournament's format says how many (LD: one)
 })
 
 // a team has exactly as many speakers as the tournament's format needs

@@ -1,8 +1,9 @@
-// Debate formats a tournament can run. WSDC, APF and Karl Popper have two teams per debate (proposition/government
-// and opposition): they differ in team size, score ranges and reply speeches. British Parliamentary puts four teams
+// Debate formats a tournament can run. WSDC, APF, Karl Popper, Lincoln–Douglas (one against one), Public Forum,
+// Asian Parliamentary and Australs have two teams per debate (proposition/government and opposition): they differ in
+// team size, score ranges and reply speeches. British Parliamentary puts four teams
 // of two in a room (Opening/Closing Government and Opposition); teams are ranked 1st–4th and earn 3/2/1/0 points.
 
-export const FORMAT_CODES = ['WSDC', 'APF', 'POPPER', 'BP'] as const
+export const FORMAT_CODES = ['WSDC', 'APF', 'POPPER', 'BP', 'LD', 'PF', 'ASIAN', 'AUSTRALS'] as const
 export type FormatCode = (typeof FORMAT_CODES)[number]
 
 export interface FormatRules {
@@ -22,6 +23,14 @@ export const FORMAT_RULES: Record<FormatCode, FormatRules> = {
   POPPER: { teams: 2, speakers: 3, speaker: [15, 30], step: 1 },
   // British Parliamentary: 4 teams of 2, 50–100 in whole points, no reply speeches; the panel agrees on one ballot
   BP: { teams: 4, speakers: 2, speaker: [50, 100], step: 1 },
+  // Lincoln–Douglas: one against one, 26–30; rebuttals are part of the debater's own score
+  LD: { teams: 2, speakers: 1, speaker: [26, 30], step: 0.5 },
+  // Public Forum: teams of two, 26–30; summaries and final focus are part of the speakers' scores
+  PF: { teams: 2, speakers: 2, speaker: [26, 30], step: 0.5 },
+  // Asian Parliamentary: 3 speakers, 70–80; the reply (35–40) by the 1st or 2nd speaker
+  ASIAN: { teams: 2, speakers: 3, speaker: [70, 80], reply: { range: [35, 40], by: [1, 2] }, step: 0.5 },
+  // Australs: 3 speakers, 60–80, no reply speeches
+  AUSTRALS: { teams: 2, speakers: 3, speaker: [60, 80], step: 0.5 },
 }
 
 export const rulesOf = (format: string): FormatRules => FORMAT_RULES[format as FormatCode] ?? FORMAT_RULES.WSDC

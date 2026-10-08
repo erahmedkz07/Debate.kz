@@ -1345,7 +1345,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   let tr = await host.c('POST', '/tournaments', { ...base(1), level: 'mixed', format: 'APF' })
   ok(tr.status === 201 && tr.data.level === 'mixed' && tr.data.format === 'APF', 'a mixed (school + university) APF tournament is created')
   const apf = tr.data
-  ok((await host.c('POST', '/tournaments', { ...base(2), format: 'LD' })).status === 400, 'an unknown format is refused')
+  ok((await host.c('POST', '/tournaments', { ...base(2), format: 'CNDF' })).status === 400, 'an unknown format is refused')
   r = await host.c('POST', `/tournaments/${apf.id}/teams`, { name: 'Тройка', institution: 'Школа 1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
   ok(r.status === 400 && r.data.error === 'wrong_speaker_count' && r.data.details?.need === 2, 'APF teams have two speakers, not three')
   for (const n of ['Альфа', 'Бета']) await host.c('POST', `/tournaments/${apf.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Первый`, `${n} Второй`] })
@@ -2278,6 +2278,40 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })).status === 200, 'the tournament with byes finishes')
   const bracket = (await client()('GET', `/tournaments/${t.id}/bracket`)).data
   ok(!!bracket.champion, 'the champion is known')
+}
+// ---------- 61. new formats: Lincoln–Douglas (one against one), Public Forum, Asian Parliamentary, Australs ----------
+{
+  for (const [format, speakers, scale, reply] of [['LD', 1, [26, 30], null], ['PF', 2, [26, 30], null], ['ASIAN', 3, [70, 80], [35, 40]], ['AUSTRALS', 3, [60, 80], null]]) {
+    const host = await newAccount(`Формат Организатор${format}`) // one organizer may run 3 tournaments at once
+    const t = (await host.c('POST', '/tournaments', { ...tBody(420), name: `Формат ${format} ${jtag}`, format, preliminaryRounds: 1, breakSize: 2 })).data
+    await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+    const names = ['Альфа', 'Бета']
+    for (const n of names) {
+      const r = await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: Array.from({ length: speakers }, (_, i) => `${n} Спикер${'АБВ'[i]}`) })
+      if (r.status !== 201) ok(false, `${format} team ${r.status} ${JSON.stringify(r.data)}`)
+    }
+    ok((await host.c('POST', `/tournaments/${t.id}/teams`, { name: 'Лишний', institution: 'Школа', speakers: ['Один Два', 'Три Четыре', 'Пять Шесть'].slice(0, speakers === 3 ? 2 : speakers + 1) })).status === 400,
+      `${format}: a team needs exactly ${speakers} speaker(s)`)
+    await addJudge(host.c, t.id, `Формат Судья ${format}`)
+    await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+    const round = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+    await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+    await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП верит, что справедливость важнее свободы', status: 'released' })
+    const debate = (await host.c('GET', `/tournaments/${t.id}`)).data.debates.find(d => d.roundId === round.id)
+    let rules
+    await panelVote(debate.id, sheet => {
+      rules = sheet.rules
+      const scores = {}
+      sheet.proposition.speakers.forEach(x => (scores[x.id] = scale[1] - 1)); sheet.opposition.speakers.forEach(x => (scores[x.id] = scale[0] + 1))
+      return {
+        winner: 'proposition', scores,
+        ...(reply && { reply: { proposition: reply[1] - 1, opposition: reply[0] + 1 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }),
+      }
+    })
+    ok(rules?.speakers === speakers && rules.speaker[0] === scale[0] && rules.speaker[1] === scale[1] && !!rules.reply === !!reply, `${format}: the ballot follows the format (${speakers} speaker(s), ${scale.join('–')}${reply ? ', reply' : ''})`)
+    ok((await host.c('PATCH', `/rounds/${round.id}`, { status: 'completed' })).status === 200
+      && (await client()('GET', `/tournaments/${t.id}/standings`)).data.teams[0].wins === 1, `${format}: the round counts in the table`)
+  }
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
