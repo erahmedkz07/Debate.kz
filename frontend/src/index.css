@@ -76,6 +76,17 @@
   html {
     scroll-behavior: smooth;
   }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+  /* keyboard focus is always visible: tabs, segmented pickers, cards and links that have no focus style of their own
+     (components with their own ring override this, :where() keeps it at zero specificity) */
+  :where(a, button, summary, [role='tab'], [role='radio'], [role='checkbox'], [role='switch'], [role='option'], [tabindex]):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
   body {
     background: var(--background);
     color: var(--foreground);

@@ -1,7 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { Role, User } from '@/types'
 import { getMe, logout } from '@/api'
 import { isRetryable } from '@/lib/ballotOutbox'
+import { toast } from 'sonner'
+import i18n from '@/lib/i18n'
+import { SESSION_EXPIRED } from '@/api/http'
 
 // The session is an httpOnly cookie set by the API; the page only keeps the user object in memory.
 // Offline (API unreachable) the last known user is restored from a minimal local copy, so a judge at a venue
@@ -61,6 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
   const [loggedOut, setLoggedOut] = useState(false)
+  // read by the session-expired listener without re-subscribing on every change
+  const signedIn = useRef(false)
+  useEffect(() => { signedIn.current = !!user }, [user])
 
   const load = useCallback(() => getMe()
     // the same profile keeps the same object, so forms and effects that depend on the user are not reset
@@ -74,9 +80,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const up = () => void load()
     // back to the tab: rights given or taken by an admin meanwhile (officer, organizer) show up without a reload
     const seen = () => { if (document.visibilityState === 'visible' && navigator.onLine) void load() }
+    // a request answered 401: the session is over; the guard sends the person to log in and back here afterwards
+    const expired = () => {
+      if (!signedIn.current) return
+      toast.info(i18n.t('auth.sessionExpired'))
+      remember(null)
+      setUser(null)
+    }
     window.addEventListener('online', up)
     document.addEventListener('visibilitychange', seen)
-    return () => { window.removeEventListener('online', up); document.removeEventListener('visibilitychange', seen) }
+    window.addEventListener(SESSION_EXPIRED, expired)
+    return () => {
+      window.removeEventListener('online', up); document.removeEventListener('visibilitychange', seen); window.removeEventListener(SESSION_EXPIRED, expired)
+    }
   }, [load])
 
   const signIn = useCallback((u: User) => { setLoggedOut(false); setUser(u); remember(u) }, [])

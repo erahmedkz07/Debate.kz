@@ -586,7 +586,7 @@ export default function TournamentPage() {
           <h1 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight sm:text-5xl">{data.name}</h1>
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-white/85">
             <span className="flex items-center gap-2"><CalendarDays className="size-4 text-accent" />{formatDateRange(data.startDate, data.endDate)}</span>
-            <span className="flex items-center gap-2"><MapPin className="size-4 text-accent" />{[cityName(data.city, i18n.language === 'kz' ? 'kz' : 'ru'), data.district].filter(Boolean).join(', ')}</span>
+            <span className="flex items-center gap-2"><MapPin className="size-4 text-accent" />{[cityName(data.city, i18n.language === 'kz' ? 'kz' : 'ru'), data.district, data.venue].filter(Boolean).join(', ')}</span>
             <span className="flex items-center gap-2"><Building2 className="size-4 text-accent" />{t('tournament.organizer')}: {data.organizer}</span>
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">

@@ -5,6 +5,7 @@ import { assertRoomForTeam } from './plans.js'
 import { participationIn } from './tournaments.js'
 import { institutionIdFor } from './institutions.js'
 import { background, notifyRegistration } from './notify.js'
+import { sameName } from '../lib/names.js'
 
 // Selection of teams. Applications are not limited: everyone can apply, and the tournament page shows live how many
 // applied for how many places. The final list stays within the team limit (maxTeams) and, if set, a quota per club.
@@ -45,7 +46,8 @@ export async function confirmRegistration(regId: string) {
       data: {
         tournamentId: reg.tournamentId, name: reg.teamName, institutionId: instId, city: reg.user.city,
         clubId: clubTeam?.clubId ?? reg.clubId ?? null, clubTeamId: clubTeam?.id ?? null,
-        speakers: { create: reg.speakers.map((name, i) => ({ name, position: i + 1, userId: name === reg.user.name ? reg.userId : undefined })) },
+        // the applicant is linked to their own slot even when the name is written differently (word order, case)
+        speakers: { create: reg.speakers.map((name, i) => ({ name, position: i + 1, userId: sameName(name, reg.user.name) ? reg.userId : undefined })) },
       },
     })
     await tx.teamRegistration.update({ where: { id: reg.id }, data: { status: 'confirmed' } })

@@ -2,7 +2,7 @@
 
 export type TournamentLevel = 'school' | 'university' | 'mixed' // mixed: school and university teams together
 export type TournamentStatus = 'registration' | 'ongoing' | 'finished'
-export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER' | 'BP'
+export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER' | 'BP' | 'LD' | 'PF' | 'ASIAN' | 'AUSTRALS'
 // WSDC, APF, Karl Popper: proposition / opposition; British Parliamentary adds the closing half
 export type Side = 'proposition' | 'opposition' | 'closingProposition' | 'closingOpposition'
 export type Lang = 'ru' | 'kz'
@@ -15,7 +15,8 @@ export interface Tournament {
   endDate: string
   format: TournamentFormat
   region?: string // region code (content/geo.ts)
-  district?: string // a district of a big city or an address
+  district?: string // the district (аудан)
+  venue?: string // the venue: street, school, building
   level: TournamentLevel
   status: TournamentStatus
   teamsCount: number
@@ -88,7 +89,7 @@ export interface Round {
   categoryName?: string
 }
 
-export type PlayoffStage = 'final' | 'semi' | 'quarter' | 'octo'
+export type PlayoffStage = 'final' | 'semi' | 'quarter' | 'octo' | 'doubleOcto' | 'tripleOcto'
 export interface BreakCategory { key: string; name: string; size: number }
 
 export interface Debate {

@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentStatus, User, ScheduleItem, Side, PlayoffStage,
+  Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentFormat, TournamentStatus, User, ScheduleItem, Side, PlayoffStage,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
 import i18n from '@/lib/i18n'
@@ -209,6 +209,7 @@ export interface PanelBallot {
   isChair: boolean
   hasAccount: boolean
   submittedAt?: string
+  enteredBy?: string // the organizer who entered or corrected it
   winner?: Side
   ranking?: Side[] // BP
   totals?: Partial<Record<Side, number>>
@@ -219,6 +220,10 @@ export interface BallotRules { format: string; teams?: 2 | 4; speakers: number; 
 export interface BallotData {
   rules?: BallotRules
   canSubmit?: boolean // true for a judge who sends the ballot (BP: the chair); others get `panel` instead
+  canCorrect?: boolean // organizers may enter or correct a judge's ballot until the tournament is over
+  onBehalfOf?: { judgeId: string; name: string } // the organizer fills in this judge's ballot
+  // the ballot already sent (to correct it): scores by speaker, replies by side, comments
+  sent?: { winner: Side; ranking?: Side[]; enteredBy?: string; scores: Record<string, number>; reply: Partial<Record<Side, number>>; replySpeakers: Partial<Record<Side, string>>; feedback: Record<string, string> }
   panel?: PanelBallot[]
   tournament: { id: string; name: string }
   round: Round
@@ -229,7 +234,8 @@ export interface BallotData {
   closingOpposition?: Team
   judges: Judge[]
 }
-export const getBallot = (debateId: string) => or404(http<BallotData>('GET', `/ballots/${encodeURIComponent(debateId)}`))
+export const getBallot = (debateId: string, asJudgeId?: string) =>
+  or404(http<BallotData>('GET', `/ballots/${encodeURIComponent(debateId)}${asJudgeId ? `?as=${encodeURIComponent(asJudgeId)}` : ''}`))
 
 export interface BallotPayload {
   winner?: Side // two-team formats
@@ -239,6 +245,7 @@ export interface BallotPayload {
   reply?: Record<'proposition' | 'opposition', number>
   replySpeakers?: Record<'proposition' | 'opposition', string>
   feedback?: Record<string, string> // speakerId or "reply:<side>" -> short comment to the speaker
+  asJudgeId?: string // an organizer enters or corrects this judge's ballot
 }
 export const submitBallot = (debateId: string, payload: BallotPayload) =>
   http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload)
@@ -248,18 +255,18 @@ export const submitBallot = (debateId: string, payload: BallotPayload) =>
 export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/tournaments')
 
 export interface CreateTournamentInput {
-  name: string; city: string; region?: string; district?: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
+  name: string; city: string; region?: string; district?: string; venue?: string; startDate: string; endDate: string; level: 'school' | 'university' | 'mixed'; description: string
   preliminaryRounds: number; breakSize: number; maxTeams: number; registrationOpen: boolean; requireApproval: boolean
   registrationDeadline?: string; languages: ('ru' | 'kz')[]
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
-  format?: 'WSDC' | 'APF' | 'POPPER' | 'BP'
+  format?: TournamentFormat
 }
 export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
 export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })
 export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
-  city: string; region: string; district: string | null; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
+  city: string; region: string; district: string | null; venue: string | null; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
   breakCategories: { key: string; name: string; size: number }[]
   selectionMode: 'manual' | 'first_come' | 'lottery'

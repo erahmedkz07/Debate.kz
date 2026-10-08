@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { MotionConfig } from 'framer-motion'
-import { Layout, ScrollToTop } from '@/components/layout/Layout'
+import { Layout, ScrollToTop, TitleSync } from '@/components/layout/Layout'
 import Home from '@/pages/Home'
 import NotFound from '@/pages/NotFound'
 import { AuthProvider } from '@/lib/auth'
@@ -70,6 +70,7 @@ export default function App() {
       <MotionConfig reducedMotion="user">
         <BrowserRouter>
           <ScrollToTop />
+          <TitleSync />
           <ErrorBoundary>
           <Suspense fallback={<PageLoader />}>
             <Routes>

@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/states'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { useAsync } from '@/lib/hooks'
-import { cn, formatDateRange } from '@/lib/utils'
+import { cn, formatDateRange, todayKz } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { FieldError, Input, Label, Switch, Textarea } from '@/components/ui/input'
@@ -22,9 +22,13 @@ import { DatePicker } from '@/components/ui/date-picker'
 
 import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
 import { formatOfTournament, TOURNAMENT_FORMATS } from '@/content/formats'
-import { PlacePicker } from '@/components/tournament/PlacePicker'
+import { PlacePicker, placeDistrict } from '@/components/tournament/PlacePicker'
 import { cityName, regionByCode } from '@/content/geo'
+import { NumberChoice } from '@/components/ui/number-choice'
 type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
+
+// how many top seeds skip the first playoff round when the break is not a power of two (6 -> 2 byes)
+const byesOf = (n: number) => (n >= 2 ? 2 ** Math.ceil(Math.log2(n)) - n : 0)
 
 export default function CreateTournament() {
   const { t, i18n } = useTranslation()
@@ -43,13 +47,14 @@ export default function CreateTournament() {
     region: z.string().min(1, t('place.regionRequired')),
     city: z.string().trim().min(2, t('place.cityRequired')).refine(c => c !== '__other__', t('place.cityRequired')),
     district: z.string().optional(),
+    venue: z.string().optional(),
     startDate: z.string().min(1, t('auth.errors.required')),
     endDate: z.string().min(1, t('auth.errors.required')),
     level: z.enum(['school', 'university', 'mixed']),
     format: z.enum(TOURNAMENT_FORMATS),
     description: z.string().optional(),
-    prelims: z.coerce.number().int().min(2).max(8),
-    breakSize: z.coerce.number().int().min(2).max(16),
+    prelims: z.coerce.number().int().min(1).max(12),
+    breakSize: z.coerce.number().int().min(2).max(64),
     maxTeams: z.coerce.number().int().min(4).max(128),
     regOpen: z.boolean(),
     regDeadline: z.string().optional(),
@@ -61,11 +66,11 @@ export default function CreateTournament() {
 
   const { register, handleSubmit, trigger, watch, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, region: '', city: '', district: '', startDate: '', endDate: '', regDeadline: '' },
+    defaultValues: { level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, region: '', city: '', district: '', venue: '', startDate: '', endDate: '', regDeadline: '' },
   })
   const v = watch()
   // tournaments cannot start in the past
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayKz()
   const paid = Number(v.maxTeams) > FREE_LIMIT
   // above the free limit the organizer pays right in the wizard: QR, amount, reference, then the receipt
   const steps: Step[] = paid ? ['basic', 'format', 'registration', 'payment', 'summary'] : ['basic', 'format', 'registration', 'summary']
@@ -96,7 +101,7 @@ export default function CreateTournament() {
     }
     try {
       const created = await createTournament({
-        name: f.name.trim(), city: f.city.trim(), region: f.region, district: f.district?.trim() || undefined, startDate: f.startDate, endDate: f.endDate, level: f.level,
+        name: f.name.trim(), city: f.city.trim(), region: f.region, district: placeDistrict({ region: f.region, city: f.city, district: f.district ?? '', venue: '' }) || undefined, venue: f.venue?.trim() || undefined, startDate: f.startDate, endDate: f.endDate, level: f.level,
         description: f.description?.trim() ?? '', preliminaryRounds: Number(f.prelims), breakSize: Number(f.breakSize),
         maxTeams: Number(f.maxTeams), registrationOpen: f.regOpen, requireApproval: f.approval,
         registrationDeadline: f.regDeadline || undefined,
@@ -158,26 +163,27 @@ export default function CreateTournament() {
                     <Input id="name" placeholder={t('wizard.namePlaceholder')} aria-invalid={!!errors.name} {...register('name')} />
                     <FieldError message={errors.name?.message} />
                   </div>
-                  <PlacePicker value={{ region: v.region ?? '', city: v.city ?? '', district: v.district ?? '' }}
+                  <PlacePicker value={{ region: v.region ?? '', city: v.city ?? '', district: v.district ?? '', venue: v.venue ?? '' }}
                     invalid={{ region: errors.region?.message, city: errors.city?.message }}
                     onChange={p => {
                       setValue('region', p.region, { shouldValidate: !!errors.region })
                       setValue('city', p.city, { shouldValidate: !!errors.city })
                       setValue('district', p.district)
+                      setValue('venue', p.venue)
                     }} />
-                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <div>
-                      <Label>{t('wizard.level')}</Label>
-                      <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1">
-                        {(['school', 'university', 'mixed'] as const).map(l => (
-                          <button key={l} type="button" onClick={() => setValue('level', l)} aria-pressed={v.level === l}
-                            title={l === 'mixed' ? t('level.mixedHint') : t(`level.${l}`)} aria-label={t(`level.${l}`)}
-                            className={cn('h-9 cursor-pointer truncate rounded-lg px-1 text-sm font-semibold transition-all', v.level === l ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
-                            {t(`levelShort.${l}`)}
-                          </button>
-                        ))}
-                      </div>
+                  <div>
+                    <Label>{t('wizard.level')}</Label>
+                    <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1">
+                      {(['school', 'university', 'mixed'] as const).map(l => (
+                        <button key={l} type="button" onClick={() => setValue('level', l)} aria-pressed={v.level === l}
+                          title={l === 'mixed' ? t('level.mixedHint') : t(`level.${l}`)} aria-label={t(`level.${l}`)}
+                          className={cn('h-10 cursor-pointer truncate rounded-lg px-1 text-sm font-semibold transition-all', v.level === l ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                          {t(`levelShort.${l}`)}
+                        </button>
+                      ))}
                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="start">{t('wizard.startDate')}</Label>
                       <DatePicker id="start" value={v.startDate} invalid={!!errors.startDate} min={today}
@@ -236,7 +242,7 @@ export default function CreateTournament() {
                       const f = formatOfTournament(code)
                       const on = v.format === code
                       return (
-                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => { setValue('format', code); if (code === 'BP' && Number(v.breakSize) < 4) setValue('breakSize', 4) }}
+                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => { setValue('format', code); if (code === 'BP' && ![4, 8, 16, 32].includes(Number(v.breakSize))) setValue('breakSize', 4) }}
                           className={cn('relative cursor-pointer rounded-2xl border-2 p-5 text-left transition-all', on ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
                           {on && <Check className="absolute right-4 top-4 size-5 text-primary" />}
                           <span className={cn('inline-grid h-8 min-w-8 place-items-center rounded-lg bg-gradient-to-br px-2 text-xs font-extrabold text-white', f.accent)}>{f.short}</span>
@@ -250,13 +256,20 @@ export default function CreateTournament() {
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="prelims">{t('wizard.prelims')}</Label>
-                      <Select id="prelims" value={String(v.prelims)} onValueChange={n => setValue('prelims', Number(n))}
-                        options={[2, 3, 4, 5, 6, 7, 8].map(n => ({ value: String(n), label: String(n) }))} />
+                      <NumberChoice id="prelims" value={Number(v.prelims)} onChange={n => setValue('prelims', n)} presets={[2, 3, 4, 5, 6, 7, 8]} min={1} max={12} />
                     </div>
                     <div>
                       <Label htmlFor="break">{t('wizard.breakSize')}</Label>
-                      <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
-                        options={(v.format === 'BP' ? [4, 8, 16] : [2, 4, 8, 16]).map(n => ({ value: String(n), label: String(n) }))} />
+                      {v.format === 'BP' ? (
+                        <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
+                          options={[4, 8, 16, 32].map(n => ({ value: String(n), label: String(n) }))} />
+                      ) : (
+                        <NumberChoice id="break" value={Number(v.breakSize)} onChange={n => setValue('breakSize', n)} presets={[2, 4, 8, 16]} min={2} max={64} />
+                      )}
+                      {/* a break that is not a power of two: the top seeds go straight to the next round */}
+                      {v.format !== 'BP' && byesOf(Number(v.breakSize)) > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">{t('wizard.breakByes', { count: byesOf(Number(v.breakSize)) })}</p>
+                      )}
                     </div>
                   </div>
                 </>
@@ -302,7 +315,7 @@ export default function CreateTournament() {
                   {cover && <img src={cover} alt="" className="h-40 w-full rounded-2xl object-cover" />}
                   <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-2xl bg-muted/60 p-5 text-sm sm:grid-cols-2">
                     {[
-                      [t('wizard.city'), [cityName(v.city ?? '', lang), regionByCode(v.region)?.[lang], v.district].filter(x => x && x !== '__other__').join(', ')],
+                      [t('wizard.city'), [v.venue, v.district, cityName(v.city ?? '', lang), regionByCode(v.region)?.[lang]].filter(x => x && x !== '__other__').join(', ')],
                       [t('wizard.level'), t(`level.${v.level}`)],
                       [t('wizard.startDate'), v.startDate && v.endDate ? formatDateRange(v.startDate, v.endDate) : '—'],
                       [t('wizard.format'), formatOfTournament(v.format).name[lang]],

@@ -223,3 +223,12 @@ export async function notifyTournamentFinished(tournamentId: string) {
   await notify(await organizersOf(t.id), 'organizer.tournamentFinished',
     { tournament: t.name, winner: t.teams.find(x => place.get(x.id) === 1)?.name ?? '', teams: st.teams.length }, `/dashboard/tournaments/${t.id}/results`)
 }
+
+// a tournament about to be deleted: the notifications that point into it (its pages, its ballots) would lead nowhere.
+// Called before the deletion; the "deleted" notice itself has no link and stays.
+export async function forgetTournamentNotifications(tournamentId: string) {
+  const debates = await prisma.debate.findMany({ where: { round: { tournamentId } }, select: { id: true } })
+  await prisma.notification.deleteMany({
+    where: { OR: [{ link: { contains: `/tournaments/${tournamentId}` } }, { link: { in: debates.map(d => `/ballot/${d.id}`) } }] },
+  })
+}

@@ -127,15 +127,15 @@ ok(r.status === 201 && r.data.totals.proposition === 262 && r.data.totals.opposi
 const t4 = mine.find(t => t.status === 'ongoing')
 let det = (await org('GET', `/tournaments/${t4.id}`)).data
 const live = det.rounds.find(x => x.status === 'released')
-// the organizer cannot fill ballots: the panels vote themselves
+// a ballot belongs to a judge: the organizer cannot send one in their own name (only "as" a judge of the panel, section 62)
 {
   const d0 = det.debates.find(x => x.roundId === live.id && !x.winner)
   const bd = (await org('GET', `/ballots/${d0.id}`)).data
   const sc = {}
   bd.proposition.speakers.forEach(s => (sc[s.id] = 74)); bd.opposition.speakers.forEach(s => (sc[s.id] = 73.5))
   r = await org('POST', `/ballots/${d0.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 36 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id } })
-  ok(r.status === 403 && r.data.error === 'judges_only', 'the organizer cannot send or change a ballot')
-  ok((await admin('POST', `/ballots/${d0.id}`, {})).data?.error === 'judges_only', 'an admin cannot either')
+  ok(r.status === 403 && r.data.error === 'judges_only', 'the organizer cannot send a ballot in their own name')
+  ok((await admin('POST', `/ballots/${d0.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 36 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id } })).data?.error === 'judges_only', 'an admin cannot either')
 }
 for (const d of det.debates.filter(x => x.roundId === live.id && !x.winner)) {
   await panelVote(d.id, bd => {
@@ -1345,7 +1345,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   let tr = await host.c('POST', '/tournaments', { ...base(1), level: 'mixed', format: 'APF' })
   ok(tr.status === 201 && tr.data.level === 'mixed' && tr.data.format === 'APF', 'a mixed (school + university) APF tournament is created')
   const apf = tr.data
-  ok((await host.c('POST', '/tournaments', { ...base(2), format: 'LD' })).status === 400, 'an unknown format is refused')
+  ok((await host.c('POST', '/tournaments', { ...base(2), format: 'CNDF' })).status === 400, 'an unknown format is refused')
   r = await host.c('POST', `/tournaments/${apf.id}/teams`, { name: 'Тройка', institution: 'Школа 1', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
   ok(r.status === 400 && r.data.error === 'wrong_speaker_count' && r.data.details?.need === 2, 'APF teams have two speakers, not three')
   for (const n of ['Альфа', 'Бета']) await host.c('POST', `/tournaments/${apf.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Первый`, `${n} Второй`] })
@@ -2124,6 +2124,12 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
         [seat.debate, seat.judge, team, rate[seat.name], email])
     }
   }
+  // round 1 is over (results straight in the database: this section checks the panels, not the ballots)
+  const finish = async roundId => {
+    await db.query("update debates set winner = 'proposition', ballot_status = 'confirmed' where round_id = $1", [roundId])
+    await db.query("update rounds set status = 'completed' where id = $1", [roundId])
+  }
+  await finish(rounds[0].id)
   await host.c('POST', `/rounds/${rounds[1].id}/draw`, { addSwing: false })
   const r2 = await panels(rounds[1].id)
   const chairs = r2.filter(x => x.chair).map(x => x.name)
@@ -2139,6 +2145,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const bestChairs = Math.min(...perms(chairIds).map(p => p.reduce((n, judge, i) => n + seenIn(judge, rooms[i]), 0)))
   const bestWings = wingIds.reduce((n, w) => n + Math.min(...rooms.map(room => seenIn(w, room))), 0)
   ok(repeats === bestChairs + bestWings, `judges rotate: as few repeated teams as possible (${repeats})`)
+  await finish(rounds[1].id)
   await host.c('POST', `/rounds/${rounds[2].id}/draw`, { addSwing: false, method: 'slide', presentOnly: false, protectClubs: false })
   const saved = (await host.c('GET', `/tournaments/${t.id}`)).data.drawOptions
   ok(saved?.method === 'slide' && saved.addSwing === false && saved.protectClubs === false, 'the draw settings are kept for the next round')
@@ -2181,6 +2188,172 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await stranger.c('POST', `/speaker-invites/${token}/accept`)).data?.error === 'invite_used', 'a link works once')
   ok((await captain.c('POST', `/speakers/${slot.id}/invite`)).data?.error === 'speaker_already_linked', 'a linked slot cannot be invited again')
   ok((await notes(captain.c)).items.some(n => n.type === 'participant.teammateLinked'), 'the captain learns the teammate linked')
+}
+// ---------- 59. audit 2026-10: dates, team renames, replaced speakers, draw order, notifications of deleted tournaments ----------
+{
+  const host = await newAccount('Аудит Организатор')
+  // B1: impossible dates are a 400, not a 500
+  let r = await host.c('POST', '/tournaments', { ...tBody(400), name: `Аудит даты ${jtag}`, startDate: '2026-02-31', endDate: '2026-03-01' })
+  ok(r.status === 400, 'an impossible date (31 February) is refused with 400')
+  // B2: a tournament cannot start in the past (the watchdog would archive it at once and strike its owner)
+  r = await host.c('POST', '/tournaments', { ...tBody(401), name: `Аудит прошлое ${jtag}`, startDate: '2020-05-01', endDate: '2020-05-02' })
+  ok(r.data?.error === 'start_in_past', 'a tournament cannot be created in the past')
+
+  // B3–B5: the applicant's slot is linked even with the words swapped; a rename keeps the application; a replaced speaker is unlinked
+  const t = (await host.c('POST', '/tournaments', { ...tBody(402), name: `Аудит команды ${jtag}`, requireApproval: false })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const cap = await newAccount('Аудит Капитанов')
+  const club = (await cap.c('POST', '/clubs', { name: `Аудит клуб ${jtag}`, city: 'Астана' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+  await cap.c('POST', `/clubs/${club.id}/teams`, { name: 'Аудит Тим', join: true })
+  r = await cap.c('POST', `/tournaments/${t.id}/registrations`, {
+    teamName: 'Аудит Тим', institution: 'Лицей', speakers: ['капитанов   аудит', 'Второй Спикер', 'Третий Спикер'], phone: '+7 701 555 44 33', guardianConsent: true,
+  })
+  const regStatus = (await db.query('select status from team_registrations where id = $1', [r.data.id])).rows[0]?.status
+  if (regStatus !== 'confirmed') await host.c('PATCH', `/registrations/${r.data.id}`, { status: 'confirmed' })
+  let team = (await host.c('GET', `/tournaments/${t.id}`)).data.teams.find(x => x.name === 'Аудит Тим')
+  ok(team?.speakers[0].userId === cap.id, 'the applicant is linked to their slot even when the name is written another way')
+  r = await host.c('PATCH', `/teams/${team.id}`, { name: 'Аудит Тим 2', institution: 'Лицей', speakers: ['Капитанов Аудит', 'Новый Человек', 'Третий Спикер'] })
+  ok(r.status === 200, 'the organizer renames the team and replaces a speaker')
+  ok((await db.query('select team_name from team_registrations where tournament_id = $1', [t.id])).rows[0]?.team_name === 'Аудит Тим 2', "the team's application follows the new name")
+  const slots = (await db.query('select name, user_id from speakers where team_id = $1 order by position', [team.id])).rows
+  ok(slots[0].user_id === cap.id, 'the same person in a slot stays linked')
+  await db.query('update speakers set user_id = $1 where team_id = $2 and position = 2', [cap.id, team.id])
+  await host.c('PATCH', `/teams/${team.id}`, { name: 'Аудит Тим 2', institution: 'Лицей', speakers: ['Капитанов Аудит', 'Совсем Другой', 'Третий Спикер'] })
+  ok((await db.query('select user_id from speakers where team_id = $1 and position = 2', [team.id])).rows[0].user_id === null, 'a speaker replaced by another person is unlinked from the old account')
+
+  // B6: a round is drawn only after the earlier preliminary rounds are completed
+  for (const n of ['Аудит А', 'Аудит Б', 'Аудит В']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  for (let i = 1; i <= 2; i++) await addJudge(host.c, t.id, `Аудит Судья ${i}`)
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const rounds = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds
+  ok((await host.c('POST', `/rounds/${rounds[0].id}/draw`, { addSwing: false })).status === 201, 'round 1 is drawn')
+  ok((await host.c('POST', `/rounds/${rounds[1].id}/draw`, { addSwing: false })).data?.error === 'previous_round_unfinished', 'round 2 waits until round 1 is completed')
+
+  // B8: deleting a tournament removes the notifications that point into it
+  const before = Number((await db.query("select count(*) from notifications where link like $1", [`%/tournaments/${t.id}%`])).rows[0].count)
+  await host.c('DELETE', `/tournaments/${t.id}`)
+  const after = Number((await db.query("select count(*) from notifications where link like $1", [`%/tournaments/${t.id}%`])).rows[0].count)
+  ok(before > 0 && after === 0, 'a deleted tournament leaves no notifications that lead nowhere')
+}
+// ---------- 60. custom rounds and break: 1 preliminary round, a break of 6 with byes for seeds 1 and 2 ----------
+{
+  const host = await newAccount('Бай Организатор')
+  ok((await host.c('POST', '/tournaments', { ...tBody(410), name: `Бай 13 ${jtag}`, preliminaryRounds: 13 })).status === 400, 'at most 12 preliminary rounds')
+  ok((await host.c('POST', '/tournaments', { ...tBody(411), name: `Бай BP ${jtag}`, format: 'BP', breakSize: 6 })).status === 400, 'BP breaks are rooms of four (4, 8, 16, 32, 64)')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(412), name: `Бай 6 ${jtag}`, preliminaryRounds: 1, breakSize: 6 })).data
+  ok(t?.id && (await host.c('GET', `/tournaments/${t.id}`)).data.rounds.length === 1, 'a tournament with 1 preliminary round and a break of 6')
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const names = ['Бай1', 'Бай2', 'Бай3', 'Бай4', 'Бай5', 'Бай6', 'Бай7', 'Бай8']
+  for (const n of names) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  for (let i = 1; i <= 4; i++) await addJudge(host.c, t.id, `Бай Судья ${i}`)
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const details = async () => (await host.c('GET', `/tournaments/${t.id}`)).data
+  const ballot = win => sheet => {
+    const lo = win === 'proposition' ? 'opposition' : 'proposition'
+    const scores = {}
+    sheet[win].speakers.forEach(x => (scores[x.id] = 72)); sheet[lo].speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: win, scores, reply: { [win]: 36, [lo]: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  const play = async roundId => {
+    const drawn = await host.c('POST', `/rounds/${roundId}/draw`, { addSwing: false })
+    await host.c('PATCH', `/rounds/${roundId}`, { motion: 'ЭП введёт бесплатный проезд для школьников', status: 'released' })
+    for (const d of (await details()).debates.filter(x => x.roundId === roundId)) await panelVote(d.id, ballot('proposition'))
+    await host.c('PATCH', `/rounds/${roundId}`, { status: 'completed' })
+    return drawn
+  }
+  await play((await details()).rounds[0].id)
+  const r = await host.c('POST', `/tournaments/${t.id}/break`)
+  ok(r.status === 201 && r.data.seeds.length === 6 && r.data.rounds.map(x => x.stage).join() === 'quarter,semi,final', 'a break of 6 plays a quarterfinal, a semifinal and a final')
+  const seeds = new Map(r.data.seeds.map(s => [s.team.id, s.seed]))
+  const [qf, sf, fin] = r.data.rounds
+  const q = await play(qf.id)
+  const qDebates = q.data.debates
+  const qSeeds = qDebates.map(d => [seeds.get(d.propositionTeamId), seeds.get(d.oppositionTeamId)].sort((a, b) => a - b).join('v')).sort()
+  ok(qDebates.length === 2 && qSeeds.join() === '3v6,4v5', 'seeds 1 and 2 get a bye: the quarterfinal is 3–6 and 4–5')
+  const s = await play(sf.id)
+  const semis = s.data.debates.map(d => [seeds.get(d.propositionTeamId), seeds.get(d.oppositionTeamId)].sort((a, b) => a - b))
+  ok(semis.length === 2 && semis.some(p => p[0] === 1) && semis.some(p => p[0] === 2) && semis.every(p => p[1] >= 3 && p[1] <= 6), 'the bye teams meet the quarterfinal winners in the semifinals')
+  await play(fin.id)
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })).status === 200, 'the tournament with byes finishes')
+  const bracket = (await client()('GET', `/tournaments/${t.id}/bracket`)).data
+  ok(!!bracket.champion, 'the champion is known')
+}
+// ---------- 61. new formats: Lincoln–Douglas (one against one), Public Forum, Asian Parliamentary, Australs ----------
+{
+  for (const [format, speakers, scale, reply] of [['LD', 1, [26, 30], null], ['PF', 2, [26, 30], null], ['ASIAN', 3, [70, 80], [35, 40]], ['AUSTRALS', 3, [60, 80], null]]) {
+    const host = await newAccount(`Формат Организатор${format}`) // one organizer may run 3 tournaments at once
+    const t = (await host.c('POST', '/tournaments', { ...tBody(420), name: `Формат ${format} ${jtag}`, format, preliminaryRounds: 1, breakSize: 2 })).data
+    await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+    const names = ['Альфа', 'Бета']
+    for (const n of names) {
+      const r = await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: Array.from({ length: speakers }, (_, i) => `${n} Спикер${'АБВ'[i]}`) })
+      if (r.status !== 201) ok(false, `${format} team ${r.status} ${JSON.stringify(r.data)}`)
+    }
+    ok((await host.c('POST', `/tournaments/${t.id}/teams`, { name: 'Лишний', institution: 'Школа', speakers: ['Один Два', 'Три Четыре', 'Пять Шесть'].slice(0, speakers === 3 ? 2 : speakers + 1) })).status === 400,
+      `${format}: a team needs exactly ${speakers} speaker(s)`)
+    await addJudge(host.c, t.id, `Формат Судья ${format}`)
+    await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+    const round = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+    await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+    await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП верит, что справедливость важнее свободы', status: 'released' })
+    const debate = (await host.c('GET', `/tournaments/${t.id}`)).data.debates.find(d => d.roundId === round.id)
+    let rules
+    await panelVote(debate.id, sheet => {
+      rules = sheet.rules
+      const scores = {}
+      sheet.proposition.speakers.forEach(x => (scores[x.id] = scale[1] - 1)); sheet.opposition.speakers.forEach(x => (scores[x.id] = scale[0] + 1))
+      return {
+        winner: 'proposition', scores,
+        ...(reply && { reply: { proposition: reply[1] - 1, opposition: reply[0] + 1 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }),
+      }
+    })
+    ok(rules?.speakers === speakers && rules.speaker[0] === scale[0] && rules.speaker[1] === scale[1] && !!rules.reply === !!reply, `${format}: the ballot follows the format (${speakers} speaker(s), ${scale.join('–')}${reply ? ', reply' : ''})`)
+    ok((await host.c('PATCH', `/rounds/${round.id}`, { status: 'completed' })).status === 200
+      && (await client()('GET', `/tournaments/${t.id}/standings`)).data.teams[0].wins === 1, `${format}: the round counts in the table`)
+  }
+}
+// ---------- 62. the organizer enters or corrects a judge's ballot ----------
+{
+  const host = await newAccount('Правка Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(430), name: `Правка ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Правка А', 'Правка Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  const judgeId = (await addJudge(host.c, t.id, 'Правка Судья')).data.id
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const round = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП отменит домашние задания', status: 'released' })
+  const debate = (await host.c('GET', `/tournaments/${t.id}`)).data.debates.find(d => d.roundId === round.id)
+  const sheetOf = async c => (await c('GET', `/ballots/${debate.id}`)).data
+  const vote = (sheet, win) => {
+    const lo = win === 'proposition' ? 'opposition' : 'proposition'
+    const scores = {}
+    sheet[win].speakers.forEach(x => (scores[x.id] = 72)); sheet[lo].speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: win, scores, reply: { [win]: 36, [lo]: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  // the judge votes for the proposition; the round is completed
+  const jc = judgeClients.get(judgeId)
+  await jc('POST', `/ballots/${debate.id}`, vote(await sheetOf(jc), 'proposition'))
+  ok((await sheetOf(jc)).sent?.winner === 'proposition', 'a judge who opens their ballot again sees what they sent')
+  await host.c('PATCH', `/rounds/${round.id}`, { status: 'completed' })
+  ok((await jc('POST', `/ballots/${debate.id}`, vote(await sheetOf(jc), 'opposition'))).data?.error === 'ballot_locked', 'after the round a judge can no longer change the ballot')
+  // the organizer opens the judge's ballot and corrects it: the table follows
+  const asSheet = (await host.c('GET', `/ballots/${debate.id}?as=${judgeId}`)).data
+  ok(asSheet.canSubmit === true && asSheet.onBehalfOf?.judgeId === judgeId && asSheet.sent?.winner === 'proposition', "the organizer opens the judge's ballot filled in")
+  const stranger = await newAccount('Правка Чужой')
+  ok((await stranger.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'opposition'), asJudgeId: judgeId })).status === 403, "only organizers may send a judge's ballot")
+  const r = await host.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'opposition'), asJudgeId: judgeId })
+  ok(r.status === 201, 'the organizer corrects the ballot after the round')
+  const table = (await client()('GET', `/tournaments/${t.id}/standings`)).data.teams
+  const oppTeam = debate.oppositionTeamId
+  ok(table[0].team.id === oppTeam && table[0].wins === 1, 'the table follows the corrected ballot')
+  const review = (await host.c('GET', `/ballots/${debate.id}`)).data
+  ok(review.panel?.[0]?.enteredBy === 'Правка Организатор' && review.canCorrect === true, "the ballot is marked with the organizer's name")
+  ok((await notes(jc)).items.some(n => n.type === 'judge.ballotEdited'), 'the judge is told')
+  // after the finish nothing changes
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })
+  ok((await host.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'proposition'), asJudgeId: judgeId })).data?.error === 'tournament_finished', 'a finished tournament keeps its ballots')
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

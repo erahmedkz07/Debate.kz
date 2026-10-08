@@ -57,3 +57,6 @@ export function formatNumber(n: number) {
 
 // first letters of the first two words; signs like № or « are skipped ("Гимназия №1" -> "Г1")
 export const initials = (name: string) => (name.match(/[\p{L}\p{N}]+/gu) ?? [name]).map(p => p[0]).slice(0, 2).join('').toUpperCase()
+
+// today in Kazakhstan (YYYY-MM-DD): date pickers and "days to the start" count by the Almaty calendar, not by UTC
+export const todayKz = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())

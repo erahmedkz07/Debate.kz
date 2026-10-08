@@ -1,13 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
-import { fromDay, toDay, todayKz } from '../lib/dates.js'
+import { fromDay, isRealDay, toDay, todayKz } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
-import { announceBreak, cancelBreak, categoriesOf } from '../services/playoffs.js'
+import { announceBreak, cancelBreak, categoriesOf, MAX_BREAK, validBreak } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
 import { institutionIdFor } from '../services/institutions.js'
 import { confirmRegistration, fillFromWaitlist, runLottery } from '../services/selection.js'
@@ -15,7 +15,7 @@ import { awardCandidates, issueAwardCertificates, setAward } from '../services/a
 import { activeStrikes, giveStrike, LATE_CANCEL_DAYS, STRIKE_LIMIT } from '../services/watchdog.js'
 import { REGION_CODES, regionOfCity } from '../lib/regions.js'
 import { ensureCertificates } from '../services/certificates.js'
-import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished, notifyBreakAnnounced } from '../services/notify.js'
+import { background, notifyAdminsNewTournament, notifyRegistration, notifyRoundCompleted, notifyRoundReleased, notifyTournamentFinished, notifyBreakAnnounced, forgetTournamentNotifications } from '../services/notify.js'
 import type { Prisma } from '../generated/prisma/client.js'
 
 // video call links: https only (Zoom, Google Meet, Teams…)
@@ -35,8 +35,10 @@ import path from 'node:path'
 import { FORMAT_CODES, rulesOf, scoringDefaults } from '../services/formats.js'
 import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
 import { bareMotion } from '../lib/motion.js'
+import { sameName } from '../lib/names.js'
+export const MAX_PRELIMS = 12 // preliminary rounds a tournament may have
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const day = z.string().refine(isRealDay, 'invalid_date')
 
 // ---------- tournaments ----------
 
@@ -62,11 +64,12 @@ const createSchema = z.object({
   format: z.enum(FORMAT_CODES).default('WSDC'),
   description: z.string().trim().max(3000).default(''),
   coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
-  preliminaryRounds: z.number().int().min(2).max(8),
-  breakSize: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+  preliminaryRounds: z.number().int().min(1).max(MAX_PRELIMS),
+  breakSize: z.number().int().min(2).max(MAX_BREAK), // checked against the format below (BP: rooms of four)
   // the place: region (when missing, found from the city), city or village, and optionally a district or address
   region: z.enum(REGION_CODES).optional(),
   district: z.string().trim().max(80).optional(),
+  venue: z.string().trim().max(160).optional(),
   maxTeams: z.number().int().min(4).max(128),
   registrationOpen: z.boolean().default(true),
   requireApproval: z.boolean().default(true),
@@ -76,11 +79,13 @@ const createSchema = z.object({
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
   // BP playoffs are rooms of four: the smallest break is one final room
-  .refine(v => v.format !== 'BP' || v.breakSize >= 4, { path: ['breakSize'], message: 'break_too_small' })
+  .refine(v => validBreak(v.breakSize, v.format === 'BP'), { path: ['breakSize'], message: 'break_too_small' })
 
 organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const d = body(req, createSchema)
   const isAdmin = req.user!.role === 'admin'
+  // a tournament in the past would be archived by the watchdog at once (and give its owner a strike)
+  if (d.startDate < todayKz()) throw badRequest('start_in_past')
   if (!isAdmin) {
     const active = await prisma.tournament.count({
       where: { status: { not: 'finished' }, moderation: { not: 'rejected' }, abandonedAt: null, organizers: { some: { userId: req.user!.id, role: 'owner' } } },
@@ -96,7 +101,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
     data: {
       name: d.name, city: d.city, startDate: start, endDate: end, level: d.level, format: d.format, description: d.description,
       coverUrl: d.coverUrl, preliminaryRounds: d.preliminaryRounds, breakSize: d.breakSize, maxTeams: d.maxTeams,
-      region: d.region ?? regionOfCity(d.city), district: d.district || null,
+      region: d.region ?? regionOfCity(d.city), district: d.district || null, venue: d.venue || null,
       registrationOpen: d.registrationOpen, requireApproval: d.requireApproval,
       registrationDeadline: d.registrationDeadline ? fromDay(d.registrationDeadline) : null,
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
@@ -136,6 +141,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     city: z.string().trim().min(2).max(60).optional(),
     region: z.enum(REGION_CODES).optional(),
     district: z.string().trim().max(80).nullable().optional(),
+    venue: z.string().trim().max(160).nullable().optional(),
     startDate: day.optional(),
     endDate: day.optional(),
     registrationDeadline: day.nullable().optional(),
@@ -145,7 +151,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     selectionMode: z.enum(['manual', 'first_come', 'lottery']).optional(),
     clubQuota: z.number().int().min(1).max(32).nullable().optional(),
     breakCategories: z.array(z.object({
-      key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+      key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().min(2).max(MAX_BREAK),
     })).max(3).optional(),
     roomLinks: z.record(z.string().trim().min(1).max(60), httpsUrl).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
@@ -177,11 +183,12 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   // a new city without a region: take the city's region
   if (rest.city && !rest.region) data.region = regionOfCity(rest.city) ?? cur.region
   if (rest.district !== undefined) data.district = rest.district || null
+  if (rest.venue !== undefined) data.venue = rest.venue || null
   if (rest.breakCategories) {
     if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
     if (new Set(rest.breakCategories.map(c => c.key)).size !== rest.breakCategories.length) throw badRequest('invalid_break_categories')
     // BP brackets are rooms of four
-    if (cur.format === 'BP' && rest.breakCategories.some(c => c.size < 4)) throw badRequest('break_too_small')
+    if (rest.breakCategories.some(c => !validBreak(c.size, cur.format === 'BP'))) throw badRequest('break_too_small')
     // a removed category no longer marks any team
     const keys = rest.breakCategories.map(c => c.key)
     const teams = await prisma.team.findMany({ where: { tournamentId: cur.id, NOT: { categories: { isEmpty: true } } }, select: { id: true, categories: true } })
@@ -278,6 +285,7 @@ organizerRouter.delete('/tournaments/:id', org, async (req, res) => {
   // deleting a tournament teams already got places in, less than 3 days before the start (or after it): a strike
   const late = t.status !== 'finished' && t._count.teams > 0
     && fromDay(todayKz()).getTime() >= t.startDate.getTime() - LATE_CANCEL_DAYS * 86_400_000
+  await forgetTournamentNotifications(t.id)
   await prisma.tournament.delete({ where: { id: t.id } })
   const owner = t.organizers[0]?.userId
   if (late && owner && req.user!.role !== 'admin') await giveStrike(owner, t, 'late_cancel')
@@ -290,7 +298,7 @@ const teamSchema = z.object({
   name: z.string().trim().min(2).max(60),
   institution: z.string().trim().min(2).max(150),
   city: z.string().trim().max(60).optional(),
-  speakers: z.array(z.string().trim().min(3).max(100)).min(2).max(3), // the tournament's format says how many
+  speakers: z.array(z.string().trim().min(3).max(100)).min(1).max(3), // the tournament's format says how many (LD: one)
 })
 
 // a team has exactly as many speakers as the tournament's format needs
@@ -326,7 +334,14 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
   const d = body(req, teamSchema)
   assertSpeakers(existing.tournament.format, d.speakers)
   const team = await prisma.$transaction(async tx => {
-    await Promise.all(existing.speakers.map((s, i) => tx.speaker.update({ where: { id: s.id }, data: { name: d.speakers[i] } })))
+    // a slot whose name really changed is another person now: the old account is unlinked (its career keeps clean)
+    await Promise.all(existing.speakers.map((s, i) => tx.speaker.update({
+      where: { id: s.id }, data: { name: d.speakers[i], ...(!sameName(s.name, d.speakers[i]) && { userId: null }) },
+    })))
+    // the team's application follows its new name (the captain's check-in and their cabinet find the team by it)
+    if (d.name !== existing.name) {
+      await tx.teamRegistration.updateMany({ where: { tournamentId: existing.tournamentId, teamName: existing.name }, data: { teamName: d.name } })
+    }
     return tx.team.update({
       where: { id: existing.id },
       data: { name: d.name, city: d.city, institutionId: await institutionId(d.institution, existing.tournament.level) },

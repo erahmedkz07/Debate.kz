@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, CheckCircle2, Clock, DoorOpen, Eye, Gavel, Medal, Scale, Trophy, UserX } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, DoorOpen, Eye, Gavel, Medal, PenLine, Scale, Trophy, UserX } from 'lucide-react'
 import type { BallotData, PanelBallot } from '@/api'
 import { cn, formatDateTime } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { BackButton } from '@/components/layout/BackButton'
 import { BP_POINTS, sidesOf, useSides } from '@/lib/formats'
@@ -103,11 +104,19 @@ function JudgeBallot({ p, data }: { p: PanelBallot; data: BallotData }) {
         <p className="flex items-center gap-2 font-bold"><Gavel className="size-4 text-primary" />{p.name}
           <span className="text-xs font-normal text-muted-foreground">· {p.isChair ? t('notifications.chair') : t('notifications.wing')}</span>
         </p>
+        <span className="flex flex-wrap items-center gap-2">
+        {p.enteredBy && <Badge variant="accent"><PenLine className="size-3" />{t('ballot.review.enteredBy', { name: p.enteredBy })}</Badge>}
+        {data.canCorrect && (
+          <Button asChild size="sm" variant="outline">
+            <Link to={`/ballot/${data.debate.id}?as=${p.judgeId}`}><PenLine className="size-3.5" />{t(p.submittedAt ? 'ballot.review.correct' : 'ballot.review.enter')}</Link>
+          </Button>
+        )}
         {p.submittedAt
           ? <Badge variant="success"><CheckCircle2 className="size-3" />{t('ballot.review.sent', { time: formatDateTime(p.submittedAt) })}</Badge>
           : p.hasAccount
             ? <Badge variant="outline"><Clock className="size-3" />{t('dashboard.ballots.pending')}</Badge>
             : <Badge variant="danger"><UserX className="size-3" />{t('ballot.review.noAccount')}</Badge>}
+        </span>
       </div>
       {p.scores && p.totals && (
         <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">

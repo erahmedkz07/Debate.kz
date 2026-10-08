@@ -7,7 +7,7 @@ import { publicUser, requireAuth } from '../middleware/auth.js'
 import { sendMail } from '../lib/mail.js'
 import { env } from '../lib/env.js'
 import { summaryInclude, toSummary } from '../services/tournaments.js'
-import { background, notify, notifyModeration } from '../services/notify.js'
+import { background, forgetTournamentNotifications, notify, notifyModeration } from '../services/notify.js'
 import type { User } from '../generated/prisma/client.js'
 import { runWatchdog } from '../services/watchdog.js'
 import { platformAnalytics } from '../services/analytics.js'
@@ -74,6 +74,7 @@ adminRouter.delete('/admin/tournaments/:id', async (req, res) => {
   // notify first: after deletion the owner link is gone
   const owner = t.organizers[0]?.user
   await notifyModeration(t.id, t.name, 'deleted', reason).catch(() => undefined)
+  await forgetTournamentNotifications(t.id)
   await prisma.tournament.delete({ where: { id: t.id } })
   await logAction(req.user!, 'tournament.delete', { type: 'tournament', id: t.id, label: t.name }, reason)
   if (owner) {

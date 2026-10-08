@@ -10,7 +10,7 @@ import {
 import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
-import { cn, formatDate, formatDateRange, formatDateTime, initials } from '@/lib/utils'
+import { cn, formatDate, formatDateRange, formatDateTime, initials, todayKz } from '@/lib/utils'
 import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -37,12 +37,13 @@ import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { conflictReason } from '@/lib/conflicts'
-import { PlacePicker, placeCity } from '@/components/tournament/PlacePicker'
+import { PlacePicker, placeCity, placeDistrict } from '@/components/tournament/PlacePicker'
 import { AwardsCard } from '@/components/tournament/AwardsCard'
 import { regionOfCity } from '@/content/geo'
 import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedback'
 import { formatOfTournament } from '@/content/formats'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { NumberChoice } from '@/components/ui/number-choice'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -497,7 +498,7 @@ function Judges({ data, reload }: SectionProps) {
 function MissingMotions({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
   const roundName = useRoundName()
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const today = todayKz()
   const days = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
   // before the start: every preliminary round; during the tournament: only the next round (motions often come late)
   const drafts = data.rounds.filter(r => r.kind !== 'elimination' && r.status === 'draft')
@@ -1046,17 +1047,17 @@ function Ballots({ data }: SectionProps) {
 function DetailsCard({ data, reload }: SectionProps) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
-  const initial = { region: data.region ?? regionOfCity(data.city)?.code ?? '', city: data.city, district: data.district ?? '', startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
+  const initial = { region: data.region ?? regionOfCity(data.city)?.code ?? '', city: data.city, district: data.district ?? '', venue: data.venue ?? '', startDate: data.startDate, endDate: data.endDate, registrationDeadline: data.registrationDeadline ?? '', maxTeams: data.maxTeams }
   const [f, setF] = useState(initial)
   useEffect(() => setF(initial), [data]) // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = JSON.stringify(f) !== JSON.stringify(initial)
   const minTeams = Math.max(4, data.teams.length)
   const limitBad = !Number.isInteger(f.maxTeams) || f.maxTeams < minTeams || f.maxTeams > 128
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayKz()
   const save = async () => {
     const city = placeCity(f)
     if (!f.region || city.length < 2) return void toast.error(t('place.cityRequired'))
-    if (await run('details', () => updateTournament(data.id, { ...f, city, district: f.district.trim() || null, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
+    if (await run('details', () => updateTournament(data.id, { ...f, city, district: placeDistrict({ ...f, venue: f.venue }) || null, venue: f.venue.trim() || null, registrationDeadline: f.registrationDeadline || null }), t('dashboard.teams.saved'))) reload()
   }
   return (
     <Card className="space-y-4 p-6">
@@ -1066,7 +1067,7 @@ function DetailsCard({ data, reload }: SectionProps) {
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <PlacePicker value={{ region: f.region, city: f.city, district: f.district }} onChange={p => setF({ ...f, ...p })} />
+          <PlacePicker value={{ region: f.region, city: f.city, district: f.district, venue: f.venue }} onChange={p => setF({ ...f, ...p })} />
         </div>
         <div>
           <Label htmlFor="d-max">{t('wizard.maxTeams')}</Label>
@@ -1108,7 +1109,7 @@ function CategoriesCard({ data, reload }: SectionProps) {
   const [list, setList] = useState(saved)
   const [name, setName] = useState('')
   useEffect(() => setList(data.breakCategories ?? []), [data.breakCategories])
-  const sizes = isBP(data.format) ? [4, 8, 16] : [2, 4, 8, 16]
+  const sizes = isBP(data.format) ? [4, 8, 16, 32] : [2, 4, 8, 16]
   const dirty = JSON.stringify(list) !== JSON.stringify(saved)
   const add = () => {
     const n = name.trim()
@@ -1129,8 +1130,13 @@ function CategoriesCard({ data, reload }: SectionProps) {
             <li key={c.key} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 p-2 text-sm">
               <span className="min-w-0 flex-1 truncate font-semibold">{c.name}</span>
               <span className="text-xs text-muted-foreground">{t('dashboard.categories.size')}</span>
-              <Select size="sm" className="w-24" value={String(c.size)} aria-label={`${c.name}: ${t('dashboard.categories.size')}`}
-                onValueChange={v => setList(list.map((x, j) => (j === i ? { ...x, size: Number(v) } : x)))} options={sizes.map(n => ({ value: String(n), label: String(n) }))} />
+              {isBP(data.format) ? (
+                <Select size="sm" className="w-24" value={String(c.size)} aria-label={`${c.name}: ${t('dashboard.categories.size')}`}
+                  onValueChange={v => setList(list.map((x, j) => (j === i ? { ...x, size: Number(v) } : x)))} options={sizes.map(n => ({ value: String(n), label: String(n) }))} />
+              ) : (
+                <NumberChoice size="sm" className="w-32" value={c.size} presets={sizes} min={2} max={64} aria-label={`${c.name}: ${t('dashboard.categories.size')}`}
+                  onChange={n => setList(list.map((x, j) => (j === i ? { ...x, size: n } : x)))} />
+              )}
               <button type="button" aria-label={t('common.delete')} onClick={() => setList(list.filter((_, j) => j !== i))}
                 className="grid size-8 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger"><X className="size-4" /></button>
             </li>
@@ -1232,7 +1238,7 @@ function SettingsSection({ data, reload }: SectionProps) {
   const toggleRegistration = async (open: boolean) => {
     if (await run('reg', () => updateTournament(data.id, { registrationOpen: open }), open ? t('dashboard.stage.regOpened') : t('dashboard.stage.regClosed'))) reload()
   }
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const today = todayKz()
   const daysToStart = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
   const stages: TournamentStatus[] = ['registration', 'ongoing', 'finished']
   const stageIndex = stages.indexOf(data.status)

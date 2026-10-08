@@ -201,7 +201,8 @@ model Tournament {
   name                 String
   city                 String
   region               String? // region code (content/geo.ts): 17 regions and Astana, Almaty, Shymkent
-  district             String? // optional: a district of a big city or an address
+  district             String? // optional: the district (аудан) of the region or of a big city
+  venue                String? // optional: the venue — street, school, building
   startDate            DateTime         @map("start_date") @db.Date
   endDate              DateTime         @map("end_date") @db.Date
   format               String           @default("WSDC")
@@ -545,6 +546,7 @@ model Ballot {
   winner      Side
   ranking     Side[] // BP: the panel's ranking of the four teams, 1st to 4th
   submittedAt DateTime       @default(now()) @map("submitted_at")
+  enteredBy   String?        @map("entered_by") // an organizer who entered or corrected this judge's ballot (their name)
   debate      Debate         @relation(fields: [debateId], references: [id], onDelete: Cascade)
   judge       Judge          @relation(fields: [judgeId], references: [id], onDelete: Cascade)
   scores      SpeakerScore[]

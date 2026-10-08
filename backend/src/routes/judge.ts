@@ -8,6 +8,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
 import { isOrganizerOf, teamInclude, toDebate, toTeam } from '../services/tournaments.js'
 import { BP_SIDES, rulesOf, sidesOf, type SideCode } from '../services/formats.js'
+import { background, notify } from '../services/notify.js'
 
 export const judgeRouter = Router()
 
@@ -42,9 +43,10 @@ judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {
 })
 
 // Who may open a ballot: a judge of this debate (to fill it in), the tournament's organizers or an admin (to read it).
-// Only the judges themselves submit ballots: organizers see the scores and who has voted, and cannot change them.
-// British Parliamentary: the panel confers and the chair sends the one agreed ballot; wings read it.
-async function loadBallotContext(debateId: string, user: User) {
+// Judges send their own ballots. An organizer may also enter or correct a judge's ballot ("as" = that judge): a lost
+// phone, a typo found after the round, a judge who left. Such a ballot is marked with the organizer's name and the
+// judge is told. British Parliamentary: the panel confers and the chair sends the one agreed ballot; wings read it.
+async function loadBallotContext(debateId: string, user: User, asJudgeId?: string) {
   const d = await prisma.debate.findUnique({
     where: { id: debateId },
     include: {
@@ -58,9 +60,11 @@ async function loadBallotContext(debateId: string, user: User) {
     },
   })
   if (!d) throw notFound('debate_not_found')
-  const mine = d.judges.find(j => j.judge.userId === user.id)
-  const myJudge = mine?.judge
   const manager = await isOrganizerOf(user, d.round.tournamentId)
+  if (asJudgeId && !manager) throw forbidden('organizers_only')
+  const mine = asJudgeId ? d.judges.find(j => j.judgeId === asJudgeId) : d.judges.find(j => j.judge.userId === user.id)
+  if (asJudgeId && !mine) throw notFound('judge_not_on_panel')
+  const myJudge = mine?.judge
   if (!myJudge && !manager) throw forbidden('not_on_panel')
   const rules = rulesOf(d.round.tournament.format)
   const teams: Record<SideCode, typeof d.proposition | null> = {
@@ -68,11 +72,13 @@ async function loadBallotContext(debateId: string, user: User) {
   }
   // who may send: every judge in two-team formats, only the chair in BP
   const canSubmit = !!mine && (rules.teams === 2 || mine.isChair)
-  return { d, myJudge, rules, teams, sides: sidesOf(d.round.tournament.format), canSubmit }
+  return { d, myJudge, rules, teams, sides: sidesOf(d.round.tournament.format), canSubmit, onBehalf: !!asJudgeId, manager }
 }
 
+const asParam = (req: { query: Record<string, unknown> }) => (typeof req.query.as === 'string' && req.query.as ? req.query.as : undefined)
+
 judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
-  const { d, rules, teams, sides, canSubmit } = await loadBallotContext(param(req, 'debateId'), req.user!)
+  const { d, myJudge, rules, teams, sides, canSubmit, onBehalf, manager } = await loadBallotContext(param(req, 'debateId'), req.user!, asParam(req))
   // organizers (and BP wings) read every judge's ballot as it was sent; a judge who sends one sees the form
   const speakerName = new Map(sides.flatMap(side => teams[side]!.speakers).map(s => [s.id, s.name]))
   const sideOrder = (x: SideCode) => BP_SIDES.indexOf(x)
@@ -81,7 +87,7 @@ judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
     const total = (side: SideCode) => b ? b.scores.filter(s => s.side === side).reduce((sum, s) => sum + Number(s.score), 0) : 0
     return {
       judgeId: j.judgeId, name: j.judge.name, isChair: j.isChair, hasAccount: !!j.judge.userId,
-      submittedAt: b?.submittedAt.toISOString(), winner: b?.winner,
+      submittedAt: b?.submittedAt.toISOString(), winner: b?.winner, ...(b?.enteredBy && { enteredBy: b.enteredBy }),
       ...(b?.ranking.length && { ranking: b.ranking }),
       totals: b ? Object.fromEntries(sides.map(side => [side, total(side)])) : undefined,
       scores: b?.scores.sort((x, y) => sideOrder(x.side) - sideOrder(y.side) || x.position - y.position)
@@ -90,8 +96,22 @@ judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
   })
   // the sheet follows the tournament's format and score ranges
   const cfg = d.round.tournament.scoringConfig
+  // the form opens with the ballot already sent (the judge's own, or the one the organizer corrects)
+  const sent = canSubmit && myJudge ? d.ballots.find(b => b.judgeId === myJudge.id) : undefined
   res.json({
     canSubmit,
+    // organizers may correct the judges' ballots until the tournament is over
+    canCorrect: manager && d.round.tournament.status !== 'finished' && d.round.status !== 'draft',
+    ...(onBehalf && myJudge && { onBehalfOf: { judgeId: myJudge.id, name: myJudge.name } }),
+    ...(sent && {
+      sent: {
+        winner: sent.winner, ...(sent.ranking.length && { ranking: sent.ranking }), ...(sent.enteredBy && { enteredBy: sent.enteredBy }),
+        scores: Object.fromEntries(sent.scores.filter(s => s.position <= 3).map(s => [s.speakerId, Number(s.score)])),
+        reply: Object.fromEntries(sent.scores.filter(s => s.position === 4).map(s => [s.side, Number(s.score)])),
+        replySpeakers: Object.fromEntries(sent.scores.filter(s => s.position === 4).map(s => [s.side, s.speakerId])),
+        feedback: Object.fromEntries(sent.scores.filter(s => s.feedback).map(s => [s.position === 4 ? `reply:${s.side}` : s.speakerId, s.feedback!])),
+      },
+    }),
     rules: {
       format: d.round.tournament.format, teams: rules.teams, speakers: rules.speakers, step: Number(cfg?.step ?? rules.step),
       speaker: [Number(cfg?.speakerMin ?? rules.speaker[0]), Number(cfg?.speakerMax ?? rules.speaker[1])],
@@ -119,17 +139,24 @@ const ballotSchema = z.object({
   replySpeakers: z.object({ proposition: z.string(), opposition: z.string() }).optional(),
   // optional short written comments: speakerId -> text for substantive speeches, "reply:<side>" for replies
   feedback: z.record(z.string(), z.string().trim().max(400)).optional(),
+  asJudgeId: z.string().optional(), // an organizer enters or corrects this judge's ballot
 })
 
 judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
-  const { d, myJudge, rules, teams, sides, canSubmit } = await loadBallotContext(param(req, 'debateId'), req.user!)
-  // tournament rules: a ballot is the judge's own decision; organizers and admins only read it (checked before the form)
+  const data = body(req, ballotSchema)
+  const { d, myJudge, rules, teams, sides, canSubmit, onBehalf } = await loadBallotContext(param(req, 'debateId'), req.user!, data.asJudgeId)
+  // a judge sends their own ballot; an organizer may send it for a judge of the panel (asJudgeId)
   if (!myJudge) throw forbidden('judges_only')
   // BP: the panel agrees and the chair sends the one ballot
   if (!canSubmit) throw forbidden('chair_only')
-  const data = body(req, ballotSchema)
   if (d.round.status === 'draft') throw badRequest('round_not_released')
-  if (d.round.status === 'completed' || d.ballotStatus === 'confirmed') throw forbidden('ballot_locked')
+  if (onBehalf) {
+    // an organizer corrects ballots until the tournament is over; in the playoffs, until the next stage is drawn
+    if (d.round.tournament.status === 'finished') throw forbidden('tournament_finished')
+    if (d.round.kind === 'elimination' && await prisma.debate.count({
+      where: { round: { tournamentId: d.round.tournamentId, kind: 'elimination', category: d.round.category, number: { gt: d.round.number } } },
+    })) throw forbidden('later_round_drawn')
+  } else if (d.round.status === 'completed' || d.ballotStatus === 'confirmed') throw forbidden('ballot_locked')
   const judgeId = myJudge.id
 
   // ---- server-side validation by the tournament's format (never trust the client) ----
@@ -170,10 +197,12 @@ judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
   await prisma.$transaction(async tx => {
     // re-submitting replaces this judge's previous ballot
     await tx.ballot.deleteMany({ where: { debateId: d.id, judgeId } })
-    await tx.ballot.create({ data: { debateId: d.id, judgeId, winner, ranking: rules.teams === 4 ? ranking : [], scores: { create: rows } } })
+    await tx.ballot.create({ data: { debateId: d.id, judgeId, winner, ranking: rules.teams === 4 ? ranking : [], enteredBy: onBehalf ? req.user!.name : null, scores: { create: rows } } })
+    // a completed round stays confirmed; its table follows the corrected ballot
+    const ballotStatus = d.round.status === 'completed' ? 'confirmed' : 'submitted'
     if (rules.teams === 4) {
       // BP: the chair's agreed ballot is the result
-      await tx.debate.update({ where: { id: d.id }, data: { ballotStatus: 'submitted', winner, ranking } })
+      await tx.debate.update({ where: { id: d.id }, data: { ballotStatus, winner, ranking } })
       return
     }
 
@@ -185,8 +214,12 @@ judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
       // split panel (even size): the chair's ballot decides
       const chairId = d.judges.find(j => j.isChair)?.judgeId
       const winner = prop !== opp ? (prop > opp ? 'proposition' : 'opposition') : ballots.find(b => b.judgeId === chairId)!.winner
-      await tx.debate.update({ where: { id: d.id }, data: { ballotStatus: 'submitted', winner } })
+      await tx.debate.update({ where: { id: d.id }, data: { ballotStatus, winner } })
     }
   })
+  // the judge learns that an organizer entered or corrected their ballot
+  if (onBehalf && myJudge.userId) {
+    background(notify([myJudge.userId], 'judge.ballotEdited', { tournament: d.round.tournament.name, round: d.round.name, room: d.room, by: req.user!.name }, `/ballot/${d.id}`))
+  }
   res.status(201).json({ ok: true, totals, ...(rules.teams === 4 && { ranking }) })
 })

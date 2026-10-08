@@ -178,7 +178,7 @@ meRouter.get('/me/strikes', requireAuth(), async (req, res) => {
 const registrationSchema = z.object({
   teamName: z.string().trim().min(2).max(60),
   institution: z.string().trim().min(2).max(150),
-  speakers: z.array(z.string().trim().min(3).max(100)).min(2).max(3), // as many as the tournament's format needs
+  speakers: z.array(z.string().trim().min(3).max(100)).min(1).max(3), // as many as the tournament's format needs (LD: one)
   phone,
   // school and mixed tournaments: the parents (legal guardians) of speakers under 18 agreed to their data being processed
   guardianConsent: z.boolean().optional(),
