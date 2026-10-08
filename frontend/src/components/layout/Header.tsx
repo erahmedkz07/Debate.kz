@@ -11,6 +11,7 @@ import { setAccountLanguage } from '@/api'
 import { Avatar, UserMenu, cabinetLinks } from '@/components/auth/UserMenu'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { cn } from '@/lib/utils'
+import { setLanguage } from '@/lib/i18n'
 
 // "Home" shows only on wide screens in the top bar (the logo leads home too); every item is in the mobile menu
 const links = [
@@ -28,7 +29,7 @@ export function LangSwitch({ className, onDark }: { className?: string; onDark?:
   const { user, signIn } = useAuth()
   // a signed-in person's choice is kept in the account too: the Telegram bot then writes in the same language
   const choose = (l: 'ru' | 'kz') => {
-    void i18n.changeLanguage(l)
+    void setLanguage(l)
     if (user && user.language !== l) setAccountLanguage(l).then(signIn, () => undefined)
   }
   return (

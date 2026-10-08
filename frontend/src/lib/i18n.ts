@@ -1,7 +1,6 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import ru from '@/locales/ru.json'
-import kz from '@/locales/kz.json'
 
 const saved = (() => {
   try { return localStorage.getItem('lang') } catch { return null }
@@ -23,12 +22,28 @@ function withRussianPluralForms(tree: Tree): Tree {
   return out
 }
 
+// Russian ships with the page (it is also the fallback); the Kazakh dictionary (~170 KB) loads only for those who use it
 i18n.use(initReactI18next).init({
-  resources: { ru: { translation: ru }, kz: { translation: withRussianPluralForms(kz as Tree) } },
-  lng: saved === 'kz' ? 'kz' : 'ru',
+  resources: { ru: { translation: ru } },
+  lng: 'ru',
   fallbackLng: 'ru',
   interpolation: { escapeValue: false },
 })
+
+async function loadLanguage(lng: string) {
+  if (lng !== 'kz' || i18n.hasResourceBundle('kz', 'translation')) return
+  const kz = (await import('@/locales/kz.json')).default
+  i18n.addResourceBundle('kz', 'translation', withRussianPluralForms(kz as Tree))
+}
+
+// switch the site's language (the dictionary is fetched first, so no text flashes in the other language)
+export async function setLanguage(lng: 'ru' | 'kz') {
+  await loadLanguage(lng)
+  await i18n.changeLanguage(lng)
+}
+
+// the saved language is ready before the first render
+export const i18nReady = saved === 'kz' ? setLanguage('kz').catch(() => undefined) : Promise.resolve()
 
 // the tab title and the page language follow the chosen language
 const titles = { ru: 'Debate.kz — дебатные турниры', kz: 'Debate.kz — дебат турнирлері' }
