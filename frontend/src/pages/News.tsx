@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ChevronRight, EyeOff, Newspaper, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, EyeOff, Loader2, Newspaper, Pencil, Plus, Trash2 } from 'lucide-react'
 import { createNews, deleteNews, getNews, getNewsItem, NotFoundError, updateNews, type NewsInput } from '@/api'
 import type { NewsItem } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -139,6 +139,7 @@ export function NewsArticle() {
   const { data, loading, error, reload } = useAsync(() => getNewsItem(id), [id])
   const [editing, setEditing] = useState(false)
   const [confirm, setConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   if (error instanceof NotFoundError) return <NotFound />
   if (error) return <div className="container-page py-20"><ErrorState onRetry={reload} /></div>
   if (loading || !data) return <div className="container-page max-w-3xl py-10"><Skeleton className="h-96" /></div>
@@ -165,9 +166,10 @@ export function NewsArticle() {
         <DialogContent heading={t('news.deleteTitle')} description={data.title}>
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
-            <Button variant="danger" onClick={async () => {
-              try { await deleteNews(data.id); toast(t('news.deleted')); navigate('/news') } catch (e) { toast.error(errorMessage(e, t)) }
-            }}><Trash2 className="size-4" />{t('common.delete')}</Button>
+            <Button variant="danger" disabled={deleting} onClick={async () => {
+              setDeleting(true)
+              try { await deleteNews(data.id); toast(t('news.deleted')); navigate('/news') } catch (e) { toast.error(errorMessage(e, t)); setDeleting(false) }
+            }}>{deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}{t('common.delete')}</Button>
           </div>
         </DialogContent>
       </Dialog>

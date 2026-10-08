@@ -29,6 +29,7 @@ function NoClub({ onJoined }: { onJoined: () => Promise<void> }) {
   const requests = useAsync(getMyClubRequests)
   const [f, setF] = useState({ name: '', city: user?.city ?? '', institution: user?.institution ?? '', description: '' })
   const [code, setCode] = useState('')
+  const [cancelling, setCancelling] = useState<string | null>(null)
   const [busy, setBusy] = useState<'create' | 'join' | null>(null)
   const act = async (kind: 'create' | 'join', fn: () => Promise<unknown>, ok: string) => {
     if (!user?.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
@@ -47,7 +48,10 @@ function NoClub({ onJoined }: { onJoined: () => Promise<void> }) {
               <li key={r.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
                 <Link to={`/clubs/${r.club.id}`} className="flex-1 font-semibold text-primary hover:underline">{r.club.name}</Link>
                 <span className="text-xs text-muted-foreground">{r.club.city} · {formatDateTime(r.createdAt)}</span>
-                <Button size="sm" variant="ghost" onClick={async () => { try { await cancelClubRequest(r.id); requests.reload() } catch (e) { toast.error(errorMessage(e, t)) } }}>
+                <Button size="sm" variant="ghost" disabled={cancelling === r.id} onClick={async () => {
+                  setCancelling(r.id)
+                  try { await cancelClubRequest(r.id); requests.reload() } catch (e) { toast.error(errorMessage(e, t)) } finally { setCancelling(null) }
+                }}>
                   <X className="size-4" />{t('club.request.cancel')}
                 </Button>
               </li>
