@@ -561,8 +561,9 @@ export default function TournamentPage() {
   const { id = '' } = useParams()
   const { t, i18n } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getTournamentById(id), [id])
-  // deep links like /tournaments/:id?tab=draw (e.g. from "My debates")
-  const [params] = useSearchParams()
+  // deep links like /tournaments/:id?tab=draw (e.g. from "My debates"); the open tab stays in the address, so a
+  // refresh or a shared link shows the same tab
+  const [params, setParams] = useSearchParams()
   const tabs = ['overview', 'teams', 'draw', 'playoffs', 'results', 'speakers', 'judges', 'reviews']
   const requestedTab = params.get('tab')
 
@@ -599,7 +600,8 @@ export default function TournamentPage() {
       </section>
 
       <div className="container-page py-8 sm:py-10">
-        <Tabs defaultValue={requestedTab && tabs.includes(requestedTab) ? requestedTab : data.status === 'registration' ? 'overview' : 'draw'}>
+        <Tabs value={requestedTab && tabs.includes(requestedTab) ? requestedTab : data.status === 'registration' ? 'overview' : 'draw'}
+          onValueChange={v => setParams(p => { p.set('tab', v); return p }, { replace: true, preventScrollReset: true })}>
           <TabsList>
             <TabsTrigger value="overview">{t('tournament.tabs.overview')}</TabsTrigger>
             <TabsTrigger value="teams">{t('tournament.tabs.teams')} <span className="ml-1 text-xs opacity-60">{data.teams.filter(x => !x.swing).length}</span></TabsTrigger>

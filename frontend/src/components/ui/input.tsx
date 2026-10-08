@@ -27,7 +27,7 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
     <label className="flex cursor-pointer items-center justify-between gap-4 py-1">
       <span className="text-sm font-medium">{label}</span>
       <button
-        type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}
+        type="button" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}
         className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors', checked ? 'bg-primary' : 'bg-border')}
       >
         <span className={cn('absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform', checked && 'translate-x-5')} />

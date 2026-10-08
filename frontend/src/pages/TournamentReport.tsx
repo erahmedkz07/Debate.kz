@@ -33,13 +33,14 @@ export default function TournamentReport() {
           <Button variant="outline" onClick={() => void downloadXlsx(data, tables)}><FileSpreadsheet className="size-4" />{t('export.excel')}</Button>
           <Button onClick={() => window.print()}><Printer className="size-4" />{t('export.print')}</Button>
         </div>
-        <header className="flex items-start justify-between gap-6 border-b-2 border-slate-900 pb-4">
-          <div>
+        {/* phones: the logo above the title; paper and wider screens: beside it */}
+        <header className="flex flex-col-reverse items-start justify-between gap-4 border-b-2 border-slate-900 pb-4 sm:flex-row sm:gap-6 print:flex-row">
+          <div className="min-w-0">
             <h1 className="text-2xl font-extrabold">{d.name}</h1>
             <p className="mt-1 text-sm text-slate-600">{formatDateRange(d.startDate, d.endDate)} · {d.city} · {formatName.full} · {t(`level.${d.level}`)}</p>
             <p className="text-sm text-slate-600">{t('tournament.organizer')}: {d.organizer}</p>
           </div>
-          <Logo />
+          <div className="shrink-0"><Logo /></div>
         </header>
         {data.bracket?.champion && (
           <p className="mt-5 flex items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 font-bold">
@@ -49,16 +50,19 @@ export default function TournamentReport() {
         {tables.filter(tb => tb.rows.length).map(tb => (
           <section key={tb.key} className="mt-8 break-inside-avoid-page">
             <h2 className="mb-2 text-lg font-bold">{tb.title}</h2>
-            <table className="w-full border-collapse text-xs">
-              <thead>
-                <tr>{tb.header.map((h, i) => <th key={i} className="border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold">{h}</th>)}</tr>
-              </thead>
-              <tbody>
-                {tb.rows.map((r, i) => (
-                  <tr key={i} className="break-inside-avoid">{r.map((c, j) => <td key={j} className="border border-slate-300 px-2 py-1 align-top">{c}</td>)}</tr>
-                ))}
-              </tbody>
-            </table>
+            {/* a phone scrolls a wide table sideways; on paper it fits the page */}
+            <div className="overflow-x-auto print:overflow-visible">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr>{tb.header.map((h, i) => <th key={i} className="border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold">{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {tb.rows.map((r, i) => (
+                    <tr key={i} className="break-inside-avoid">{r.map((c, j) => <td key={j} className="border border-slate-300 px-2 py-1 align-top">{c}</td>)}</tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         ))}
         <p className="mt-10 text-[10px] text-slate-500">{t('export.generated', { date: new Date().toLocaleString() })} · debate.kz</p>

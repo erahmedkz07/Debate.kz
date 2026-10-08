@@ -94,7 +94,7 @@ export default function Projector() {
         <div className="flex items-center gap-4">
           <Logo inverted />
           <div>
-            <p className="text-lg font-bold">{data.name}</p>
+            <h1 className="text-lg font-bold">{data.name}</h1>
             <p className="text-sm text-white/60">{roundName(round)}</p>
           </div>
         </div>

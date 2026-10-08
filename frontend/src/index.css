@@ -92,6 +92,8 @@
     color: var(--foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    /* a very long word (a team name, a link) wraps inside its box instead of pushing the page sideways */
+    overflow-wrap: break-word;
   }
   ::selection {
     background: var(--accent);
