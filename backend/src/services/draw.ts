@@ -34,13 +34,13 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   const tId = round.tournamentId
   // the break: the bracket decides who meets whom; no swing teams, no power pairing
   if (round.kind === 'elimination') {
-    const rooms = await eliminationRooms(roundId)
+    const { rooms, slots } = await eliminationRooms(roundId)
     const [teams, judges] = await Promise.all([
       prisma.team.findMany({ where: { id: { in: rooms.flat() } }, select: { id: true, institutionId: true } }),
       prisma.judge.findMany({ where: { tournamentId: tId }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
     ])
     if (judges.length < rooms.length) throw badRequest('not_enough_judges', { need: rooms.length, have: judges.length, teams: teams.length })
-    const judgeConflicts = await seatJudgesAndSave(round, rooms, await rankJudges(tId, judges), true, await conflictChecker(tId), await seenBy(tId, roundId))
+    const judgeConflicts = await seatJudgesAndSave(round, rooms, await rankJudges(tId, judges), slots, await conflictChecker(tId), await seenBy(tId, roundId))
     return { method: 'bracket' as const, protectClubs: false, sameClub: 0, rematches: 0, judgeConflicts }
   }
   // power pairing reads the table and the rematch rule reads earlier debates: the earlier preliminary rounds must be over
@@ -117,7 +117,7 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     report = { sameClub: result.sameClub, rematches: result.rematches }
   }
 
-  const judgeConflicts = await seatJudgesAndSave(round, pairs, await rankJudges(tId, judges), false, await conflictChecker(tId), await seenBy(tId, roundId))
+  const judgeConflicts = await seatJudgesAndSave(round, pairs, await rankJudges(tId, judges), null, await conflictChecker(tId), await seenBy(tId, roundId))
   return { method, protectClubs, ...report, judgeConflicts }
 }
 
@@ -155,7 +155,8 @@ async function seenBy(tournamentId: string, roundId: string): Promise<Seen> {
 // a team they have a conflict with (personal, institution, club) and, where the choice allows, not with a team they
 // have already judged. Rooms go in order, the top room first. A conflict that cannot be avoided is counted in the report.
 // bracket: elimination debates remember their place in the bracket (the room order)
-async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], judges: JudgeRow[], bracket: boolean, clash: ConflictCheck, seen: Seen) {
+// bracket: the place of each room in the playoff bracket (null for preliminary rounds)
+async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], judges: JudgeRow[], bracket: number[] | null, clash: ConflictCheck, seen: Seen) {
   const roundId = round.id
   // chairs for all rooms at once (a choice in one room can block another): a small search with a step limit; the
   // first answer found is the greedy one. Cost: a conflict outweighs everything, then a chair from outside the
@@ -196,7 +197,7 @@ async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], 
         data: {
           roundId, room: roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS), propositionTeamId: pairs[i][0], oppositionTeamId: pairs[i][1],
           closingPropositionTeamId: pairs[i][2] ?? null, closingOppositionTeamId: pairs[i][3] ?? null,
-          bracketSlot: bracket ? i : null,
+          bracketSlot: bracket ? bracket[i] : null,
           onlineUrl: links[roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS)] ?? null,
           judges: { create: panels[i] },
         },

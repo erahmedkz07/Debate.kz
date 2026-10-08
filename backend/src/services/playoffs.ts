@@ -29,12 +29,31 @@ export function bracketOrder(n: number): number[] {
   return order
 }
 
+// the bracket a break plays in: the next power of two (a break of 6 plays in a bracket of 8, seeds 1 and 2 get a bye)
+export const bracketSize = (breakSize: number) => 2 ** Math.ceil(Math.log2(Math.max(2, breakSize)))
+// break sizes the organizer may choose: any number in two-team formats (the top seeds get byes when it is not a power of
+// two), rooms of four in BP (4, 8, 16, 32 or 64 teams)
+export const MAX_BREAK = 64
+export const validBreak = (n: number, bp: boolean) => Number.isInteger(n) && (bp ? [4, 8, 16, 32, 64].includes(n) : n >= 2 && n <= MAX_BREAK)
+
 // the stages of a break: team counts from the first elimination round down to the final
 export function breakStages(breakSize: number, bp: boolean) {
   const last = bp ? 4 : 2
   const stages: number[] = []
-  for (let n = breakSize; n >= last; n /= 2) stages.push(n)
+  for (let n = bp ? breakSize : bracketSize(breakSize); n >= last; n /= 2) stages.push(n)
   return stages
+}
+
+// the first elimination round with byes: the bracket's pairs in order; a pair with a seed beyond the break is a bye
+// (the other seed goes on without a debate). slot = the pair's place in the bracket, kept on the debate.
+export function firstRoundPairs(breakSize: number) {
+  const order = bracketOrder(bracketSize(breakSize))
+  const pairs: { slot: number; seeds: [number, number]; bye?: number }[] = []
+  for (let i = 0; i < order.length; i += 2) {
+    const [a, b] = [order[i], order[i + 1]]
+    pairs.push({ slot: i / 2, seeds: [a, b], ...(a > breakSize ? { bye: b } : b > breakSize ? { bye: a } : {}) })
+  }
+  return pairs
 }
 
 export async function announceBreak(tournamentId: string) {
@@ -47,7 +66,7 @@ export async function announceBreak(tournamentId: string) {
   if (t.rounds.some(r => r.kind === 'elimination')) throw badRequest('break_already_announced')
   const prelims = t.rounds.filter(r => r.kind === 'preliminary')
   if (!prelims.length || prelims.some(r => r.status !== 'completed')) throw badRequest('preliminaries_unfinished')
-  if (t.breakSize < (bp ? 4 : 2)) throw badRequest('break_too_small')
+  if (!validBreak(t.breakSize, bp)) throw badRequest('break_too_small')
   if (t.teams.length < t.breakSize) throw badRequest('not_enough_teams_for_break', { need: t.breakSize, have: t.teams.length })
 
   const order = (await getStandings(tournamentId)).teams.map(r => r.team.id)
@@ -97,7 +116,7 @@ export async function cancelBreak(tournamentId: string) {
 type RoomTeams = string[] // team ids in speaking order (2, or 4 in BP)
 
 // who plays in an elimination round, room by room in bracket order (within the round's own bracket)
-export async function eliminationRooms(roundId: string): Promise<RoomTeams[]> {
+export async function eliminationRooms(roundId: string): Promise<{ rooms: RoomTeams[]; slots: number[] }> {
   const round = await prisma.round.findUniqueOrThrow({ where: { id: roundId }, include: { tournament: true } })
   const bp = isBP(round.tournament.format)
   const perRoom = bp ? 4 : 2
@@ -106,28 +125,49 @@ export async function eliminationRooms(roundId: string): Promise<RoomTeams[]> {
     orderBy: { number: 'desc' },
     include: { debates: { orderBy: { bracketSlot: 'asc' } } },
   })
-  let order: string[] // teams in bracket order, cut into rooms of perRoom
-  if (!previous) {
-    const seeded = await prisma.team.findMany({
-      where: { tournamentId: round.tournamentId, breakSeed: { not: null }, breakCategory: round.category },
-      select: { id: true, breakSeed: true },
-    })
-    const bySeed = new Map(seeded.map(s => [s.breakSeed!, s.id]))
-    if (bySeed.size !== round.teamsInRound) throw badRequest('break_not_announced')
-    order = bracketOrder(round.teamsInRound!).map(seed => bySeed.get(seed)!)
+  const seeded = await prisma.team.findMany({
+    where: { tournamentId: round.tournamentId, breakSeed: { not: null }, breakCategory: round.category },
+    select: { id: true, breakSeed: true },
+  })
+  const bySeed = new Map(seeded.map(s => [s.breakSeed!, s.id]))
+  if (bySeed.size < perRoom) throw badRequest('break_not_announced')
+  const rooms: RoomTeams[] = [], slots: number[] = []
+  if (!previous && !bp) {
+    // two-team formats: the bracket's pairs; byes (a break that is not a power of two) are not debates
+    for (const p of firstRoundPairs(bySeed.size)) {
+      if (p.bye) continue
+      rooms.push(p.seeds.map(seed => bySeed.get(seed)!))
+      slots.push(p.slot)
+    }
   } else {
-    if (previous.status !== 'completed') throw badRequest('previous_round_unfinished')
-    // winners go on (BP: the top two of each room), keeping the bracket order
-    order = previous.debates.flatMap(d => {
-      if (d.ranking.length) return d.ranking.slice(0, 2).map(side => teamOnSide(d, side)!)
-      return [teamOnSide(d, d.winner!)!]
-    })
+    let order: string[] // teams in bracket order, cut into rooms of perRoom
+    if (!previous) order = bracketOrder(round.teamsInRound!).map(seed => bySeed.get(seed)!)
+    else {
+      if (previous.status !== 'completed') throw badRequest('previous_round_unfinished')
+      // winners go on (BP: the top two of each room), keeping the bracket order; after a round with byes,
+      // a bye team takes its pair's place
+      const firstWithByes = !bp && previous.teamsInRound! > bySeed.size && !(await prisma.round.count({
+        where: { tournamentId: round.tournamentId, kind: 'elimination', category: round.category, number: { lt: previous.number } },
+      }))
+      const byes = new Map(firstWithByes ? firstRoundPairs(bySeed.size).filter(p => p.bye).map(p => [p.slot, bySeed.get(p.bye!)!]) : [])
+      const played = new Map(previous.debates.map(d => [d.bracketSlot ?? 0, d]))
+      const pairsBefore = (previous.teamsInRound ?? 0) / perRoom
+      order = []
+      for (let slot = 0; slot < pairsBefore; slot++) {
+        const d = played.get(slot)
+        if (!d) { if (byes.has(slot)) order.push(byes.get(slot)!); continue }
+        if (d.ranking.length) order.push(...d.ranking.slice(0, 2).map(side => teamOnSide(d, side)!))
+        else order.push(teamOnSide(d, d.winner!)!)
+      }
+    }
+    for (let i = 0; i < order.length; i += perRoom) { rooms.push(order.slice(i, i + perRoom)); slots.push(rooms.length - 1) }
   }
-  const rooms: RoomTeams[] = []
-  for (let i = 0; i < order.length; i += perRoom) rooms.push(order.slice(i, i + perRoom))
-  const seedOf = new Map((await prisma.team.findMany({ where: { id: { in: order } }, select: { id: true, breakSeed: true } })).map(t => [t.id, t.breakSeed ?? 99]))
+  const seedOf = new Map((await prisma.team.findMany({ where: { id: { in: rooms.flat() } }, select: { id: true, breakSeed: true } })).map(t => [t.id, t.breakSeed ?? 99]))
   // two-team formats: the higher seed is Proposition (the organizer can swap); BP: positions drawn at random
-  return rooms.map(room => (bp ? assignPositions(room, new Map()) : [...room].sort((a, b) => seedOf.get(a)! - seedOf.get(b)!)))
+  return {
+    rooms: rooms.map(room => (bp ? assignPositions(room, new Map()) : [...room].sort((a, b) => seedOf.get(a)! - seedOf.get(b)!))),
+    slots,
+  }
 }
 
 // an elimination round with its debates, as the functions below read it

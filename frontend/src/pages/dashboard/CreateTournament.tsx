@@ -24,7 +24,11 @@ import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
 import { formatOfTournament, TOURNAMENT_FORMATS } from '@/content/formats'
 import { PlacePicker } from '@/components/tournament/PlacePicker'
 import { cityName, regionByCode } from '@/content/geo'
+import { NumberChoice } from '@/components/ui/number-choice'
 type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
+
+// how many top seeds skip the first playoff round when the break is not a power of two (6 -> 2 byes)
+const byesOf = (n: number) => (n >= 2 ? 2 ** Math.ceil(Math.log2(n)) - n : 0)
 
 export default function CreateTournament() {
   const { t, i18n } = useTranslation()
@@ -49,8 +53,8 @@ export default function CreateTournament() {
     level: z.enum(['school', 'university', 'mixed']),
     format: z.enum(TOURNAMENT_FORMATS),
     description: z.string().optional(),
-    prelims: z.coerce.number().int().min(2).max(8),
-    breakSize: z.coerce.number().int().min(2).max(16),
+    prelims: z.coerce.number().int().min(1).max(12),
+    breakSize: z.coerce.number().int().min(2).max(64),
     maxTeams: z.coerce.number().int().min(4).max(128),
     regOpen: z.boolean(),
     regDeadline: z.string().optional(),
@@ -238,7 +242,7 @@ export default function CreateTournament() {
                       const f = formatOfTournament(code)
                       const on = v.format === code
                       return (
-                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => { setValue('format', code); if (code === 'BP' && Number(v.breakSize) < 4) setValue('breakSize', 4) }}
+                        <button key={code} type="button" role="radio" aria-checked={on} onClick={() => { setValue('format', code); if (code === 'BP' && ![4, 8, 16, 32].includes(Number(v.breakSize))) setValue('breakSize', 4) }}
                           className={cn('relative cursor-pointer rounded-2xl border-2 p-5 text-left transition-all', on ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
                           {on && <Check className="absolute right-4 top-4 size-5 text-primary" />}
                           <span className={cn('inline-grid h-8 min-w-8 place-items-center rounded-lg bg-gradient-to-br px-2 text-xs font-extrabold text-white', f.accent)}>{f.short}</span>
@@ -252,13 +256,20 @@ export default function CreateTournament() {
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="prelims">{t('wizard.prelims')}</Label>
-                      <Select id="prelims" value={String(v.prelims)} onValueChange={n => setValue('prelims', Number(n))}
-                        options={[2, 3, 4, 5, 6, 7, 8].map(n => ({ value: String(n), label: String(n) }))} />
+                      <NumberChoice id="prelims" value={Number(v.prelims)} onChange={n => setValue('prelims', n)} presets={[2, 3, 4, 5, 6, 7, 8]} min={1} max={12} />
                     </div>
                     <div>
                       <Label htmlFor="break">{t('wizard.breakSize')}</Label>
-                      <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
-                        options={(v.format === 'BP' ? [4, 8, 16] : [2, 4, 8, 16]).map(n => ({ value: String(n), label: String(n) }))} />
+                      {v.format === 'BP' ? (
+                        <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
+                          options={[4, 8, 16, 32].map(n => ({ value: String(n), label: String(n) }))} />
+                      ) : (
+                        <NumberChoice id="break" value={Number(v.breakSize)} onChange={n => setValue('breakSize', n)} presets={[2, 4, 8, 16]} min={2} max={64} />
+                      )}
+                      {/* a break that is not a power of two: the top seeds go straight to the next round */}
+                      {v.format !== 'BP' && byesOf(Number(v.breakSize)) > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">{t('wizard.breakByes', { count: byesOf(Number(v.breakSize)) })}</p>
+                      )}
                     </div>
                   </div>
                 </>

@@ -89,7 +89,7 @@ export interface Round {
   categoryName?: string
 }
 
-export type PlayoffStage = 'final' | 'semi' | 'quarter' | 'octo'
+export type PlayoffStage = 'final' | 'semi' | 'quarter' | 'octo' | 'doubleOcto' | 'tripleOcto'
 export interface BreakCategory { key: string; name: string; size: number }
 
 export interface Debate {

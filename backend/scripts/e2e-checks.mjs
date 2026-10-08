@@ -2236,5 +2236,48 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const after = Number((await db.query("select count(*) from notifications where link like $1", [`%/tournaments/${t.id}%`])).rows[0].count)
   ok(before > 0 && after === 0, 'a deleted tournament leaves no notifications that lead nowhere')
 }
+// ---------- 60. custom rounds and break: 1 preliminary round, a break of 6 with byes for seeds 1 and 2 ----------
+{
+  const host = await newAccount('Бай Организатор')
+  ok((await host.c('POST', '/tournaments', { ...tBody(410), name: `Бай 13 ${jtag}`, preliminaryRounds: 13 })).status === 400, 'at most 12 preliminary rounds')
+  ok((await host.c('POST', '/tournaments', { ...tBody(411), name: `Бай BP ${jtag}`, format: 'BP', breakSize: 6 })).status === 400, 'BP breaks are rooms of four (4, 8, 16, 32, 64)')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(412), name: `Бай 6 ${jtag}`, preliminaryRounds: 1, breakSize: 6 })).data
+  ok(t?.id && (await host.c('GET', `/tournaments/${t.id}`)).data.rounds.length === 1, 'a tournament with 1 preliminary round and a break of 6')
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const names = ['Бай1', 'Бай2', 'Бай3', 'Бай4', 'Бай5', 'Бай6', 'Бай7', 'Бай8']
+  for (const n of names) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  for (let i = 1; i <= 4; i++) await addJudge(host.c, t.id, `Бай Судья ${i}`)
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const details = async () => (await host.c('GET', `/tournaments/${t.id}`)).data
+  const ballot = win => sheet => {
+    const lo = win === 'proposition' ? 'opposition' : 'proposition'
+    const scores = {}
+    sheet[win].speakers.forEach(x => (scores[x.id] = 72)); sheet[lo].speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: win, scores, reply: { [win]: 36, [lo]: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  const play = async roundId => {
+    const drawn = await host.c('POST', `/rounds/${roundId}/draw`, { addSwing: false })
+    await host.c('PATCH', `/rounds/${roundId}`, { motion: 'ЭП введёт бесплатный проезд для школьников', status: 'released' })
+    for (const d of (await details()).debates.filter(x => x.roundId === roundId)) await panelVote(d.id, ballot('proposition'))
+    await host.c('PATCH', `/rounds/${roundId}`, { status: 'completed' })
+    return drawn
+  }
+  await play((await details()).rounds[0].id)
+  const r = await host.c('POST', `/tournaments/${t.id}/break`)
+  ok(r.status === 201 && r.data.seeds.length === 6 && r.data.rounds.map(x => x.stage).join() === 'quarter,semi,final', 'a break of 6 plays a quarterfinal, a semifinal and a final')
+  const seeds = new Map(r.data.seeds.map(s => [s.team.id, s.seed]))
+  const [qf, sf, fin] = r.data.rounds
+  const q = await play(qf.id)
+  const qDebates = q.data.debates
+  const qSeeds = qDebates.map(d => [seeds.get(d.propositionTeamId), seeds.get(d.oppositionTeamId)].sort((a, b) => a - b).join('v')).sort()
+  ok(qDebates.length === 2 && qSeeds.join() === '3v6,4v5', 'seeds 1 and 2 get a bye: the quarterfinal is 3–6 and 4–5')
+  const s = await play(sf.id)
+  const semis = s.data.debates.map(d => [seeds.get(d.propositionTeamId), seeds.get(d.oppositionTeamId)].sort((a, b) => a - b))
+  ok(semis.length === 2 && semis.some(p => p[0] === 1) && semis.some(p => p[0] === 2) && semis.every(p => p[1] >= 3 && p[1] <= 6), 'the bye teams meet the quarterfinal winners in the semifinals')
+  await play(fin.id)
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })).status === 200, 'the tournament with byes finishes')
+  const bracket = (await client()('GET', `/tournaments/${t.id}/bracket`)).data
+  ok(!!bracket.champion, 'the champion is known')
+}
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

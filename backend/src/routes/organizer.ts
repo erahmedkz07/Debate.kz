@@ -7,7 +7,7 @@ import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
-import { announceBreak, cancelBreak, categoriesOf } from '../services/playoffs.js'
+import { announceBreak, cancelBreak, categoriesOf, MAX_BREAK, validBreak } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
 import { institutionIdFor } from '../services/institutions.js'
 import { confirmRegistration, fillFromWaitlist, runLottery } from '../services/selection.js'
@@ -36,6 +36,7 @@ import { FORMAT_CODES, rulesOf, scoringDefaults } from '../services/formats.js'
 import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
 import { bareMotion } from '../lib/motion.js'
 import { sameName } from '../lib/names.js'
+export const MAX_PRELIMS = 12 // preliminary rounds a tournament may have
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().refine(isRealDay, 'invalid_date')
 
@@ -63,8 +64,8 @@ const createSchema = z.object({
   format: z.enum(FORMAT_CODES).default('WSDC'),
   description: z.string().trim().max(3000).default(''),
   coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').optional(), // a template or an uploaded file
-  preliminaryRounds: z.number().int().min(2).max(8),
-  breakSize: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+  preliminaryRounds: z.number().int().min(1).max(MAX_PRELIMS),
+  breakSize: z.number().int().min(2).max(MAX_BREAK), // checked against the format below (BP: rooms of four)
   // the place: region (when missing, found from the city), city or village, and optionally a district or address
   region: z.enum(REGION_CODES).optional(),
   district: z.string().trim().max(80).optional(),
@@ -78,7 +79,7 @@ const createSchema = z.object({
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
   // BP playoffs are rooms of four: the smallest break is one final room
-  .refine(v => v.format !== 'BP' || v.breakSize >= 4, { path: ['breakSize'], message: 'break_too_small' })
+  .refine(v => validBreak(v.breakSize, v.format === 'BP'), { path: ['breakSize'], message: 'break_too_small' })
 
 organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
   const d = body(req, createSchema)
@@ -150,7 +151,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     selectionMode: z.enum(['manual', 'first_come', 'lottery']).optional(),
     clubQuota: z.number().int().min(1).max(32).nullable().optional(),
     breakCategories: z.array(z.object({
-      key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().refine(n => [2, 4, 8, 16].includes(n)),
+      key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().min(2).max(MAX_BREAK),
     })).max(3).optional(),
     roomLinks: z.record(z.string().trim().min(1).max(60), httpsUrl).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
@@ -187,7 +188,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     if (await prisma.round.count({ where: { tournamentId: cur.id, kind: 'elimination' } })) throw forbidden('break_already_announced')
     if (new Set(rest.breakCategories.map(c => c.key)).size !== rest.breakCategories.length) throw badRequest('invalid_break_categories')
     // BP brackets are rooms of four
-    if (cur.format === 'BP' && rest.breakCategories.some(c => c.size < 4)) throw badRequest('break_too_small')
+    if (rest.breakCategories.some(c => !validBreak(c.size, cur.format === 'BP'))) throw badRequest('break_too_small')
     // a removed category no longer marks any team
     const keys = rest.breakCategories.map(c => c.key)
     const teams = await prisma.team.findMany({ where: { tournamentId: cur.id, NOT: { categories: { isEmpty: true } } }, select: { id: true, categories: true } })

@@ -43,6 +43,7 @@ import { regionOfCity } from '@/content/geo'
 import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedback'
 import { formatOfTournament } from '@/content/formats'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { NumberChoice } from '@/components/ui/number-choice'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -1108,7 +1109,7 @@ function CategoriesCard({ data, reload }: SectionProps) {
   const [list, setList] = useState(saved)
   const [name, setName] = useState('')
   useEffect(() => setList(data.breakCategories ?? []), [data.breakCategories])
-  const sizes = isBP(data.format) ? [4, 8, 16] : [2, 4, 8, 16]
+  const sizes = isBP(data.format) ? [4, 8, 16, 32] : [2, 4, 8, 16]
   const dirty = JSON.stringify(list) !== JSON.stringify(saved)
   const add = () => {
     const n = name.trim()
@@ -1129,8 +1130,13 @@ function CategoriesCard({ data, reload }: SectionProps) {
             <li key={c.key} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 p-2 text-sm">
               <span className="min-w-0 flex-1 truncate font-semibold">{c.name}</span>
               <span className="text-xs text-muted-foreground">{t('dashboard.categories.size')}</span>
-              <Select size="sm" className="w-24" value={String(c.size)} aria-label={`${c.name}: ${t('dashboard.categories.size')}`}
-                onValueChange={v => setList(list.map((x, j) => (j === i ? { ...x, size: Number(v) } : x)))} options={sizes.map(n => ({ value: String(n), label: String(n) }))} />
+              {isBP(data.format) ? (
+                <Select size="sm" className="w-24" value={String(c.size)} aria-label={`${c.name}: ${t('dashboard.categories.size')}`}
+                  onValueChange={v => setList(list.map((x, j) => (j === i ? { ...x, size: Number(v) } : x)))} options={sizes.map(n => ({ value: String(n), label: String(n) }))} />
+              ) : (
+                <NumberChoice size="sm" className="w-32" value={c.size} presets={sizes} min={2} max={64} aria-label={`${c.name}: ${t('dashboard.categories.size')}`}
+                  onChange={n => setList(list.map((x, j) => (j === i ? { ...x, size: n } : x)))} />
+              )}
               <button type="button" aria-label={t('common.delete')} onClick={() => setList(list.filter((_, j) => j !== i))}
                 className="grid size-8 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger"><X className="size-4" /></button>
             </li>
