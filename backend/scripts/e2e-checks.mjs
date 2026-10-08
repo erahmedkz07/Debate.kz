@@ -127,15 +127,15 @@ ok(r.status === 201 && r.data.totals.proposition === 262 && r.data.totals.opposi
 const t4 = mine.find(t => t.status === 'ongoing')
 let det = (await org('GET', `/tournaments/${t4.id}`)).data
 const live = det.rounds.find(x => x.status === 'released')
-// the organizer cannot fill ballots: the panels vote themselves
+// a ballot belongs to a judge: the organizer cannot send one in their own name (only "as" a judge of the panel, section 62)
 {
   const d0 = det.debates.find(x => x.roundId === live.id && !x.winner)
   const bd = (await org('GET', `/ballots/${d0.id}`)).data
   const sc = {}
   bd.proposition.speakers.forEach(s => (sc[s.id] = 74)); bd.opposition.speakers.forEach(s => (sc[s.id] = 73.5))
   r = await org('POST', `/ballots/${d0.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 36 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id } })
-  ok(r.status === 403 && r.data.error === 'judges_only', 'the organizer cannot send or change a ballot')
-  ok((await admin('POST', `/ballots/${d0.id}`, {})).data?.error === 'judges_only', 'an admin cannot either')
+  ok(r.status === 403 && r.data.error === 'judges_only', 'the organizer cannot send a ballot in their own name')
+  ok((await admin('POST', `/ballots/${d0.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 36 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id } })).data?.error === 'judges_only', 'an admin cannot either')
 }
 for (const d of det.debates.filter(x => x.roundId === live.id && !x.winner)) {
   await panelVote(d.id, bd => {
@@ -2312,6 +2312,48 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     ok((await host.c('PATCH', `/rounds/${round.id}`, { status: 'completed' })).status === 200
       && (await client()('GET', `/tournaments/${t.id}/standings`)).data.teams[0].wins === 1, `${format}: the round counts in the table`)
   }
+}
+// ---------- 62. the organizer enters or corrects a judge's ballot ----------
+{
+  const host = await newAccount('Правка Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(430), name: `Правка ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Правка А', 'Правка Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  const judgeId = (await addJudge(host.c, t.id, 'Правка Судья')).data.id
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const round = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП отменит домашние задания', status: 'released' })
+  const debate = (await host.c('GET', `/tournaments/${t.id}`)).data.debates.find(d => d.roundId === round.id)
+  const sheetOf = async c => (await c('GET', `/ballots/${debate.id}`)).data
+  const vote = (sheet, win) => {
+    const lo = win === 'proposition' ? 'opposition' : 'proposition'
+    const scores = {}
+    sheet[win].speakers.forEach(x => (scores[x.id] = 72)); sheet[lo].speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: win, scores, reply: { [win]: 36, [lo]: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  // the judge votes for the proposition; the round is completed
+  const jc = judgeClients.get(judgeId)
+  await jc('POST', `/ballots/${debate.id}`, vote(await sheetOf(jc), 'proposition'))
+  ok((await sheetOf(jc)).sent?.winner === 'proposition', 'a judge who opens their ballot again sees what they sent')
+  await host.c('PATCH', `/rounds/${round.id}`, { status: 'completed' })
+  ok((await jc('POST', `/ballots/${debate.id}`, vote(await sheetOf(jc), 'opposition'))).data?.error === 'ballot_locked', 'after the round a judge can no longer change the ballot')
+  // the organizer opens the judge's ballot and corrects it: the table follows
+  const asSheet = (await host.c('GET', `/ballots/${debate.id}?as=${judgeId}`)).data
+  ok(asSheet.canSubmit === true && asSheet.onBehalfOf?.judgeId === judgeId && asSheet.sent?.winner === 'proposition', "the organizer opens the judge's ballot filled in")
+  const stranger = await newAccount('Правка Чужой')
+  ok((await stranger.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'opposition'), asJudgeId: judgeId })).status === 403, "only organizers may send a judge's ballot")
+  const r = await host.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'opposition'), asJudgeId: judgeId })
+  ok(r.status === 201, 'the organizer corrects the ballot after the round')
+  const table = (await client()('GET', `/tournaments/${t.id}/standings`)).data.teams
+  const oppTeam = debate.oppositionTeamId
+  ok(table[0].team.id === oppTeam && table[0].wins === 1, 'the table follows the corrected ballot')
+  const review = (await host.c('GET', `/ballots/${debate.id}`)).data
+  ok(review.panel?.[0]?.enteredBy === 'Правка Организатор' && review.canCorrect === true, "the ballot is marked with the organizer's name")
+  ok((await notes(jc)).items.some(n => n.type === 'judge.ballotEdited'), 'the judge is told')
+  // after the finish nothing changes
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })
+  ok((await host.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'proposition'), asJudgeId: judgeId })).data?.error === 'tournament_finished', 'a finished tournament keeps its ballots')
 }
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

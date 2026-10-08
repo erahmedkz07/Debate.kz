@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
@@ -31,9 +31,9 @@ import { quoted } from '@/lib/motion'
 type Range = { min: number; max: number; step: number }
 
 // the sheet comes from the API; without a network the copy saved on the last visit is used
-async function loadSheet(debateId: string, userId: string) {
+async function loadSheet(debateId: string, userId: string, asJudgeId?: string) {
   try {
-    const sheet = await getBallot(debateId)
+    const sheet = await getBallot(debateId, asJudgeId)
     saveBallotSheet(debateId, userId, sheet)
     return { sheet, cached: false }
   } catch (e) {
@@ -82,12 +82,15 @@ function ScoreInput({ label, value, onChange, range, invalid }: { label: string;
 
 export default function Ballot() {
   const { debateId = '' } = useParams()
+  // ?as=<judgeId>: an organizer enters or corrects that judge's ballot
   const { t, i18n } = useTranslation()
   const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const { user } = useAuth()
-  // the page is behind RequireAuth, so there is always a user here
-  const uid = user?.id ?? ''
-  const { data: loaded, loading, error, reload } = useAsync(() => loadSheet(debateId, uid), [debateId, uid])
+  const [params] = useSearchParams()
+  const asJudge = params.get('as') ?? undefined
+  // the page is behind RequireAuth, so there is always a user here; an organizer's copy of each judge's ballot is kept apart
+  const uid = asJudge ? `${user?.id ?? ''}:${asJudge}` : user?.id ?? ''
+  const { data: loaded, loading, error, reload } = useAsync(() => loadSheet(debateId, uid, asJudge), [debateId, uid])
   const data = loaded?.sheet
   // everything typed is kept on the device until the ballot is accepted: a reload or a dropped connection loses nothing
   const [draft] = useState(() => loadBallotDraft(debateId, uid))
@@ -104,6 +107,18 @@ export default function Ballot() {
   const [sending, setSending] = useState(false)
   const [done, setDone] = useState<false | 'sent' | 'queued'>(false)
   const [queued, setQueued] = useState(() => queuedBallot(debateId, uid))
+  // the ballot already sent opens filled in (no draft on this device): the judge's own, or the one an organizer corrects
+  const [prefilled, setPrefilled] = useState(!!draft)
+  useEffect(() => {
+    const sent = loaded?.sheet.sent
+    if (prefilled || !sent) return
+    setPrefilled(true)
+    setScores(Object.fromEntries(Object.entries(sent.scores).map(([k, v]) => [k, String(v)])))
+    setReply({ proposition: sent.reply.proposition !== undefined ? String(sent.reply.proposition) : '', opposition: sent.reply.opposition !== undefined ? String(sent.reply.opposition) : '' })
+    setReplyBy({ proposition: sent.replySpeakers.proposition, opposition: sent.replySpeakers.opposition })
+    setFeedback(sent.feedback)
+    setWinner(sent.winner)
+  }, [loaded, prefilled])
   // the speech timer opens as a side panel on the ballot: nothing typed is lost, and it keeps running when hidden
   const [timer, setTimer] = useState<'closed' | 'open' | 'hidden'>('closed')
   const navigate = useNavigate()
@@ -191,6 +206,7 @@ export default function Ballot() {
       scores: Object.fromEntries(allSpeakers.map(s => [s.id, Number(scores[s.id])])),
       ...(REPLY && { reply: { proposition: Number(reply.proposition), opposition: Number(reply.opposition) } }),
       feedback: Object.fromEntries(Object.entries(feedback).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v)),
+      ...(asJudge && { asJudgeId: asJudge }),
     }
     try {
       await submitBallot(debateId, payload)
@@ -201,7 +217,7 @@ export default function Ballot() {
       setDone('sent')
       toast.success(t('ballot.success'))
     } catch (e) {
-      if (isRetryable(e) && user) {
+      if (isRetryable(e) && user && !asJudge) {
         // no connection: keep it on the device, OfflineSync sends it when the network is back
         queueBallot({ debateId, userId: user.id, label: `${data.tournament.name} · ${t('ballot.round', { n: data.round.number })} · ${data.debate.room}`, payload })
         setConfirm(false)
@@ -300,6 +316,11 @@ export default function Ballot() {
       )}
       {queued && (
         <p role="status" className="mt-4 flex items-start gap-2 rounded-2xl bg-primary-soft p-4 text-sm"><CloudUpload className="mt-0.5 size-4 shrink-0 text-primary" />{t('offline.queuedHere', { time: formatDateTime(queued.savedAt) })}</p>
+      )}
+      {data.onBehalfOf && (
+        <p className="mt-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft p-4 text-sm">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />{t('ballot.onBehalf', { name: data.onBehalfOf.name })}
+        </p>
       )}
       <div className="mt-4 rounded-2xl bg-gradient-to-br from-primary to-navy p-5 text-white sm:p-6">
         <div className="flex flex-wrap items-center gap-3 text-sm">

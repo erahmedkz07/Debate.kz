@@ -209,6 +209,7 @@ export interface PanelBallot {
   isChair: boolean
   hasAccount: boolean
   submittedAt?: string
+  enteredBy?: string // the organizer who entered or corrected it
   winner?: Side
   ranking?: Side[] // BP
   totals?: Partial<Record<Side, number>>
@@ -219,6 +220,10 @@ export interface BallotRules { format: string; teams?: 2 | 4; speakers: number; 
 export interface BallotData {
   rules?: BallotRules
   canSubmit?: boolean // true for a judge who sends the ballot (BP: the chair); others get `panel` instead
+  canCorrect?: boolean // organizers may enter or correct a judge's ballot until the tournament is over
+  onBehalfOf?: { judgeId: string; name: string } // the organizer fills in this judge's ballot
+  // the ballot already sent (to correct it): scores by speaker, replies by side, comments
+  sent?: { winner: Side; ranking?: Side[]; enteredBy?: string; scores: Record<string, number>; reply: Partial<Record<Side, number>>; replySpeakers: Partial<Record<Side, string>>; feedback: Record<string, string> }
   panel?: PanelBallot[]
   tournament: { id: string; name: string }
   round: Round
@@ -229,7 +234,8 @@ export interface BallotData {
   closingOpposition?: Team
   judges: Judge[]
 }
-export const getBallot = (debateId: string) => or404(http<BallotData>('GET', `/ballots/${encodeURIComponent(debateId)}`))
+export const getBallot = (debateId: string, asJudgeId?: string) =>
+  or404(http<BallotData>('GET', `/ballots/${encodeURIComponent(debateId)}${asJudgeId ? `?as=${encodeURIComponent(asJudgeId)}` : ''}`))
 
 export interface BallotPayload {
   winner?: Side // two-team formats
@@ -239,6 +245,7 @@ export interface BallotPayload {
   reply?: Record<'proposition' | 'opposition', number>
   replySpeakers?: Record<'proposition' | 'opposition', string>
   feedback?: Record<string, string> // speakerId or "reply:<side>" -> short comment to the speaker
+  asJudgeId?: string // an organizer enters or corrects this judge's ballot
 }
 export const submitBallot = (debateId: string, payload: BallotPayload) =>
   http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload)

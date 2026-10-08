@@ -546,6 +546,7 @@ model Ballot {
   winner      Side
   ranking     Side[] // BP: the panel's ranking of the four teams, 1st to 4th
   submittedAt DateTime       @default(now()) @map("submitted_at")
+  enteredBy   String?        @map("entered_by") // an organizer who entered or corrected this judge's ballot (their name)
   debate      Debate         @relation(fields: [debateId], references: [id], onDelete: Cascade)
   judge       Judge          @relation(fields: [judgeId], references: [id], onDelete: Cascade)
   scores      SpeakerScore[]
