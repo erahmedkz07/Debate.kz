@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Bell, CheckCheck, Gavel, Globe, Inbox, LayoutGrid, Loader2, ShieldCheck, Users } from 'lucide-react'
@@ -33,7 +33,11 @@ export default function Notifications() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const isAdmin = user?.role === 'admin'
-  const [tab, setTab] = useState('all')
+  // the open filter lives in the address (?tab=), so a refresh or "back" keeps it
+  const [params, setParams] = useSearchParams()
+  const asked = params.get('tab') ?? 'all'
+  const tab = asked === 'platform' ? (isAdmin ? asked : 'all') : (CATEGORIES as readonly string[]).includes(asked) ? asked : 'all'
+  const setTab = (v: string) => setParams(v === 'all' ? {} : { tab: v }, { replace: true })
   const mode = tab === 'platform' ? 'platform' : 'mine'
   const [items, setItems] = useState<AppNotification[]>([])
   const [unread, setUnread] = useState(0)

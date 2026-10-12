@@ -113,7 +113,11 @@ export default function CreateTournament() {
     payment: [],
     summary: [],
   }
+  // a number typed in "Other…" that is out of range holds the step until it is fixed (the field shows the range)
+  const [badNumbers, setBadNumbers] = useState<Record<string, boolean>>({})
+  const numberOk = (field: string) => (ok: boolean) => setBadNumbers(b => (!!b[field] === !ok ? b : { ...b, [field]: !ok }))
   const next = async () => {
+    if (current === 'format' && Object.values(badNumbers).some(Boolean)) return
     if (current === 'payment' && !paymentReady) return void toast.error(t('wizard.payFirst'))
     if (await trigger(fieldsByStep[current])) setStep(s => Math.min(s, steps.length - 1) + 1)
   }
@@ -295,7 +299,7 @@ export default function CreateTournament() {
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div>
                       <Label htmlFor="prelims">{t('wizard.prelims')}</Label>
-                      <NumberChoice id="prelims" value={Number(v.prelims)} onChange={n => setValue('prelims', n)} presets={[2, 3, 4, 5, 6, 7, 8]} min={1} max={12} />
+                      <NumberChoice id="prelims" value={Number(v.prelims)} onChange={n => setValue('prelims', n)} onValidity={numberOk('prelims')} presets={[2, 3, 4, 5, 6, 7, 8]} min={1} max={12} />
                     </div>
                     <div>
                       <Label htmlFor="break">{t('wizard.breakSize')}</Label>
@@ -303,7 +307,7 @@ export default function CreateTournament() {
                         <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
                           options={BP_BREAKS.map(n => ({ value: String(n), label: String(n) }))} />
                       ) : (
-                        <NumberChoice id="break" value={Number(v.breakSize)} onChange={n => setValue('breakSize', n)} presets={[2, 4, 8, 16]} min={2} max={64} />
+                        <NumberChoice id="break" value={Number(v.breakSize)} onChange={n => setValue('breakSize', n)} onValidity={numberOk('break')} presets={[2, 4, 8, 16]} min={2} max={64} />
                       )}
                       {/* a break that is not a power of two: the top seeds go straight to the next round */}
                       {v.format !== 'BP' && byesOf(Number(v.breakSize)) > 0 && (
