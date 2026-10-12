@@ -6,7 +6,7 @@ import { toDay } from '../lib/dates.js'
 import { badRequest, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { isOrganizerOf, teamInclude, toDebate, toTeam } from '../services/tournaments.js'
+import { isOrganizerOf, organizerLink, teamInclude, toDebate, toTeam } from '../services/tournaments.js'
 import { BP_SIDES, rulesOf, sidesOf, type SideCode } from '../services/formats.js'
 import { background, notify } from '../services/notify.js'
 
@@ -43,9 +43,10 @@ judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {
 })
 
 // Who may open a ballot: a judge of this debate (to fill it in), the tournament's organizers or an admin (to read it).
-// Judges send their own ballots. An organizer may also enter or correct a judge's ballot ("as" = that judge): a lost
-// phone, a typo found after the round, a judge who left. Such a ballot is marked with the organizer's name and the
-// judge is told. British Parliamentary: the panel confers and the chair sends the one agreed ballot; wings read it.
+// Judges send their own ballots. The tournament's owner or a site admin may also enter or correct a judge's ballot
+// ("as" = that judge): a lost phone, a typo found after the round, a judge who left. Co-organizers only read. Such a
+// ballot is marked with the name of who entered it and the judge is told. British Parliamentary: the panel confers
+// and the chair sends the one agreed ballot; wings read it.
 async function loadBallotContext(debateId: string, user: User, asJudgeId?: string) {
   const d = await prisma.debate.findUnique({
     where: { id: debateId },
@@ -61,7 +62,9 @@ async function loadBallotContext(debateId: string, user: User, asJudgeId?: strin
   })
   if (!d) throw notFound('debate_not_found')
   const manager = await isOrganizerOf(user, d.round.tournamentId)
-  if (asJudgeId && !manager) throw forbidden('organizers_only')
+  // correcting a ballot is for the owner and site admins only (agreed by both admins)
+  const corrector = user.role === 'admin' || (await organizerLink(user, d.round.tournamentId))?.role === 'owner'
+  if (asJudgeId && !corrector) throw forbidden(manager ? 'owner_only' : 'organizers_only')
   const mine = asJudgeId ? d.judges.find(j => j.judgeId === asJudgeId) : d.judges.find(j => j.judge.userId === user.id)
   if (asJudgeId && !mine) throw notFound('judge_not_on_panel')
   const myJudge = mine?.judge
@@ -72,13 +75,13 @@ async function loadBallotContext(debateId: string, user: User, asJudgeId?: strin
   }
   // who may send: every judge in two-team formats, only the chair in BP
   const canSubmit = !!mine && (rules.teams === 2 || mine.isChair)
-  return { d, myJudge, rules, teams, sides: sidesOf(d.round.tournament.format), canSubmit, onBehalf: !!asJudgeId, manager }
+  return { d, myJudge, rules, teams, sides: sidesOf(d.round.tournament.format), canSubmit, onBehalf: !!asJudgeId, corrector }
 }
 
 const asParam = (req: { query: Record<string, unknown> }) => (typeof req.query.as === 'string' && req.query.as ? req.query.as : undefined)
 
 judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
-  const { d, myJudge, rules, teams, sides, canSubmit, onBehalf, manager } = await loadBallotContext(param(req, 'debateId'), req.user!, asParam(req))
+  const { d, myJudge, rules, teams, sides, canSubmit, onBehalf, corrector } = await loadBallotContext(param(req, 'debateId'), req.user!, asParam(req))
   // organizers (and BP wings) read every judge's ballot as it was sent; a judge who sends one sees the form
   const speakerName = new Map(sides.flatMap(side => teams[side]!.speakers).map(s => [s.id, s.name]))
   const sideOrder = (x: SideCode) => BP_SIDES.indexOf(x)
@@ -101,7 +104,7 @@ judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
   res.json({
     canSubmit,
     // organizers may correct the judges' ballots until the tournament is over
-    canCorrect: manager && d.round.tournament.status !== 'finished' && d.round.status !== 'draft',
+    canCorrect: corrector && d.round.tournament.status !== 'finished' && d.round.status !== 'draft',
     ...(onBehalf && myJudge && { onBehalfOf: { judgeId: myJudge.id, name: myJudge.name } }),
     ...(sent && {
       sent: {
@@ -139,13 +142,13 @@ const ballotSchema = z.object({
   replySpeakers: z.object({ proposition: z.string(), opposition: z.string() }).optional(),
   // optional short written comments: speakerId -> text for substantive speeches, "reply:<side>" for replies
   feedback: z.record(z.string(), z.string().trim().max(400)).optional(),
-  asJudgeId: z.string().optional(), // an organizer enters or corrects this judge's ballot
+  asJudgeId: z.string().optional(), // the owner or an admin enters or corrects this judge's ballot
 })
 
 judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
   const data = body(req, ballotSchema)
   const { d, myJudge, rules, teams, sides, canSubmit, onBehalf } = await loadBallotContext(param(req, 'debateId'), req.user!, data.asJudgeId)
-  // a judge sends their own ballot; an organizer may send it for a judge of the panel (asJudgeId)
+  // a judge sends their own ballot; the owner or an admin may send it for a judge of the panel (asJudgeId)
   if (!myJudge) throw forbidden('judges_only')
   // BP: the panel agrees and the chair sends the one ballot
   if (!canSubmit) throw forbidden('chair_only')
