@@ -80,7 +80,7 @@ function Column({ label, items, selected, onPick }: { label: string; items: stri
       <div ref={list} role="listbox" aria-label={label}
         className="relative h-52 space-y-1 overflow-y-auto overscroll-contain rounded-xl bg-muted/50 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map(v => (
-          <button key={v} type="button" role="option" aria-selected={v === selected} aria-pressed={v === selected} onClick={() => onPick(v)}
+          <button key={v} type="button" role="option" aria-selected={v === selected} onClick={() => onPick(v)}
             className={cn(
               'block h-9 w-full cursor-pointer rounded-lg text-sm tabular-nums transition-colors',
               v === selected ? 'bg-primary font-bold text-primary-foreground shadow-md shadow-primary/25' : 'hover:bg-primary-soft hover:text-primary',

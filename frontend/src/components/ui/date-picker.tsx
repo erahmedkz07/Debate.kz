@@ -40,7 +40,7 @@ export function DatePicker({ value, onChange, min, max, id, invalid, placeholder
   // weekday names starting from Monday (2024-01-01 was a Monday)
   const weekdays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => formatDateObj(new Date(2024, 0, 1 + i), { weekday: 'short' })),
-    [locale],
+    [locale], // eslint-disable-line react-hooks/exhaustive-deps -- the language re-keys the names
   )
 
   // 6 weeks grid, Monday first
