@@ -2351,6 +2351,18 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const review = (await host.c('GET', `/ballots/${debate.id}`)).data
   ok(review.panel?.[0]?.enteredBy === 'Правка Организатор' && review.canCorrect === true, "the ballot is marked with the organizer's name")
   ok((await notes(jc)).items.some(n => n.type === 'judge.ballotEdited'), 'the judge is told')
+  // a co-organizer reads the ballots but cannot correct them: that is for the owner and site admins
+  const helper = await newAccount('Правка Соорганизатор')
+  const link = (await host.c('POST', `/tournaments/${t.id}/invites`, { kind: 'co_organizer' })).data
+  await helper.c('POST', `/invites/${link.url.split('/invite/')[1]}/accept`)
+  const helperView = (await helper.c('GET', `/ballots/${debate.id}`)).data
+  ok(helperView.panel?.length === 1 && helperView.canCorrect === false, 'a co-organizer reads the ballots without the right to correct')
+  ok((await helper.c('GET', `/ballots/${debate.id}?as=${judgeId}`)).data?.error === 'owner_only', "a co-organizer cannot open a judge's ballot to edit")
+  const denied = await helper.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'proposition'), asJudgeId: judgeId })
+  ok(denied.status === 403 && denied.data?.error === 'owner_only', 'a co-organizer cannot correct a ballot')
+  ok((await client()('GET', `/tournaments/${t.id}/standings`)).data.teams[0].team.id === oppTeam, "the table keeps the owner's correction")
+  const adminFix = await admin('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'opposition'), asJudgeId: judgeId })
+  ok(adminFix.status === 201, 'a site admin can correct a ballot')
   // after the finish nothing changes
   await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })
   ok((await host.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'proposition'), asJudgeId: judgeId })).data?.error === 'tournament_finished', 'a finished tournament keeps its ballots')
