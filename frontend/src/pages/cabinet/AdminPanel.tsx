@@ -259,6 +259,8 @@ function UsersTab() {
   const [list, setList] = useState<User[]>([])
   const [q, setQ] = useState('')
   const [role, setRole] = useState<'all' | Role>('all')
+  // one change per person at a time: the row's buttons wait
+  const [saving, setSaving] = useState<string | null>(null)
   useEffect(() => { if (data) setList(data) }, [data])
 
   if (error) return <ErrorState onRetry={reload} />
@@ -266,7 +268,6 @@ function UsersTab() {
 
   const shown = list.filter(u => (role === 'all' || u.role === role) &&
     (!q || u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase())))
-  const [saving, setSaving] = useState<string | null>(null)
   const patch = async (id: string, p: { role?: Role; blocked?: boolean; safeguardingOfficer?: boolean }) => {
     setSaving(id)
     try {
