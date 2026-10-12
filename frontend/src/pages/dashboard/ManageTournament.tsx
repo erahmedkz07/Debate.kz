@@ -33,7 +33,7 @@ import { QrCode as QrCodeImage } from '@/components/certificate/QrCode'
 import { PaymentCard } from '@/components/payments/PaymentCard'
 import { FREE_TEAM_LIMIT } from '@/lib/plans'
 import { EntityLogo } from '@/components/ui/entity-logo'
-import { isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
+import { BP_BREAKS, isBP, sidesOf, teamIdOn, useSides } from '@/lib/formats'
 import { useRoundName } from '@/lib/rounds'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { conflictReason } from '@/lib/conflicts'
@@ -1109,8 +1109,11 @@ function CategoriesCard({ data, reload }: SectionProps) {
   const [list, setList] = useState(saved)
   const [name, setName] = useState('')
   useEffect(() => setList(data.breakCategories ?? []), [data.breakCategories])
-  const sizes = isBP(data.format) ? [4, 8, 16, 32] : [2, 4, 8, 16]
+  const sizes = isBP(data.format) ? BP_BREAKS : [2, 4, 8, 16]
   const dirty = JSON.stringify(list) !== JSON.stringify(saved)
+  // a size typed in "Other…" that is out of range holds the save
+  const [badSizes, setBadSizes] = useState<Record<string, boolean>>({})
+  const anyBad = list.some(c => badSizes[c.key])
   const add = () => {
     const n = name.trim()
     if (n.length < 2 || list.length >= 3) return
@@ -1135,7 +1138,8 @@ function CategoriesCard({ data, reload }: SectionProps) {
                   onValueChange={v => setList(list.map((x, j) => (j === i ? { ...x, size: Number(v) } : x)))} options={sizes.map(n => ({ value: String(n), label: String(n) }))} />
               ) : (
                 <NumberChoice size="sm" className="w-32" value={c.size} presets={sizes} min={2} max={64} aria-label={`${c.name}: ${t('dashboard.categories.size')}`}
-                  onChange={n => setList(list.map((x, j) => (j === i ? { ...x, size: n } : x)))} />
+                  onChange={n => setList(list.map((x, j) => (j === i ? { ...x, size: n } : x)))}
+                  onValidity={ok => setBadSizes(b => (!!b[c.key] === !ok ? b : { ...b, [c.key]: !ok }))} />
               )}
               <button type="button" aria-label={t('common.delete')} onClick={() => setList(list.filter((_, j) => j !== i))}
                 className="grid size-8 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-danger-soft hover:text-danger"><X className="size-4" /></button>
@@ -1152,7 +1156,7 @@ function CategoriesCard({ data, reload }: SectionProps) {
       )}
       <div className="flex justify-end gap-2">
         {dirty && <Button variant="ghost" onClick={() => setList(saved)}>{t('common.cancel')}</Button>}
-        <Button disabled={!dirty || busy === 'cats'} onClick={save}>{t('common.save')}</Button>
+        <Button disabled={!dirty || anyBad || busy === 'cats'} onClick={save}>{t('common.save')}</Button>
       </div>
     </Card>
   )

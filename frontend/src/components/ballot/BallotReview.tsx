@@ -28,9 +28,9 @@ export function BallotReview({ data }: { data: BallotData }) {
           <span className="flex items-center gap-1.5 text-white/80"><DoorOpen className="size-4" />{data.debate.room}</span>
           <span className="text-white/80">{data.tournament.name}</span>
         </div>
-        <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">
+        <h1 className="mt-3 text-lg font-bold leading-snug sm:text-xl">
           {sidesOf(data.rules?.format).map(side => data[side]?.name).filter(Boolean).join(bp ? ' · ' : ' vs ')}
-        </p>
+        </h1>
         {data.round.motion && <p className="mt-1 text-sm text-white/80">{quoted(data.round.motion)}</p>}
       </div>
 

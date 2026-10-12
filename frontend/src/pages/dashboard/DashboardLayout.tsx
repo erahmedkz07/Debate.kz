@@ -20,7 +20,8 @@ export default function DashboardLayout() {
     <div className="min-h-dvh bg-muted/40">
       <header className="sticky top-0 z-40 border-b border-border bg-card/90 backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-[90rem] items-center gap-4 px-4 sm:px-6">
-          <Logo />
+          {/* the smallest phones (under 360px) show only the mark, so the theme, bell and avatar still fit */}
+          <Logo className="shrink-0 max-[359px]:[&>span:last-child]:hidden" />
           <nav className="ml-4 hidden items-center gap-1 lg:flex">
             {links.map(({ to, key, icon: Icon }) => (
               <NavLink key={to} to={to} end={to === '/me'} title={t(`cabinet.${key}`)} aria-label={t(`cabinet.${key}`)}

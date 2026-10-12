@@ -138,7 +138,7 @@ export default function Ballot() {
     sync()
     window.addEventListener(OUTBOX_EVENT, sync)
     return () => window.removeEventListener(OUTBOX_EVENT, sync)
-  }, [debateId, user?.id])
+  }, [debateId, uid])
 
   const inRange = (v: string, r: Range) => v !== '' && !isNaN(Number(v)) && Number(v) >= r.min && Number(v) <= r.max && Math.abs(Number(v) / r.step - Math.round(Number(v) / r.step)) < 1e-9
 

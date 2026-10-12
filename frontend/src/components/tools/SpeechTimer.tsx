@@ -88,7 +88,7 @@ export function SpeechTimer({ formatId, onFormatChange, active = true, compact }
     if (mode !== 'prep' && elapsed >= length + GRACE) ring(`over${Math.floor((elapsed - length - GRACE) / 5)}`, 3)
     // preparation simply ends at zero
     if (mode === 'prep' && elapsed >= length) setRunning(false)
-  }, [elapsed, bells, length, mode, bell])
+  }, [elapsed, bells, length, mode, bell]) // eslint-disable-line react-hooks/exhaustive-deps -- runs on every tick anyway
 
   // keep the phone screen on while the timer runs
   useEffect(() => {

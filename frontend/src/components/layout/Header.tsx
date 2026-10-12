@@ -84,7 +84,8 @@ export function Header() {
   return (
     <header className={cn('sticky top-0 z-40 transition-all duration-300', scrolled ? 'border-b border-border bg-background/85 shadow-sm backdrop-blur-lg' : 'bg-transparent')}>
       <div className="container-page flex h-16 items-center justify-between gap-4 lg:h-18">
-        <Logo inverted={onDark} />
+        {/* the smallest phones (under 360px) show only the mark, so the language, bell and menu still fit */}
+        <Logo inverted={onDark} className="shrink-0 max-[359px]:[&>span:last-child]:hidden" />
 
         {/* six links + guest buttons: compact spacing on lg, roomy from xl */}
         <nav className="hidden items-center gap-0.5 lg:flex xl:gap-1">

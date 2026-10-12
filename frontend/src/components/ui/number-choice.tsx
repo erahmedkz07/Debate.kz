@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -6,9 +6,10 @@ import { Select } from '@/components/ui/select'
 const OTHER = 'other'
 
 // A number picked from the usual values, or typed in ("Other…") within [min, max]: the common choices stay one click
-// away, and an organizer with a different tournament is not limited by them.
-export function NumberChoice({ id, value, onChange, presets, min, max, size, className, invalid, 'aria-label': ariaLabel }: {
-  id?: string; value: number; onChange: (n: number) => void; presets: number[]; min: number; max: number
+// away, and an organizer with a different tournament is not limited by them. While the typed number is out of range
+// the value stays the last good one; `onValidity` lets the form hold its "next" or "save" until it is fixed.
+export function NumberChoice({ id, value, onChange, onValidity, presets, min, max, size, className, invalid, 'aria-label': ariaLabel }: {
+  id?: string; value: number; onChange: (n: number) => void; onValidity?: (ok: boolean) => void; presets: number[]; min: number; max: number
   size?: 'sm'; className?: string; invalid?: boolean; 'aria-label'?: string
 }) {
   const { t } = useTranslation()
@@ -26,6 +27,11 @@ export function NumberChoice({ id, value, onChange, presets, min, max, size, cla
   }
   const n = Number(text)
   const bad = custom && !(Number.isInteger(n) && n >= min && n <= max)
+  // a field that goes away (another format, a removed row) no longer holds the form
+  useEffect(() => {
+    onValidity?.(!bad)
+    return () => onValidity?.(true)
+  }, [bad]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className={className}>
       <Select id={id} size={size} value={custom ? OTHER : String(value)} onValueChange={pick} aria-label={ariaLabel} invalid={invalid || bad}
@@ -33,7 +39,7 @@ export function NumberChoice({ id, value, onChange, presets, min, max, size, cla
       {custom && (
         <>
           <Input className="mt-2" type="number" inputMode="numeric" min={min} max={max} value={text} autoFocus
-            onChange={e => type(e.target.value)} aria-label={ariaLabel} aria-invalid={bad} />
+            onChange={e => type(e.target.value)} aria-label={ariaLabel ?? t('common.otherNumber')} aria-invalid={bad} />
           {bad && <p className="mt-1 text-xs text-danger">{t('common.numberRange', { min, max })}</p>}
         </>
       )}

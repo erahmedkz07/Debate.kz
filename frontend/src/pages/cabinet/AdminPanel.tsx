@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -79,7 +79,7 @@ function Overview({ tournaments, setTab }: { tournaments: AdminTournament[]; set
   )
 }
 
-function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (l: AdminTournament[]) => void }) {
+function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: Dispatch<SetStateAction<AdminTournament[]>> }) {
   const { t } = useTranslation()
   const [confirm, setConfirm] = useState<AdminTournament | null>(null)
   const [rejecting, setRejecting] = useState<AdminTournament | null>(null)
@@ -91,7 +91,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
     setBusyDelete(true)
     try {
       await adminDeleteTournament(deleting!.id, deleteReason.trim())
-      setList(list.filter(x => x.id !== deleting!.id))
+      setList(l => l.filter(x => x.id !== deleting!.id))
       setDeleting(null)
       toast(t('admin.deletedToast'))
     } catch (e) {
@@ -108,15 +108,19 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
     .filter(x => !query || [x.name, x.city, x.owner?.name, x.owner?.email].some(v => v?.toLowerCase().includes(query)))
     // pending moderation first: that is what the admin has to act on
     .sort((a, b) => Number(b.moderation === 'pending') - Number(a.moderation === 'pending'))
-  // server first, then local list; returns false on error
+  // server first, then local list; returns false on error. One change per row at a time: its buttons wait.
+  const [saving, setSaving] = useState<string | null>(null)
   const patch = async (id: string, p: { paid?: boolean; visible?: boolean; moderation?: 'approved' | 'rejected'; moderationNote?: string }) => {
+    setSaving(id)
     try {
       const updated = await updateAdminTournament(id, p)
-      setList(list.map(x => (x.id === id ? { ...x, ...updated } : x)))
+      setList(l => l.map(x => (x.id === id ? { ...x, ...updated } : x)))
       return true
     } catch (e) {
       toast.error(errorMessage(e, t))
       return false
+    } finally {
+      setSaving(null)
     }
   }
   return (
@@ -173,7 +177,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
                   <div className="flex justify-end gap-1">
                     {x.moderation === 'pending' && (
                       <>
-                        <Button size="sm" onClick={async () => { if (await patch(x.id, { moderation: 'approved' })) toast.success(t('admin.approvedToast')) }}>
+                        <Button size="sm" disabled={saving === x.id} onClick={async () => { if (await patch(x.id, { moderation: 'approved' })) toast.success(t('admin.approvedToast')) }}>
                           <Check className="size-4" />{t('admin.approve')}
                         </Button>
                         <Button size="sm" variant="ghost" className="text-danger" onClick={() => { setRejecting(x); setReason('') }}>
@@ -183,7 +187,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
                     )}
                     {x.moderation === 'approved' && x.plan === 'pro' && !x.paid && <Button size="sm" variant="accent" onClick={() => setConfirm(x)}>{t('admin.markPaid')}</Button>}
                     <Button variant="ghost" size="icon" title={x.visible ? t('admin.hide') : t('admin.show')} aria-label={x.visible ? t('admin.hide') : t('admin.show')}
-                      onClick={async () => { if (await patch(x.id, { visible: !x.visible })) toast(x.visible ? t('admin.hidden') : t('admin.shown')) }}>
+                      disabled={saving === x.id} onClick={async () => { if (await patch(x.id, { visible: !x.visible })) toast(x.visible ? t('admin.hidden') : t('admin.shown')) }}>
                       {x.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
                     </Button>
                     <Button asChild variant="ghost" size="icon" aria-label={t('dashboard.public')} title={t('dashboard.public')}>
@@ -205,7 +209,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
         <DialogContent heading={t('admin.rejectTitle')} description={rejecting?.name}>
           <form className="space-y-4" onSubmit={async e => {
             e.preventDefault()
-            if (reason.trim().length < 5) return
+            if (reason.trim().length < 5 || saving) return
             if (await patch(rejecting!.id, { moderation: 'rejected', moderationNote: reason.trim() })) { setRejecting(null); toast(t('admin.rejectedToast')) }
           }}>
             <div>
@@ -214,7 +218,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
             </div>
             <div className="flex justify-end gap-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
-              <Button type="submit" variant="danger" disabled={reason.trim().length < 5}><X className="size-4" />{t('admin.reject')}</Button>
+              <Button type="submit" variant="danger" disabled={reason.trim().length < 5 || saving === rejecting?.id}><X className="size-4" />{t('admin.reject')}</Button>
             </div>
           </form>
         </DialogContent>
@@ -238,7 +242,7 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: (
           <p className="text-sm text-muted-foreground">{t('admin.markPaidText')}</p>
           <div className="mt-5 flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
-            <Button onClick={async () => { if (await patch(confirm!.id, { paid: true })) { setConfirm(null); toast.success(t('admin.paidDone')) } }}>
+            <Button disabled={saving === confirm?.id} onClick={async () => { if (await patch(confirm!.id, { paid: true })) { setConfirm(null); toast.success(t('admin.paidDone')) } }}>
               <CheckCircle2 className="size-4" />{t('admin.markPaid')}
             </Button>
           </div>
@@ -255,6 +259,8 @@ function UsersTab() {
   const [list, setList] = useState<User[]>([])
   const [q, setQ] = useState('')
   const [role, setRole] = useState<'all' | Role>('all')
+  // one change per person at a time: the row's buttons wait
+  const [saving, setSaving] = useState<string | null>(null)
   useEffect(() => { if (data) setList(data) }, [data])
 
   if (error) return <ErrorState onRetry={reload} />
@@ -263,13 +269,16 @@ function UsersTab() {
   const shown = list.filter(u => (role === 'all' || u.role === role) &&
     (!q || u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase())))
   const patch = async (id: string, p: { role?: Role; blocked?: boolean; safeguardingOfficer?: boolean }) => {
+    setSaving(id)
     try {
       const updated = await updateUser(id, p)
-      setList(list.map(u => (u.id === id ? updated : u)))
+      setList(l => l.map(u => (u.id === id ? updated : u)))
       return true
     } catch (e) {
       toast.error(errorMessage(e, t))
       return false
+    } finally {
+      setSaving(null)
     }
   }
 
@@ -318,11 +327,11 @@ function UsersTab() {
                     {u.id !== me?.id && (
                       <div className="flex justify-end gap-1">
                       <Button size="sm" variant="ghost" title={t('admin.officerHint')}
-                        onClick={async () => { if (await patch(u.id, { safeguardingOfficer: !u.safeguardingOfficer })) toast(t(u.safeguardingOfficer ? 'admin.officerOff' : 'admin.officerOn', { name: u.name })) }}>
+                        disabled={saving === u.id} onClick={async () => { if (await patch(u.id, { safeguardingOfficer: !u.safeguardingOfficer })) toast(t(u.safeguardingOfficer ? 'admin.officerOff' : 'admin.officerOn', { name: u.name })) }}>
                         <LifeBuoy className="size-4" />{t(u.safeguardingOfficer ? 'admin.removeOfficer' : 'admin.makeOfficer')}
                       </Button>
                       <Button size="sm" variant="ghost" className={u.blocked ? 'text-success' : 'text-danger'}
-                        onClick={async () => { if (await patch(u.id, { blocked: !u.blocked })) toast(u.blocked ? t('admin.unblockedToast') : t('admin.blockedToast')) }}>
+                        disabled={saving === u.id} onClick={async () => { if (await patch(u.id, { blocked: !u.blocked })) toast(u.blocked ? t('admin.unblockedToast') : t('admin.blockedToast')) }}>
                         {u.blocked ? <><Unlock className="size-4" />{t('admin.unblock')}</> : <><Ban className="size-4" />{t('admin.block')}</>}
                       </Button>
                       </div>
@@ -382,8 +391,10 @@ export default function AdminPanel() {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(getAdminTournaments)
   const [list, setList] = useState<AdminTournament[]>([])
-  const [params] = useSearchParams()
-  const [tab, setTab] = useState(params.get('tab') ?? 'overview')
+  // the open section lives in the address (?tab=), so a refresh or "back" keeps it
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') ?? 'overview'
+  const setTab = (v: string) => setParams(v === 'overview' ? {} : { tab: v }, { replace: true })
   useEffect(() => { if (data) setList(data) }, [data])
   const pending = list.filter(x => x.moderation === 'pending').length
   // clubs waiting for a decision or reported

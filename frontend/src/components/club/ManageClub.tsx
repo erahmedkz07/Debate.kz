@@ -120,22 +120,31 @@ function JoinRequests({ club, onDone }: { club: ClubDetails; onDone: () => void 
   )
 }
 
+// runs a club action once at a time: true when it worked, so a dialog closes only on success; buttons wait while busy
+function useAct(onDone: () => void) {
+  const { t } = useTranslation()
+  const [busy, setBusy] = useState(false)
+  const act = async (fn: () => Promise<unknown>, ok?: string) => {
+    if (busy) return false
+    setBusy(true)
+    try { await fn(); if (ok) toast.success(ok); onDone(); return true } catch (e) { toast.error(errorMessage(e, t)); return false } finally { setBusy(false) }
+  }
+  return { busy, act }
+}
+
 function TeamCard({ club, team, onDone }: { club: ClubDetails; team: ClubDetails['teams'][number]; onDone: () => void }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(team.name)
   const [confirm, setConfirm] = useState(false)
-  // true when it worked, so a dialog closes only on success
-  const act = async (fn: () => Promise<unknown>, ok?: string) => {
-    try { await fn(); if (ok) toast.success(ok); onDone(); return true } catch (e) { toast.error(errorMessage(e, t)); return false }
-  }
+  const { busy, act } = useAct(onDone)
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between gap-2">
         {editing ? (
           <form className="flex flex-1 gap-2" onSubmit={e => { e.preventDefault(); void act(() => renameClubTeam(team.id, name.trim())).then(ok => ok && setEditing(false)) }}>
             <Input autoFocus value={name} maxLength={80} onChange={e => setName(e.target.value)} aria-label={t('club.teamName')} />
-            <Button type="submit" size="sm" disabled={name.trim().length < 2}><Check className="size-4" /></Button>
+            <Button type="submit" size="sm" disabled={busy || name.trim().length < 2} aria-label={t('common.save')}><Check className="size-4" /></Button>
           </form>
         ) : (
           <div className="flex min-w-0 items-center gap-3">
@@ -159,7 +168,7 @@ function TeamCard({ club, team, onDone }: { club: ClubDetails; team: ClubDetails
         <DialogContent heading={t('club.deleteTeam')} description={t('club.deleteTeamText', { name: team.name })}>
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
-            <Button variant="danger" onClick={() => act(() => deleteClubTeam(team.id), t('club.teamDeleted')).then(ok => ok && setConfirm(false))}><Trash2 className="size-4" />{t('common.delete')}</Button>
+            <Button variant="danger" disabled={busy} onClick={() => act(() => deleteClubTeam(team.id), t('club.teamDeleted')).then(ok => ok && setConfirm(false))}><Trash2 className="size-4" />{t('common.delete')}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -173,10 +182,7 @@ function MemberRow({ club, m, onDone, compact }: { club: ClubDetails; m: ClubMem
   const { user, signIn } = useAuth()
   const [confirm, setConfirm] = useState(false)
   const me = user?.id === m.id
-  // true when it worked, so a dialog closes only on success
-  const act = async (fn: () => Promise<unknown>, ok?: string) => {
-    try { await fn(); if (ok) toast.success(ok); onDone(); return true } catch (e) { toast.error(errorMessage(e, t)); return false }
-  }
+  const { busy, act } = useAct(onDone)
   const Tag = compact ? 'li' : 'div'
   return (
     <Tag className={compact ? 'flex flex-wrap items-center gap-3 py-2.5' : 'flex flex-wrap items-center gap-3 px-5 py-3'}>
@@ -184,7 +190,7 @@ function MemberRow({ club, m, onDone, compact }: { club: ClubDetails; m: ClubMem
       <span className="min-w-0 flex-1 truncate text-sm font-semibold">{m.name}{me && <span className="font-normal text-muted-foreground"> · {t('club.you')}</span>}</span>
       {club.isMember && (
         <>
-          <Select size="sm" className={compact ? "w-32 shrink-0" : "w-40 shrink-0"} aria-label={t('club.moveTo', { name: m.name })} value={m.teamId ?? 'none'}
+          <Select size="sm" disabled={busy} className={compact ? "w-32 shrink-0" : "w-40 shrink-0"} aria-label={t('club.moveTo', { name: m.name })} value={m.teamId ?? 'none'}
             // moving yourself changes the team shown in your profile too
             onValueChange={v => act(() => setMemberTeam(club.id, m.id, v === 'none' ? null : v)).then(async ok => { if (ok && me) { const u = await getMe(); if (u) signIn(u) } })}
             options={[{ value: 'none', label: t('club.noTeam') }, ...club.teams.map(x => ({ value: x.id, label: x.name }))]} />
@@ -195,7 +201,7 @@ function MemberRow({ club, m, onDone, compact }: { club: ClubDetails; m: ClubMem
             <DialogContent heading={t('club.remove')} description={t('club.removeText', { name: m.name })}>
               <div className="flex justify-end gap-2">
                 <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
-                <Button variant="danger" onClick={() => act(() => removeClubMember(club.id, m.id), t('club.removed')).then(ok => ok && setConfirm(false))}>{t('club.remove')}</Button>
+                <Button variant="danger" disabled={busy} onClick={() => act(() => removeClubMember(club.id, m.id), t('club.removed')).then(ok => ok && setConfirm(false))}>{t('club.remove')}</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -261,12 +267,10 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
   const { signIn } = useAuth()
   const [edit, setEdit] = useState(false)
   const [leave, setLeave] = useState(false)
+  const [leaving, setLeaving] = useState(false)
   const [f, setF] = useState({ name: club.name, city: club.city, institution: club.institution ?? '', description: club.description })
   const refreshMe = async () => { const me = await getMe(); if (me) signIn(me) }
-  // true when it worked, so a dialog closes only on success
-  const act = async (fn: () => Promise<unknown>, ok?: string) => {
-    try { await fn(); if (ok) toast.success(ok); onDone(); return true } catch (e) { toast.error(errorMessage(e, t)); return false }
-  }
+  const { busy, act } = useAct(onDone)
   return (
     <>
       <div className="flex flex-wrap gap-2">
@@ -283,7 +287,7 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
             <div className="sm:col-span-2"><Label htmlFor="c-desc">{t('club.description')}</Label><Textarea id="c-desc" rows={4} maxLength={2000} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
             <div className="flex justify-end gap-2 sm:col-span-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
-              <Button type="submit" disabled={f.name.trim().length < 2 || f.city.trim().length < 2}>{t('common.save')}</Button>
+              <Button type="submit" disabled={busy || f.name.trim().length < 2 || f.city.trim().length < 2}>{t('common.save')}</Button>
             </div>
           </form>
         </DialogContent>
@@ -292,8 +296,9 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
         <DialogContent heading={t('club.leave')} description={t('club.leaveText', { name: club.name })}>
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
-            <Button variant="danger" onClick={async () => {
-              try { await leaveClub(club.id); await refreshMe(); toast(t('club.left')); setLeave(false); onLeft() } catch (e) { toast.error(errorMessage(e, t)) }
+            <Button variant="danger" disabled={leaving} onClick={async () => {
+              setLeaving(true)
+              try { await leaveClub(club.id); await refreshMe(); toast(t('club.left')); setLeave(false); onLeft() } catch (e) { toast.error(errorMessage(e, t)) } finally { setLeaving(false) }
             }}><LogOut className="size-4" />{t('club.leave')}</Button>
           </div>
         </DialogContent>
