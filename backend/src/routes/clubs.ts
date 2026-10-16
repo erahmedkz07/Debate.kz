@@ -23,6 +23,7 @@ const name = z.string().trim().min(2).max(80)
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const newCode = () => Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('')
 
+const LOGGED = ['created', 'edited', 'joined', 'left', 'removed', 'request.accepted', 'team.created', 'team.renamed', 'team.deleted', 'team.assigned']
 const log = (tx: Prisma.TransactionClient, clubId: string, user: User, action: string, detail = '') =>
   tx.clubLog.create({ data: { clubId, userId: user.id, userName: user.name, action, detail } })
 
@@ -82,7 +83,8 @@ clubsRouter.get('/clubs/:id', async (req, res) => {
     ...(isMember && {
       joinCode: c.joinCode,
       pendingRequests: await prisma.clubJoinRequest.count({ where: { clubId: c.id, status: 'pending' } }),
-      log: (await prisma.clubLog.findMany({ where: { clubId: c.id }, orderBy: { createdAt: 'desc' }, take: 50 }))
+      // the log keeps what matters to the members; logo changes and link resets stay out of it
+      log: (await prisma.clubLog.findMany({ where: { clubId: c.id, action: { in: LOGGED } }, orderBy: { createdAt: 'desc' }, take: 50 }))
         .map(l => ({ id: l.id, userName: l.userName, action: l.action, detail: l.detail, createdAt: l.createdAt.toISOString() })),
     }),
   })
@@ -128,7 +130,9 @@ clubsRouter.patch('/clubs/:id', requireAuth(), async (req, res) => {
       where: { id },
       data: { ...d, ...(d.institution !== undefined && { institution: d.institution || null }), ...(resubmit && { status: 'pending', moderationNote: null }) },
     })
-    await log(tx, id, req.user!, 'edited', Object.keys(d).join(', '))
+    // only the fields that really changed (name, city, institution, description)
+    const changed = (Object.keys(d) as (keyof typeof d)[]).filter(k => (d[k] || null) !== (before[k] || null))
+    if (changed.length) await log(tx, id, req.user!, 'edited', changed.join(', '))
     return c
   }).catch(e => unique(e, 'club_exists'))
   if (resubmit) background(notify(await admins(), 'admin.clubPending', { club: club.name, city: club.city, owner: req.user!.name }, '/admin?tab=clubs'))
@@ -165,14 +169,23 @@ clubsRouter.post('/clubs/join', requireAuth(), requireVerified, async (req, res)
   res.json({ id: c.id })
 })
 
+// Leaving: the last member's leaving closes the club (nobody would be left to run it). Its teams, log and requests
+// go with it; past tournament teams keep their results and only lose the link to the club.
 clubsRouter.post('/clubs/:id/leave', requireAuth(), async (req, res) => {
   const id = param(req, 'id')
   await memberOf(req, id)
-  await prisma.$transaction(async tx => {
+  const closed = await prisma.$transaction(async tx => {
     await tx.clubMember.delete({ where: { userId: req.user!.id } })
-    await log(tx, id, req.user!, 'left')
+    if (await tx.clubMember.count({ where: { clubId: id } }) > 0) {
+      await log(tx, id, req.user!, 'left')
+      return null
+    }
+    const club = await tx.club.findUniqueOrThrow({ where: { id }, include: { teams: { select: { logoUrl: true } } } })
+    await tx.club.delete({ where: { id } })
+    return club
   })
-  res.status(204).end()
+  if (closed) for (const url of [closed.logoUrl, ...closed.teams.map(t => t.logoUrl)]) await removeLogo(url)
+  res.json({ closed: !!closed })
 })
 
 // any member may remove another member (all members are equal); the removed person is told

@@ -268,6 +268,7 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
   const [edit, setEdit] = useState(false)
   const [leave, setLeave] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  const last = club.members.length <= 1
   const [f, setF] = useState({ name: club.name, city: club.city, institution: club.institution ?? '', description: club.description })
   const refreshMe = async () => { const me = await getMe(); if (me) signIn(me) }
   const { busy, act } = useAct(onDone)
@@ -293,13 +294,17 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
         </DialogContent>
       </Dialog>
       <Dialog open={leave} onOpenChange={setLeave}>
-        <DialogContent heading={t('club.leave')} description={t('club.leaveText', { name: club.name })}>
+        {/* the last member's leaving closes the club: say so before */}
+        <DialogContent heading={t(last ? 'club.leaveLastTitle' : 'club.leave')} description={t(last ? 'club.leaveLastText' : 'club.leaveText', { name: club.name })}>
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
             <Button variant="danger" disabled={leaving} onClick={async () => {
               setLeaving(true)
-              try { await leaveClub(club.id); await refreshMe(); toast(t('club.left')); setLeave(false); onLeft() } catch (e) { toast.error(errorMessage(e, t)) } finally { setLeaving(false) }
-            }}><LogOut className="size-4" />{t('club.leave')}</Button>
+              try {
+                const { closed } = await leaveClub(club.id)
+                await refreshMe(); toast(closed ? t('club.closed', { name: club.name }) : t('club.left')); setLeave(false); onLeft()
+              } catch (e) { toast.error(errorMessage(e, t)) } finally { setLeaving(false) }
+            }}><LogOut className="size-4" />{t(last ? 'club.leaveLastTitle' : 'club.leave')}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -310,6 +315,10 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
 
 function ClubLog({ log }: { log: NonNullable<ClubDetails['log']> }) {
   const { t } = useTranslation()
+  // "edited" lists the changed fields by their key: shown in the reader's language
+  const detailOf = (l: NonNullable<ClubDetails['log']>[number]) => (l.action === 'edited'
+    ? l.detail.split(', ').map(k => t(`club.fields.${k}`, { defaultValue: k })).join(', ')
+    : l.detail)
   const [all, setAll] = useState(false)
   const shown = all ? log : log.slice(0, 6)
   return (
@@ -318,7 +327,7 @@ function ClubLog({ log }: { log: NonNullable<ClubDetails['log']> }) {
       <ul className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2.5 text-sm md:grid-cols-2">
         {shown.map(l => (
           <li key={l.id}>
-            <b>{l.userName}</b> {t(`club.actions.${l.action}`, { defaultValue: l.action })}{l.detail && <span className="text-muted-foreground"> · {l.detail}</span>}
+            <b>{l.userName}</b> {t(`club.actions.${l.action}`, { defaultValue: l.action })}{l.detail && <span className="text-muted-foreground"> · {detailOf(l)}</span>}
             <span className="block text-xs text-muted-foreground">{formatDateTime(l.createdAt)}</span>
           </li>
         ))}
