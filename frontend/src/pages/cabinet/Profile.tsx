@@ -216,7 +216,7 @@ function SecurityCard({ canDelete }: { canDelete: boolean }) {
     try { await fn() } catch (e) { toast.error(errorMessage(e, t)) } finally { setBusy(false) }
   }
   return (
-    <Card className="h-full p-6 lg:only:col-span-2">
+    <Card className="p-6">
       <h3 className="flex items-center gap-2 font-bold"><ShieldCheck className="size-4 text-primary" />{t('profile.security.title')}</h3>
       {/* Google: shown when the server supports it, or when an account is already linked */}
       {(google.data?.enabled || user.googleLinked) && (
@@ -450,7 +450,7 @@ export default function Profile() {
         <TabsContent value="club" className="mt-0"><MyClub /></TabsContent>
 
         <TabsContent value="settings" className="mt-0">
-          {/* personal data across the full width; below it Telegram and security side by side, equal height */}
+          {/* personal data across the full width; below it Telegram on the left, the public profile with security under it on the right */}
           <div className="space-y-5">
           <Card className="p-6">
             <h3 className="mb-4 flex items-center gap-2 font-bold"><UserRound className="size-4 text-primary" />{t('profile.personal')}</h3>
@@ -474,11 +474,14 @@ export default function Profile() {
               <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!form.name.trim()}>{t('common.save')}</Button></div>
             </form>
           </Card>
-          <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
             <TelegramCard />
-            {/* admins are demoted by another admin before they can leave */}
-            {!isAdmin && <PublicProfileCard />}
-            <SecurityCard canDelete={!isAdmin} />
+            {/* each card as tall as its content; admins have no public profile (and are demoted by another admin before they can leave).
+                Without the Telegram card (no bot set up) the two cards sit side by side across the width. */}
+            <div className="space-y-5 lg:only:col-span-2 lg:only:grid lg:only:grid-cols-2 lg:only:items-start lg:only:gap-5 lg:only:space-y-0">
+              {!isAdmin && <PublicProfileCard />}
+              <SecurityCard canDelete={!isAdmin} />
+            </div>
           </div>
           </div>
         </TabsContent>
