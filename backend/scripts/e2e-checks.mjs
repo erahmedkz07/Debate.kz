@@ -2473,5 +2473,28 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(table.some(r => r.team.id === room.propositionTeamId && r.wins === 1 && r.team.league === 'l2'), "the table carries each team's league")
 }
 
+// ---------- 65. rounds and break set after creating the tournament ----------
+{
+  const host = await newAccount('Раунды Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(460), name: `Раунды ${jtag}`, preliminaryRounds: 2, breakSize: 4 })).data
+  const prelims = async () => (await host.c('GET', `/tournaments/${t.id}`)).data.rounds.filter(r => r.kind !== 'elimination')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { preliminaryRounds: 5 })).status === 200 && (await prelims()).map(r => r.number).join(',') === '1,2,3,4,5', 'rounds are added after creating the tournament')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { preliminaryRounds: 3 })).status === 200 && (await prelims()).length === 3, 'rounds without a draw are taken away')
+  ok((await host.c('GET', `/tournaments/${t.id}`)).data.preliminaryRounds === 3, 'the tournament shows the new number of rounds')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { breakSize: 6 })).status === 200 && (await host.c('GET', `/tournaments/${t.id}`)).data.breakSize === 6, 'the break size changes after creating')
+  // a drawn round stays
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Р А', 'Р Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await addJudge(host.c, t.id, 'Раунды Судья')
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const [r1, r2, r3] = await prelims()
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  await db.query("update rounds set status = 'completed' where id = $1", [r1.id])
+  await host.c('POST', `/rounds/${r2.id}/draw`, { addSwing: false })
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { preliminaryRounds: 1 })).data?.error === 'round_already_drawn', 'a drawn round cannot be taken away')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { preliminaryRounds: 2 })).status === 200 && !(await prelims()).some(r => r.id === r3.id), 'the undrawn last round can still go')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { breakSize: 1 })).status === 400, 'a break below two is refused')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

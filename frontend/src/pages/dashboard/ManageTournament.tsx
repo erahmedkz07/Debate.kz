@@ -465,6 +465,58 @@ function JudgesBulkDialog({ tournamentId, open, onOpenChange, onDone }: { tourna
   )
 }
 
+/* ---------- Rounds and break ---------- */
+// How many preliminary rounds and how many teams break: set once the teams are known (not in the wizard). Until the
+// break is announced; a round is added at the end, and only a round without a draw can be taken away.
+function RoundsBreakCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const prelimsNow = data.rounds.filter(r => r.kind !== 'elimination').length
+  const [prelims, setPrelims] = useState(prelimsNow)
+  const [breakSize, setBreakSize] = useState(data.breakSize)
+  const [bad, setBad] = useState<Record<string, boolean>>({})
+  useEffect(() => { setPrelims(prelimsNow); setBreakSize(data.breakSize) }, [prelimsNow, data.breakSize])
+  const locked = data.rounds.some(r => r.kind === 'elimination')
+  const bp = isBP(data.format)
+  const dirty = prelims !== prelimsNow || breakSize !== data.breakSize
+  const byes = !bp && breakSize >= 2 ? 2 ** Math.ceil(Math.log2(breakSize)) - breakSize : 0
+  const ok = (k: string) => (v: boolean) => setBad(b => (!!b[k] === !v ? b : { ...b, [k]: !v }))
+  const save = async () => {
+    if (await run('rounds', () => updateTournament(data.id, { preliminaryRounds: prelims, breakSize }), t('common.saved'))) reload()
+  }
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="flex items-center gap-2 font-bold"><ListOrdered className="size-4 text-primary" />{t('dashboard.roundsBreak.title')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t(locked ? 'dashboard.roundsBreak.locked' : 'dashboard.roundsBreak.text')}</p>
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="rb-prelims">{t('wizard.prelims')}</Label>
+          {locked ? <p className="text-sm font-semibold">{prelimsNow}</p> : (
+            <NumberChoice id="rb-prelims" value={prelims} onChange={setPrelims} onValidity={ok('prelims')} presets={[2, 3, 4, 5, 6, 7, 8]} min={1} max={12} />
+          )}
+        </div>
+        <div>
+          <Label htmlFor="rb-break">{t('wizard.breakSize')}</Label>
+          {locked ? <p className="text-sm font-semibold">{data.breakSize}</p> : bp ? (
+            <Select id="rb-break" value={String(breakSize)} onValueChange={v => setBreakSize(Number(v))} options={BP_BREAKS.map(n => ({ value: String(n), label: String(n) }))} />
+          ) : (
+            <NumberChoice id="rb-break" value={breakSize} onChange={setBreakSize} onValidity={ok('break')} presets={[2, 4, 8, 16]} min={2} max={64} />
+          )}
+          {!locked && byes > 0 && <p className="mt-1 text-xs text-muted-foreground">{t('wizard.breakByes', { count: byes })}</p>}
+        </div>
+      </div>
+      {!locked && (
+        <div className="flex justify-end gap-2">
+          {dirty && <Button variant="ghost" onClick={() => { setPrelims(prelimsNow); setBreakSize(data.breakSize) }}>{t('common.cancel')}</Button>}
+          <Button disabled={!dirty || Object.values(bad).some(Boolean) || busy === 'rounds'} onClick={save}>{t('common.save')}</Button>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 /* ---------- Leagues ---------- */
 // Leagues inside one tournament (a Russian and a Kazakh league): each league is drawn and ranked on its own, so its
 // teams only meet each other. Set before the first draw; afterwards they can only be renamed.
@@ -1469,6 +1521,7 @@ function SettingsSection({ data, reload }: SectionProps) {
           </TabsContent>
           {parts.includes('conduct') && (
             <TabsContent value="conduct" className="space-y-5">
+              <RoundsBreakCard data={data} reload={reload} />
               <RoomsCard data={data} reload={reload} />
               <LeaguesCard data={data} reload={reload} />
               {!data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}
