@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Loader2, PartyPopper } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, ImagePlus, Info, Loader2, PartyPopper } from 'lucide-react'
 import { claimPayment, createTournament, getCoverTemplates, getPlanQuote, uploadTournamentCover } from '@/api'
 import { KaspiPayBox } from '@/components/payments/KaspiPayBox'
 import { Skeleton } from '@/components/ui/states'
@@ -17,7 +17,6 @@ import { cn, formatDateRange, todayKz } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { FieldError, Input, Label, Switch } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
 import { DatePicker } from '@/components/ui/date-picker'
 
 import { FREE_TEAM_LIMIT as FREE_LIMIT } from '@/lib/plans'
@@ -25,12 +24,9 @@ import { formatOfTournament, TOURNAMENT_FORMATS } from '@/content/formats'
 import { BP_BREAKS } from '@/lib/formats'
 import { PlacePicker, placeDistrict } from '@/components/tournament/PlacePicker'
 import { cityName, regionByCode } from '@/content/geo'
-import { NumberChoice } from '@/components/ui/number-choice'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
 type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
 
-// how many top seeds skip the first playoff round when the break is not a power of two (6 -> 2 byes)
-const byesOf = (n: number) => (n >= 2 ? 2 ** Math.ceil(Math.log2(n)) - n : 0)
 
 // The wizard keeps a draft on this device (per account): a refresh or a closed tab does not lose what was typed.
 // The organizer's own picture is a local file and cannot be kept; a template cover is.
@@ -114,11 +110,7 @@ export default function CreateTournament() {
     payment: [],
     summary: [],
   }
-  // a number typed in "Other…" that is out of range holds the step until it is fixed (the field shows the range)
-  const [badNumbers, setBadNumbers] = useState<Record<string, boolean>>({})
-  const numberOk = (field: string) => (ok: boolean) => setBadNumbers(b => (!!b[field] === !ok ? b : { ...b, [field]: !ok }))
   const next = async () => {
-    if (current === 'format' && Object.values(badNumbers).some(Boolean)) return
     if (current === 'payment' && !paymentReady) return void toast.error(t('wizard.payFirst'))
     if (await trigger(fieldsByStep[current])) setStep(s => Math.min(s, steps.length - 1) + 1)
   }
@@ -297,25 +289,8 @@ export default function CreateTournament() {
                       )
                     })}
                   </div>
-                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <div>
-                      <Label htmlFor="prelims">{t('wizard.prelims')}</Label>
-                      <NumberChoice id="prelims" value={Number(v.prelims)} onChange={n => setValue('prelims', n)} onValidity={numberOk('prelims')} presets={[2, 3, 4, 5, 6, 7, 8]} min={1} max={12} />
-                    </div>
-                    <div>
-                      <Label htmlFor="break">{t('wizard.breakSize')}</Label>
-                      {v.format === 'BP' ? (
-                        <Select id="break" value={String(v.breakSize)} onValueChange={n => setValue('breakSize', Number(n))}
-                          options={BP_BREAKS.map(n => ({ value: String(n), label: String(n) }))} />
-                      ) : (
-                        <NumberChoice id="break" value={Number(v.breakSize)} onChange={n => setValue('breakSize', n)} onValidity={numberOk('break')} presets={[2, 4, 8, 16]} min={2} max={64} />
-                      )}
-                      {/* a break that is not a power of two: the top seeds go straight to the next round */}
-                      {v.format !== 'BP' && byesOf(Number(v.breakSize)) > 0 && (
-                        <p className="mt-1 text-xs text-muted-foreground">{t('wizard.breakByes', { count: byesOf(Number(v.breakSize)) })}</p>
-                      )}
-                    </div>
-                  </div>
+                  {/* the rounds and the break are set later, in the settings: nobody knows them before the teams are in */}
+                  <p className="flex items-start gap-2 rounded-2xl bg-primary-soft p-4 text-sm"><Info className="mt-0.5 size-4 shrink-0 text-primary" />{t('wizard.roundsLater')}</p>
                 </>
               )}
 
@@ -363,8 +338,6 @@ export default function CreateTournament() {
                       [t('wizard.level'), t(`level.${v.level}`)],
                       [t('wizard.dates'), v.startDate && v.endDate ? formatDateRange(v.startDate, v.endDate) : '—'],
                       [t('wizard.format'), formatOfTournament(v.format).name[lang]],
-                      [t('wizard.prelims'), String(v.prelims)],
-                      [t('wizard.breakSize'), String(v.breakSize)],
                       [t('wizard.maxTeams'), String(v.maxTeams)],
                       [t('wizard.languages'), [v.langKz && 'Қазақша', v.langRu && 'Русский'].filter(Boolean).join(', ')],
                     ].map(([k, val]) => (

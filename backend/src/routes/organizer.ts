@@ -154,6 +154,9 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
       key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().min(2).max(MAX_BREAK),
     })).max(3).optional(),
     roomLinks: z.record(z.string().trim().min(1).max(60), httpsUrl).optional(),
+    // the number of preliminary rounds and the break: known only once the teams are in, so they change after creating
+    preliminaryRounds: z.number().int().min(1).max(MAX_PRELIMS).optional(),
+    breakSize: z.number().int().min(2).max(MAX_BREAK).optional(),
     // leagues inside the tournament (a Russian and a Kazakh league): set before the first draw
     leagues: z.array(z.object({ key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40) })).max(4).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
@@ -199,6 +202,25 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
       if (left.length !== tm.categories.length) await prisma.team.update({ where: { id: tm.id }, data: { categories: left } })
     }
   }
+  // rounds and break: until the break is announced. A round is added at the end; only a round without a draw is taken away.
+  const elimination = cur.rounds.some(r => r.kind === 'elimination')
+  const prelims = cur.rounds.filter(r => r.kind === 'preliminary').sort((a, b) => a.number - b.number)
+  const addRounds: number[] = [], dropRounds: string[] = []
+  if (rest.preliminaryRounds !== undefined && rest.preliminaryRounds !== prelims.length) {
+    if (elimination) throw forbidden('break_already_announced')
+    if (rest.preliminaryRounds > prelims.length) {
+      for (let n = prelims.length + 1; n <= rest.preliminaryRounds; n++) addRounds.push(n)
+    } else {
+      const extra = prelims.slice(rest.preliminaryRounds)
+      const drawn = await prisma.debate.count({ where: { roundId: { in: extra.map(r => r.id) } } })
+      if (drawn || extra.some(r => r.status !== 'draft')) throw forbidden('round_already_drawn')
+      dropRounds.push(...extra.map(r => r.id))
+    }
+  }
+  if (rest.breakSize !== undefined && rest.breakSize !== cur.breakSize) {
+    if (elimination) throw forbidden('break_already_announced')
+    if (!validBreak(rest.breakSize, cur.format === 'BP')) throw badRequest('break_too_small')
+  }
   if (rest.leagues) {
     const keys = rest.leagues.map(l => l.key)
     if (new Set(keys).size !== keys.length || rest.leagues.length === 1) throw badRequest('invalid_leagues')
@@ -216,6 +238,11 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   }
 
   const t = await prisma.$transaction(async tx => {
+    // new rounds go on the last day; the removed ones had no draw
+    if (dropRounds.length) await tx.round.deleteMany({ where: { id: { in: dropRounds } } })
+    for (const n of addRounds) {
+      await tx.round.create({ data: { tournamentId: cur.id, number: n, name: `Раунд ${n}`, date: (data.endDate as Date | undefined) ?? cur.endDate } })
+    }
     // unreleased rounds follow the new dates (first half on day one, the rest on the last day)
     if (data.startDate || data.endDate) {
       const start = (data.startDate as Date | undefined) ?? cur.startDate, end = (data.endDate as Date | undefined) ?? cur.endDate
