@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { ArrowRight, Building2, KeyRound, Loader2, LogIn, MapPin, Search, Users } from 'lucide-react'
-import { getCities, getClubByCode, getClubs, getMe, joinClub, NotFoundError } from '@/api'
+import { getClubByCode, getClubs, getMe, joinClub, NotFoundError } from '@/api'
 import type { ClubSummary } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { CitySelect } from '@/components/ui/city-select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import NotFound from './NotFound'
 import { BackButton } from '@/components/layout/BackButton'
@@ -50,7 +50,6 @@ export default function Clubs() {
   const [params, setParams] = useSearchParams()
   const search = params.get('search') ?? '', city = params.get('city') ?? ''
   const { data, loading, error, reload } = useAsync(() => getClubs({ search: search || undefined, city: city || undefined }), [search, city])
-  const { data: cities = [] } = useAsync(getCities)
   const [gate, setGate] = useState(false)
   const [joining, setJoining] = useState(false)
   const [code, setCode] = useState('')
@@ -90,8 +89,7 @@ export default function Clubs() {
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input className="pl-10" defaultValue={search} onChange={e => set('search', e.target.value.trim())} placeholder={t('club.search')} aria-label={t('common.search')} />
           </div>
-          <Select className="w-44" value={city || 'all'} onValueChange={v => set('city', v === 'all' ? '' : v)} aria-label={t('common.city')}
-            options={[{ value: 'all', label: t('teammates.allCities') }, ...cities.map(c => ({ value: c, label: c }))]} />
+          <CitySelect className="w-full sm:w-52" value={city} onChange={v => set('city', v)} allLabel={t('teammates.allCities')} />
         </div>
       </PageHeader>
       <div className="container-page py-10">

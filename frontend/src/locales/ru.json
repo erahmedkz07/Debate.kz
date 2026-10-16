@@ -49,7 +49,10 @@
     "close": "Закрыть",
     "optional": "необязательно",
     "otherNumber": "Другое…",
-    "numberRange": "Число от {{min}} до {{max}}"
+    "numberRange": "Число от {{min}} до {{max}}",
+    "searchList": "Поиск…",
+    "nothingFound": "Ничего не найдено",
+    "useTyped": "Использовать «{{name}}»"
   },
   "status": {
     "registration": "Регистрация открыта",
@@ -2412,7 +2415,9 @@
     "venue": "Адрес площадки",
     "venuePlaceholder": "Улица, дом, школа — например, ул. Абая, 10, школа-лицей №5",
     "regionFirst": "Сначала выберите регион",
-    "otherDistrict": "Другой район…"
+    "otherDistrict": "Другой район…",
+    "republicanCities": "Города республиканского значения",
+    "customCityHint": "Нет в списке? Напишите полное точное название населённого пункта."
   },
   "reviews": {
     "tab": "Отзывы",

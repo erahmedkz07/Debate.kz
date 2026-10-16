@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Flag, MessageCircle, Plus, Send, ShieldCheck, UserPlus, Users, X } from 'lucide-react'
-import { closeTeammatePost, createTeammatePost, getCities, getTeammatePosts, replyToTeammatePost } from '@/api'
+import { closeTeammatePost, createTeammatePost, getTeammatePosts, replyToTeammatePost } from '@/api'
 import type { TeammatePost } from '@/types'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
@@ -17,6 +17,7 @@ import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Label, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { CitySelect } from '@/components/ui/city-select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { BackButton } from '@/components/layout/BackButton'
 
@@ -30,7 +31,6 @@ export default function Teammates() {
   const [params, setParams] = useSearchParams()
   const filters = { kind: params.get('kind') ?? undefined, city: params.get('city') ?? undefined, level: params.get('level') ?? undefined }
   const { data, loading, error, reload } = useAsync(() => getTeammatePosts(filters), [params.toString(), user?.id])
-  const { data: cities = [] } = useAsync(getCities)
   const [gate, setGate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({ kind: 'team_needed', city: '', level: 'school', languages: ['ru'] as string[], text: '' })
@@ -65,10 +65,9 @@ export default function Teammates() {
               </button>
             ))}
           </div>
-          <Select className="w-44" value={filters.city ?? 'all'} onValueChange={v => set('city', v === 'all' ? undefined : v)} aria-label={t('common.city')}
-            options={[{ value: 'all', label: t('teammates.allCities') }, ...cities.map(c => ({ value: c, label: c }))]} />
+          <CitySelect className="w-full sm:w-52" value={filters.city ?? ''} onChange={v => set('city', v || undefined)} allLabel={t('teammates.allCities')} />
           <Select className="w-44" value={filters.level ?? 'all'} onValueChange={v => set('level', v === 'all' ? undefined : v)} aria-label={t('wizard.level')}
-            options={[{ value: 'all', label: t('motions.allLevels') }, { value: 'school', label: t('level.school') }, { value: 'university', label: t('level.university') }]} />
+            options={[{ value: 'all', label: t('motions.allLevels') }, { value: 'school', label: t('level.school') }, { value: 'university', label: t('level.university') }, { value: 'mixed', label: t('level.mixed') }]} />
         </div>
       </PageHeader>
 
@@ -123,8 +122,8 @@ export default function Teammates() {
               ))}
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div><Label htmlFor="tm-city">{t('common.city')}</Label><Select id="tm-city" value={form.city} placeholder={t('wizard.cityPlaceholder')} onValueChange={v => setForm({ ...form, city: v })} options={cities.map(c => ({ value: c, label: c }))} /></div>
-              <div><Label htmlFor="tm-level">{t('wizard.level')}</Label><Select id="tm-level" value={form.level} onValueChange={v => setForm({ ...form, level: v })} options={[{ value: 'school', label: t('level.school') }, { value: 'university', label: t('level.university') }]} /></div>
+              <div><Label htmlFor="tm-city">{t('common.city')}</Label><CitySelect id="tm-city" value={form.city} onChange={v => setForm({ ...form, city: v })} allowCustom /></div>
+              <div><Label htmlFor="tm-level">{t('wizard.level')}</Label><Select id="tm-level" value={form.level} onValueChange={v => setForm({ ...form, level: v })} options={[{ value: 'school', label: t('level.school') }, { value: 'university', label: t('level.university') }, { value: 'mixed', label: t('level.mixed') }]} /></div>
             </div>
             <div className="flex flex-wrap gap-4 text-sm">
               {LANGS.map(l => (

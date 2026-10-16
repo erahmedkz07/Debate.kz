@@ -49,7 +49,10 @@
     "close": "Жабу",
     "optional": "міндетті емес",
     "otherNumber": "Басқа…",
-    "numberRange": "{{min}}-ден {{max}}-ге дейінгі сан"
+    "numberRange": "{{min}}-ден {{max}}-ге дейінгі сан",
+    "searchList": "Іздеу…",
+    "nothingFound": "Ештеңе табылмады",
+    "useTyped": "«{{name}}» қолдану"
   },
   "status": {
     "registration": "Тіркеу ашық",
@@ -2336,7 +2339,9 @@
     "venue": "Өтетін орны",
     "venuePlaceholder": "Көше, үй, мектеп — мысалы, Абай к-сі, 10, №5 мектеп-лицей",
     "regionFirst": "Алдымен өңірді таңдаңыз",
-    "otherDistrict": "Басқа аудан…"
+    "otherDistrict": "Басқа аудан…",
+    "republicanCities": "Республикалық маңызы бар қалалар",
+    "customCityHint": "Тізімде жоқ па? Елді мекеннің толық әрі нақты атауын жазыңыз."
   },
   "reviews": {
     "tab": "Пікірлер",
