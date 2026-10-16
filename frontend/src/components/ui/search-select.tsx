@@ -38,7 +38,7 @@ export function SearchSelect({ value, onChange, options, placeholder, id, disabl
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const listId = useId()
-  const listRef = useRef<HTMLUListElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const q = norm(query)
   const found = useMemo(() => {
@@ -101,17 +101,19 @@ export function SearchSelect({ value, onChange, options, placeholder, id, disabl
               role="combobox" aria-expanded aria-controls={listId} aria-activedescendant={rows[active] ? `${listId}-${active}` : undefined}
               aria-label={aria['aria-label'] ?? placeholder} className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70" />
           </div>
-          <ul ref={listRef} id={listId} role="listbox" className="max-h-[min(var(--radix-popover-content-available-height),18rem)] overflow-y-auto p-1.5">
-            {rows.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted-foreground">{t('common.nothingFound')}</li>}
+          <div ref={listRef} id={listId} role="listbox" className="max-h-[min(var(--radix-popover-content-available-height),18rem)] overflow-y-auto p-1.5">
+            {rows.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('common.nothingFound')}</p>}
             {rows.map((r, i) => {
               const group = r.kind === 'option' && !q ? r.o.group : undefined
               const heading = group && group !== lastGroup ? group : undefined
               if (r.kind === 'option') lastGroup = r.o.group
               const selected = r.kind === 'all' ? !value : r.kind === 'option' && r.o.value === value
               return (
-                <li key={r.kind === 'option' ? r.o.value : r.kind} role="presentation">
+                <div key={r.kind === 'option' ? r.o.value : r.kind} role="presentation">
                   {heading && <p className="px-3 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{heading}</p>}
-                  <div id={`${listId}-${i}`} data-index={i} role="option" aria-selected={selected}
+                  {/* the search box keeps the focus and moves through the options (aria-activedescendant); the keys live there */}
+                  {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events */}
+                  <div id={`${listId}-${i}`} data-index={i} role="option" aria-selected={selected} tabIndex={-1}
                     onMouseMove={() => setActive(i)} onClick={() => pick(r)}
                     className={cn('relative flex cursor-pointer select-none items-start gap-2 rounded-xl py-2.5 pl-3 pr-9 text-sm transition-colors',
                       i === active && 'bg-primary-soft text-primary', selected && 'font-bold text-primary')}>
@@ -128,10 +130,10 @@ export function SearchSelect({ value, onChange, options, placeholder, id, disabl
                     )}
                     {selected && <Check className="absolute right-3 top-3 size-4" />}
                   </div>
-                </li>
+                </div>
               )
             })}
-          </ul>
+          </div>
         </P.Content>
       </P.Portal>
     </P.Root>

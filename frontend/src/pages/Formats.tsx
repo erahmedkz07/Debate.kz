@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { BackButton } from '@/components/layout/BackButton'
+import { FormatPicker } from '@/components/tools/FormatPicker'
 
 // who speaks: government-like sides use the primary colour, opposition-like — navy, cross-examination — amber
 const sideLook: Record<Speech['side'], string> = {
@@ -24,14 +25,7 @@ export default function Formats() {
   return (
     <>
       <PageHeader title={t('formats.title')} subtitle={t('formats.subtitle')} back={<BackButton fallback="/tools" />}>
-        <div className="mt-6 flex flex-wrap gap-2" role="tablist" aria-label={t('formats.title')}>
-          {FORMATS.map(x => (
-            <button key={x.id} type="button" role="tab" aria-selected={x.id === f.id} onClick={() => setParams({ f: x.id }, { replace: true })}
-              className={cn('cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold transition-colors', x.id === f.id ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-card text-muted-foreground hover:text-foreground')}>
-              {x.name[lang]}
-            </button>
-          ))}
-        </div>
+        <FormatPicker className="mt-6" value={f.id} onChange={id => setParams({ f: id }, { replace: true })} />
       </PageHeader>
 
       <div className="container-page grid grid-cols-1 gap-6 py-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">

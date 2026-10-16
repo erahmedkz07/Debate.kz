@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { BackButton } from '@/components/layout/BackButton'
+import { FormatPicker } from '@/components/tools/FormatPicker'
 
 // Score calculator: enter speaker scores, get team totals, the winner (or the BP ranking with team points)
 // and a check of every score against the format's range and step. Nothing is sent anywhere.
@@ -58,14 +59,7 @@ export default function Calculator() {
         <p className="mt-1 text-muted-foreground">{t('calculator.subtitle')}</p>
         <Link to="/break-calculator" className="mt-1 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"><Trophy className="size-4" />{t('breakCalc.title')}</Link>
 
-        <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label={t('timer.format')}>
-          {FORMATS.map(x => (
-            <button key={x.id} type="button" role="radio" aria-checked={x.id === f.id} onClick={() => pick(x.id)}
-              className={cn('cursor-pointer rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors', x.id === f.id ? cn('bg-gradient-to-br text-white shadow-sm', x.accent) : 'bg-muted text-muted-foreground hover:text-foreground')}>
-              {x.name[lang]}
-            </button>
-          ))}
-        </div>
+        <FormatPicker className="mt-4" value={f.id} onChange={pick} />
         <p className="mt-3 text-xs text-muted-foreground">
           {t('calculator.ranges', { speaker: `${speaker[0]}–${speaker[1]}`, step: String(step).replace('.', ',') })}
           {reply && ` ${t('calculator.replyRange', { reply: `${reply[0]}–${reply[1]}` })}`}
