@@ -242,7 +242,7 @@ export interface User {
   language?: 'ru' | 'kz' // the Telegram bot and notifications speak it
   organizes?: boolean // owns or co-organizes at least one tournament
   judges?: boolean // judges in at least one tournament
-  club?: Ref // required in the profile before applying to tournaments
+  club?: Ref & { institution?: string } // required in the profile before applying to tournaments
   clubTeam?: Ref
   safeguardingOfficer?: boolean // handles behaviour reports
 }

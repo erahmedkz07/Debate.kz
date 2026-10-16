@@ -79,7 +79,8 @@ export function SearchSelect({ value, onChange, options, placeholder, id, disabl
   let lastGroup: string | undefined
 
   return (
-    <P.Root open={open} onOpenChange={o => { setOpen(o); if (!o) setQuery('') }}>
+    // modal: inside a dialog (team registration, club edit) the dialog would otherwise pull the focus back from the search box
+    <P.Root modal open={open} onOpenChange={o => { setOpen(o); if (!o) setQuery('') }}>
       <P.Trigger asChild disabled={disabled}>
         <button type="button" id={id} aria-label={aria['aria-label']} aria-invalid={invalid} aria-haspopup="listbox"
           className={cn(
@@ -93,7 +94,7 @@ export function SearchSelect({ value, onChange, options, placeholder, id, disabl
         </button>
       </P.Trigger>
       <P.Portal>
-        <P.Content align="start" sideOffset={6} collisionPadding={12} onOpenAutoFocus={e => e.preventDefault()}
+        <P.Content align="start" sideOffset={6} collisionPadding={12}
           className="z-[60] w-[max(var(--radix-popover-trigger-width),16rem)] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-xl shadow-navy/10 data-[state=open]:animate-[dropdown-in_150ms_ease-out]">
           <div className="flex items-center gap-2 border-b border-border px-3">
             <Search className="size-4 shrink-0 text-muted-foreground" />
@@ -101,7 +102,7 @@ export function SearchSelect({ value, onChange, options, placeholder, id, disabl
               role="combobox" aria-expanded aria-controls={listId} aria-activedescendant={rows[active] ? `${listId}-${active}` : undefined}
               aria-label={aria['aria-label'] ?? placeholder} className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70" />
           </div>
-          <div ref={listRef} id={listId} role="listbox" className="max-h-[min(var(--radix-popover-content-available-height),18rem)] overflow-y-auto p-1.5">
+          <div ref={listRef} id={listId} role="listbox" className="max-h-[min(calc(var(--radix-popover-content-available-height)-3rem),18rem)] overflow-y-auto p-1.5">
             {rows.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('common.nothingFound')}</p>}
             {rows.map((r, i) => {
               const group = r.kind === 'option' && !q ? r.o.group : undefined

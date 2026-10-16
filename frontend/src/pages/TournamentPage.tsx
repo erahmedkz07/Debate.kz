@@ -37,6 +37,7 @@ import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
 import { cityName } from '@/content/geo'
 import { quoted } from '@/lib/motion'
 import { SpeakerInviteButton } from '@/components/tournament/SpeakerInviteButton'
+import { InstitutionSelect } from '@/components/ui/institution-select'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -60,10 +61,10 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     phone: z.string().trim().regex(phoneRe, t('auth.errors.phone')),
   })
   type Form = z.infer<typeof schema>
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Form>({
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    // prefilled from the profile: the club team name and the club's institution
-    values: { team: user?.clubTeam?.name ?? '', institution: user?.institution ?? user?.club?.name ?? '', s1: user?.name ?? '', s2: '', s3: '', guardian: false, phone: user?.phone ?? '' },
+    // prefilled from the profile: the club team name, and the person's (or else the club's) school or university
+    values: { team: user?.clubTeam?.name ?? '', institution: user?.institution ?? user?.club?.institution ?? '', s1: user?.name ?? '', s2: '', s3: '', guardian: false, phone: user?.phone ?? '' },
   })
 
   const onSubmit = async (v: Form) => {
@@ -109,7 +110,8 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
               </div>
               <div>
                 <Label htmlFor="r-inst">{t('tournament.registerDialog.institution')}</Label>
-                <Input id="r-inst" aria-invalid={!!errors.institution} {...register('institution')} />
+                <InstitutionSelect id="r-inst" invalid={!!errors.institution} city={user?.city ?? tournament.city} value={watch('institution')}
+                  onChange={v => setValue('institution', v, { shouldValidate: true })} />
                 <FieldError message={errors.institution?.message} />
               </div>
             </div>

@@ -20,6 +20,8 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Input, Label, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { CitySelect } from '@/components/ui/city-select'
+import { InstitutionSelect } from '@/components/ui/institution-select'
 
 // "My club" in the profile: members (all equal) manage the club here — teams, members, requests, the join link.
 // The public club page only shows the club; nothing is managed there.
@@ -283,8 +285,8 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
         <DialogContent heading={t('club.edit')}>
           <form className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act(() => updateClub(club.id, f), t('common.saved')).then(ok => { if (ok) { setEdit(false); void refreshMe() } }) }}>
             <div className="sm:col-span-2"><Label htmlFor="c-name">{t('club.name')}</Label><Input id="c-name" maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
-            <div><Label htmlFor="c-city">{t('common.city')}</Label><Input id="c-city" maxLength={60} value={f.city} onChange={e => setF({ ...f, city: e.target.value })} /></div>
-            <div><Label htmlFor="c-inst">{t('common.institution')}</Label><Input id="c-inst" maxLength={150} value={f.institution} onChange={e => setF({ ...f, institution: e.target.value })} /></div>
+            <div><Label htmlFor="c-city">{t('common.city')}</Label><CitySelect id="c-city" value={f.city} onChange={v => setF({ ...f, city: v })} allowCustom /></div>
+            <div><Label htmlFor="c-inst">{t('common.institution')}</Label><InstitutionSelect id="c-inst" city={f.city} value={f.institution} onChange={v => setF({ ...f, institution: v })} /></div>
             <div className="sm:col-span-2"><Label htmlFor="c-desc">{t('club.description')}</Label><Textarea id="c-desc" rows={4} maxLength={2000} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
             <div className="flex justify-end gap-2 sm:col-span-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>

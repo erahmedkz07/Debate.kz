@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input, Label, Textarea } from '@/components/ui/input'
 import { ManageClub } from './ManageClub'
+import { CitySelect } from '@/components/ui/city-select'
+import { InstitutionSelect } from '@/components/ui/institution-select'
 
 // Profile tab "My club": your club is managed here (it is personal, not on the public pages).
 // Without a club: create one, join with a code, or follow the requests you sent from club pages.
@@ -65,8 +67,8 @@ function NoClub({ onJoined }: { onJoined: () => Promise<void> }) {
           <p className="mt-1 text-sm text-muted-foreground">{t('club.createText')}</p>
           <form className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act('create', () => createClub({ ...f, institution: f.institution || undefined }), t('club.created')) }}>
             <div className="sm:col-span-2"><Label htmlFor="mc-name">{t('club.name')}</Label><Input id="mc-name" maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={t('club.namePlaceholder')} /></div>
-            <div><Label htmlFor="mc-city">{t('common.city')}</Label><Input id="mc-city" maxLength={60} value={f.city} onChange={e => setF({ ...f, city: e.target.value })} /></div>
-            <div><Label htmlFor="mc-inst">{t('common.institution')}</Label><Input id="mc-inst" maxLength={150} value={f.institution} onChange={e => setF({ ...f, institution: e.target.value })} /></div>
+            <div><Label htmlFor="mc-city">{t('common.city')}</Label><CitySelect id="mc-city" value={f.city} onChange={v => setF({ ...f, city: v })} allowCustom /></div>
+            <div><Label htmlFor="mc-inst">{t('common.institution')}</Label><InstitutionSelect id="mc-inst" city={f.city} value={f.institution} onChange={v => setF({ ...f, institution: v })} /></div>
             <div className="sm:col-span-2"><Label htmlFor="mc-desc">{t('club.description')}</Label><Textarea id="mc-desc" rows={3} maxLength={2000} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
             <div className="flex justify-end sm:col-span-2">
               <Button type="submit" disabled={!!busy || f.name.trim().length < 2 || f.city.trim().length < 2}>{busy === 'create' && <Loader2 className="size-4 animate-spin" />}{t('club.create')}</Button>
