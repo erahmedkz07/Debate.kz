@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { NumberChoice } from '@/components/ui/number-choice'
 import { InstitutionSelect } from '@/components/ui/institution-select'
 import { LeagueTabs, leagueName } from '@/components/tournament/LeagueTabs'
+import { RichTextEditor } from '@/components/ui/rich-text-editor'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -1457,7 +1458,7 @@ function SettingsSection({ data, reload }: SectionProps) {
             <Card className="space-y-4 p-6">
               <h3 className="font-bold">{t('dashboard.settings.general')}</h3>
               <div><Label htmlFor="s-name">{t('wizard.name')}</Label><Input id="s-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
-              <div><Label htmlFor="s-desc">{t('wizard.description')}</Label><Textarea id="s-desc" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
+              <div><Label htmlFor="s-desc">{t('wizard.description')}</Label><RichTextEditor id="s-desc" value={form.description} onChange={v => setForm({ ...form, description: v })} /></div>
               <Switch label={t('dashboard.settings.visibility')} checked={form.visible} onChange={v => setForm({ ...form, visible: v })} />
               <div className="flex justify-end"><Button disabled={busy === 'save' || form.name.trim().length < 3} onClick={save}>{t('common.save')}</Button></div>
             </Card>

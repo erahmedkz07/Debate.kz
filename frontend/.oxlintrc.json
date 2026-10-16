@@ -47,7 +47,8 @@
           "error"
         ]
       }
-    ]
+    ],
+    "react/refs": "off"
   },
   "ignorePatterns": [
     "dist",
