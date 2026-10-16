@@ -25,6 +25,9 @@ interface Props {
   allLabel?: string // an "All …" first row (filters): picks ''
   allowCustom?: boolean // a name that is not listed may be used as typed
   customHint?: string // shown with the typed name: asks for the exact, full name
+  note?: string // a line above the list (e.g. "Schools of Astana")
+  footer?: string // a small line under the list (e.g. the data's source)
+  loading?: boolean // the options are still on their way
 }
 
 // letters only, ё = е, so "казну", "КазНУ" and "Каз НУ" find the same option
@@ -32,7 +35,7 @@ const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L
 
 // A dropdown with a search box, for long lists (every city of Kazakhstan, every school): type a few letters, pick with
 // the arrows and Enter or a click. Grouped by `group`; can let a name that is not listed be used as typed.
-export function SearchSelect({ value, onChange, options, placeholder, id, disabled, invalid, className, allLabel, allowCustom, customHint, ...aria }: Props) {
+export function SearchSelect({ value, onChange, options, placeholder, id, disabled, invalid, className, allLabel, allowCustom, customHint, note, footer, loading, ...aria }: Props) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -95,15 +98,17 @@ export function SearchSelect({ value, onChange, options, placeholder, id, disabl
       </P.Trigger>
       <P.Portal>
         <P.Content align="start" sideOffset={6} collisionPadding={12}
-          className="z-[60] w-[max(var(--radix-popover-trigger-width),16rem)] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-xl shadow-navy/10 data-[state=open]:animate-[dropdown-in_150ms_ease-out]">
-          <div className="flex items-center gap-2 border-b border-border px-3">
+          className="z-[60] flex max-h-[var(--radix-popover-content-available-height)] w-[max(var(--radix-popover-trigger-width),16rem)] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-xl shadow-navy/10 data-[state=open]:animate-[dropdown-in_150ms_ease-out]">
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3">
             <Search className="size-4 shrink-0 text-muted-foreground" />
             <input autoFocus value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKey} placeholder={t('common.searchList')}
               role="combobox" aria-expanded aria-controls={listId} aria-activedescendant={rows[active] ? `${listId}-${active}` : undefined}
               aria-label={aria['aria-label'] ?? placeholder} className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70" />
           </div>
-          <div ref={listRef} id={listId} role="listbox" className="max-h-[min(calc(var(--radix-popover-content-available-height)-3rem),18rem)] overflow-y-auto p-1.5">
-            {rows.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('common.nothingFound')}</p>}
+          <div ref={listRef} id={listId} role="listbox" className="max-h-[18rem] min-h-0 flex-1 overflow-y-auto p-1.5">
+            {note && <p className="px-3 pb-1 pt-2 text-xs text-muted-foreground">{note}</p>}
+            {loading && <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('common.loading')}</p>}
+            {!loading && rows.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('common.nothingFound')}</p>}
             {rows.map((r, i) => {
               const group = r.kind === 'option' && !q ? r.o.group : undefined
               const heading = group && group !== lastGroup ? group : undefined
@@ -135,6 +140,7 @@ export function SearchSelect({ value, onChange, options, placeholder, id, disabl
               )
             })}
           </div>
+          {footer && <p className="shrink-0 border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">{footer}</p>}
         </P.Content>
       </P.Portal>
     </P.Root>
