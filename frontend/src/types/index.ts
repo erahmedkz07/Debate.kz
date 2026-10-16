@@ -180,6 +180,8 @@ export interface RatingSpeaker {
   level: TournamentLevel
   tournaments: number
   average: number
+  userId?: string // the speaker's account: their page shows the whole history
+  last: { tournamentId: string; speakerId: string } // else their page in the latest tournament
 }
 
 export interface RatingClub {

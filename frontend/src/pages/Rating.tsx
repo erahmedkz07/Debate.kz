@@ -86,12 +86,17 @@ export default function Rating() {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(getRating)
   const [level, setLevel] = useState<TournamentLevel | 'all'>('all')
-  const fits = (l: TournamentLevel | 'mixed') => level === 'all' || l === level || l === 'mixed'
+  // the level comes from the team's school or university; a row that cannot be told ("mixed") shows under "All" only
+  const fits = (l: TournamentLevel | 'mixed') => level === 'all' || l === level
 
   const teams: Row[] = (data?.teams ?? []).filter(r => fits(r.level))
     .map((r, i) => ({ rank: i + 1, name: r.name, club: r.club, logo: r.logoUrl, sub: r.club ? '' : r.institution, city: r.city, value: formatNumber(r.points), extra: String(r.wins) }))
   const speakers: Row[] = (data?.speakers ?? []).filter(r => fits(r.level))
-    .map((r, i) => ({ rank: i + 1, name: r.name, club: r.club, hasLogo: false, sub: r.team, city: r.city, value: r.average.toFixed(1), extra: String(r.tournaments) }))
+    .map((r, i) => ({
+      rank: i + 1, name: r.name, club: r.club, hasLogo: false, sub: r.team, city: r.city, value: r.average.toFixed(1), extra: String(r.tournaments),
+      // the speaker's history: their account's page, or their page in the latest tournament
+      href: r.userId ? `/people/${r.userId}` : `/tournaments/${r.last.tournamentId}/speakers/${r.last.speakerId}`,
+    }))
   const clubs: Row[] = (data?.clubs ?? []).filter(r => fits(r.level))
     .map((r, i) => ({
       rank: i + 1, name: r.name, href: `/clubs/${r.id}`, logo: r.logoUrl, city: r.city, value: String(r.wins),
