@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/states'
 import { KaspiPayBox } from './KaspiPayBox'
 
 // Pro payment by Kaspi QR: scan the platform's QR, pay the amount with the reference in the comment,
-// attach the receipt and send; an admin checks it and confirms. Until then the tournament stays at 20 teams.
+// attach the receipt and send; an admin checks it and confirms. Until then the tournament stays at 30 teams.
 // Normally this is done in the creation wizard; the card is for a rejected payment or a skipped receipt.
 export function PaymentCard({ tournamentId }: { tournamentId: string }) {
   const { t } = useTranslation()
