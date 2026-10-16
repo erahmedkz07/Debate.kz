@@ -5,7 +5,7 @@ import { HttpError } from '../lib/errors.js'
 
 // Plans: every feature is free; the only difference is the size. Tournaments above FREE_TEAM_LIMIT teams
 // are Pro and must be paid before they grow beyond the free limit.
-export const FREE_TEAM_LIMIT = 20
+export const FREE_TEAM_LIMIT = 30
 
 export const planFor = (maxTeams: number) => (maxTeams > FREE_TEAM_LIMIT ? 'pro' : 'free') as 'pro' | 'free'
 
