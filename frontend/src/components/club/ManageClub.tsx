@@ -20,6 +20,8 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Input, Label, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { CitySelect } from '@/components/ui/city-select'
+import { InstitutionSelect } from '@/components/ui/institution-select'
 
 // "My club" in the profile: members (all equal) manage the club here — teams, members, requests, the join link.
 // The public club page only shows the club; nothing is managed there.
@@ -268,6 +270,7 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
   const [edit, setEdit] = useState(false)
   const [leave, setLeave] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  const last = club.members.length <= 1
   const [f, setF] = useState({ name: club.name, city: club.city, institution: club.institution ?? '', description: club.description })
   const refreshMe = async () => { const me = await getMe(); if (me) signIn(me) }
   const { busy, act } = useAct(onDone)
@@ -282,8 +285,8 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
         <DialogContent heading={t('club.edit')}>
           <form className="grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); void act(() => updateClub(club.id, f), t('common.saved')).then(ok => { if (ok) { setEdit(false); void refreshMe() } }) }}>
             <div className="sm:col-span-2"><Label htmlFor="c-name">{t('club.name')}</Label><Input id="c-name" maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
-            <div><Label htmlFor="c-city">{t('common.city')}</Label><Input id="c-city" maxLength={60} value={f.city} onChange={e => setF({ ...f, city: e.target.value })} /></div>
-            <div><Label htmlFor="c-inst">{t('common.institution')}</Label><Input id="c-inst" maxLength={150} value={f.institution} onChange={e => setF({ ...f, institution: e.target.value })} /></div>
+            <div><Label htmlFor="c-city">{t('common.city')}</Label><CitySelect id="c-city" value={f.city} onChange={v => setF({ ...f, city: v })} allowCustom /></div>
+            <div><Label htmlFor="c-inst">{t('common.institution')}</Label><InstitutionSelect id="c-inst" city={f.city} value={f.institution} onChange={v => setF({ ...f, institution: v })} /></div>
             <div className="sm:col-span-2"><Label htmlFor="c-desc">{t('club.description')}</Label><Textarea id="c-desc" rows={4} maxLength={2000} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
             <div className="flex justify-end gap-2 sm:col-span-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
@@ -293,13 +296,17 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
         </DialogContent>
       </Dialog>
       <Dialog open={leave} onOpenChange={setLeave}>
-        <DialogContent heading={t('club.leave')} description={t('club.leaveText', { name: club.name })}>
+        {/* the last member's leaving closes the club: say so before */}
+        <DialogContent heading={t(last ? 'club.leaveLastTitle' : 'club.leave')} description={t(last ? 'club.leaveLastText' : 'club.leaveText', { name: club.name })}>
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
             <Button variant="danger" disabled={leaving} onClick={async () => {
               setLeaving(true)
-              try { await leaveClub(club.id); await refreshMe(); toast(t('club.left')); setLeave(false); onLeft() } catch (e) { toast.error(errorMessage(e, t)) } finally { setLeaving(false) }
-            }}><LogOut className="size-4" />{t('club.leave')}</Button>
+              try {
+                const { closed } = await leaveClub(club.id)
+                await refreshMe(); toast(closed ? t('club.closed', { name: club.name }) : t('club.left')); setLeave(false); onLeft()
+              } catch (e) { toast.error(errorMessage(e, t)) } finally { setLeaving(false) }
+            }}><LogOut className="size-4" />{t(last ? 'club.leaveLastTitle' : 'club.leave')}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -310,6 +317,10 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
 
 function ClubLog({ log }: { log: NonNullable<ClubDetails['log']> }) {
   const { t } = useTranslation()
+  // "edited" lists the changed fields by their key: shown in the reader's language
+  const detailOf = (l: NonNullable<ClubDetails['log']>[number]) => (l.action === 'edited'
+    ? l.detail.split(', ').map(k => t(`club.fields.${k}`, { defaultValue: k })).join(', ')
+    : l.detail)
   const [all, setAll] = useState(false)
   const shown = all ? log : log.slice(0, 6)
   return (
@@ -318,7 +329,7 @@ function ClubLog({ log }: { log: NonNullable<ClubDetails['log']> }) {
       <ul className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2.5 text-sm md:grid-cols-2">
         {shown.map(l => (
           <li key={l.id}>
-            <b>{l.userName}</b> {t(`club.actions.${l.action}`, { defaultValue: l.action })}{l.detail && <span className="text-muted-foreground"> · {l.detail}</span>}
+            <b>{l.userName}</b> {t(`club.actions.${l.action}`, { defaultValue: l.action })}{l.detail && <span className="text-muted-foreground"> · {detailOf(l)}</span>}
             <span className="block text-xs text-muted-foreground">{formatDateTime(l.createdAt)}</span>
           </li>
         ))}

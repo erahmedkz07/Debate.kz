@@ -78,7 +78,7 @@ export async function sessionUser(u: User) {
   const [organizes, judges, club] = await Promise.all([
     prisma.tournamentOrganizer.count({ where: { userId: u.id } }),
     prisma.judge.count({ where: { userId: u.id } }),
-    prisma.clubMember.findUnique({ where: { userId: u.id }, include: { club: { select: { id: true, name: true } }, team: { select: { id: true, name: true } } } }),
+    prisma.clubMember.findUnique({ where: { userId: u.id }, include: { club: { select: { id: true, name: true, institution: true } }, team: { select: { id: true, name: true } } } }),
   ])
-  return { ...publicUser(u), organizes: organizes > 0, judges: judges > 0, club: club?.club, clubTeam: club?.team ?? undefined }
+  return { ...publicUser(u), organizes: organizes > 0, judges: judges > 0, club: club && { id: club.club.id, name: club.club.name, ...(club.club.institution && { institution: club.club.institution }) }, clubTeam: club?.team ?? undefined }
 }

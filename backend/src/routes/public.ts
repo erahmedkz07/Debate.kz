@@ -9,6 +9,7 @@ import { notFound } from '../lib/errors.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { selectionOf } from '../services/selection.js'
 import { publicProfile, speakerInTournament } from '../services/people.js'
+import { rowLevel, type Level } from '../lib/levels.js'
 
 export const publicRouter = Router()
 
@@ -141,12 +142,12 @@ publicRouter.get('/testimonials', async (_req, res) => {
 
 // Season rating: aggregates results of all tournaments by team name + institution
 publicRouter.get('/rating', async (_req, res) => {
-  const tournaments = await prisma.tournament.findMany({ where: publicWhere, select: { id: true, level: true, city: true } })
-  type Level = 'school' | 'university' | 'mixed'
+  const tournaments = await prisma.tournament.findMany({ where: publicWhere, select: { id: true, level: true, city: true, startDate: true } })
   type Ref = { id: string; name: string } | undefined
   // teams: the same club team is one row across tournaments even if it entered under different names
   const teamAgg = new Map<string, { name: string; institution: string; club: Ref; logoUrl?: string; city: string; level: Level; tournaments: Set<string>; wins: number; points: number }>()
-  const speakerAgg = new Map<string, { name: string; team: string; club: Ref; city: string; level: Level; tournaments: Set<string>; total: number; n: number }>()
+  // a speaker links to their account's page, or else to their page in the latest tournament they played
+  const speakerAgg = new Map<string, { name: string; team: string; club: Ref; city: string; level: Level; tournaments: Set<string>; total: number; n: number; userId?: string; last: { tournamentId: string; speakerId: string; date: string } }>()
   const clubAgg = new Map<string, { club: { id: string; name: string; logoUrl?: string }; city: string; levels: Set<Level>; tournaments: Set<string>; teams: Set<string>; wins: number; debates: number; points: number; speakerAvg: number[] }>()
 
   for (const t of tournaments) {
@@ -155,12 +156,12 @@ publicRouter.get('/rating', async (_req, res) => {
       if (row.wins + row.losses === 0) continue
       const tm = row.team
       const key = tm.clubTeam ? `ct:${tm.clubTeam.id}` : `${tm.name}|${tm.institution}`
-      const a = teamAgg.get(key) ?? { name: tm.clubTeam?.name ?? tm.name, institution: tm.institution, club: tm.club, logoUrl: tm.logoUrl, city: tm.city || t.city, level: t.level, tournaments: new Set(), wins: 0, points: 0 }
+      const a = teamAgg.get(key) ?? { name: tm.clubTeam?.name ?? tm.name, institution: tm.institution, club: tm.club, logoUrl: tm.logoUrl, city: tm.city || t.city, level: rowLevel(tm.institution, t.level), tournaments: new Set(), wins: 0, points: 0 }
       a.tournaments.add(t.id); a.wins += row.wins; a.points += row.speakerPoints
       teamAgg.set(key, a)
       if (tm.club) {
         const c = clubAgg.get(tm.club.id) ?? { club: tm.club, city: tm.city || t.city, levels: new Set(), tournaments: new Set(), teams: new Set(), wins: 0, debates: 0, points: 0, speakerAvg: [] }
-        c.levels.add(t.level); c.tournaments.add(t.id); c.teams.add(tm.clubTeam?.id ?? tm.id)
+        c.levels.add(rowLevel(tm.institution, t.level)); c.tournaments.add(t.id); c.teams.add(tm.clubTeam?.id ?? tm.id)
         c.wins += row.wins; c.debates += row.wins + row.losses; c.points += row.speakerPoints
         clubAgg.set(tm.club.id, c)
       }
@@ -168,8 +169,11 @@ publicRouter.get('/rating', async (_req, res) => {
     for (const row of s.speakers) {
       if (!row.average) continue
       const key = `${row.speaker.name}|${row.team.club?.id ?? row.team.institution}`
-      const a = speakerAgg.get(key) ?? { name: row.speaker.name, team: row.team.clubTeam?.name ?? row.team.name, club: row.team.club, city: row.team.city || t.city, level: t.level, tournaments: new Set(), total: 0, n: 0 }
+      const date = t.startDate.toISOString()
+      const a = speakerAgg.get(key) ?? { name: row.speaker.name, team: row.team.clubTeam?.name ?? row.team.name, club: row.team.club, city: row.team.city || t.city, level: rowLevel(row.team.institution, t.level), tournaments: new Set(), total: 0, n: 0, last: { tournamentId: t.id, speakerId: row.speaker.id, date } }
       a.tournaments.add(t.id); a.total += row.average; a.n += 1
+      a.userId ??= row.speaker.userId
+      if (date > a.last.date) a.last = { tournamentId: t.id, speakerId: row.speaker.id, date }
       speakerAgg.set(key, a)
       if (row.team.club) clubAgg.get(row.team.club.id)?.speakerAvg.push(row.average)
     }
@@ -179,7 +183,10 @@ publicRouter.get('/rating', async (_req, res) => {
   const teams = [...teamAgg.values()].sort((a, b) => b.points - a.points).slice(0, 50)
     .map((a, i) => ({ rank: i + 1, name: a.name, institution: a.institution, club: a.club, logoUrl: a.logoUrl, city: a.city, level: a.level, tournaments: a.tournaments.size, wins: a.wins, points: Math.round(a.points) }))
   const speakers = [...speakerAgg.values()].map(a => ({ ...a, average: a.total / a.n })).sort((a, b) => b.average - a.average).slice(0, 50)
-    .map((a, i) => ({ rank: i + 1, name: a.name, team: a.team, club: a.club, city: a.city, level: a.level, tournaments: a.tournaments.size, average: r1(a.average) }))
+    .map((a, i) => ({
+      rank: i + 1, name: a.name, team: a.team, club: a.club, city: a.city, level: a.level, tournaments: a.tournaments.size, average: r1(a.average),
+      ...(a.userId && { userId: a.userId }), last: { tournamentId: a.last.tournamentId, speakerId: a.last.speakerId },
+    }))
   // clubs: by wins, then speaker points; a club that plays both school and university events is "mixed"
   const clubs = [...clubAgg.values()].sort((a, b) => b.wins - a.wins || b.points - a.points).slice(0, 50)
     .map((c, i) => ({

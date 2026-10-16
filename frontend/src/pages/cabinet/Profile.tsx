@@ -25,6 +25,8 @@ import { MyClub } from '@/components/club/MyClub'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { RateJudgesDialog } from '@/components/tournament/JudgeFeedback'
 import { quoted } from '@/lib/motion'
+import { CitySelect } from '@/components/ui/city-select'
+import { InstitutionSelect } from '@/components/ui/institution-select'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger' | 'outline'> = { confirmed: 'success', pending: 'accent', rejected: 'danger', waitlisted: 'outline' }
 
@@ -467,8 +469,8 @@ export default function Profile() {
                 <Input id="p-phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
                 {user.phoneVerified && <p className="mt-1 flex items-center gap-1 text-xs text-success"><BadgeCheck className="size-3.5" />{t('profile.phoneVerifiedHint')}</p>}
               </div>
-              <div className={cn(isAdmin && 'sm:col-span-2')}><Label htmlFor="p-city">{t('common.city')}</Label><Input id="p-city" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} /></div>
-              {!isAdmin && <div><Label htmlFor="p-inst">{t('common.institution')}</Label><Input id="p-inst" value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} /></div>}
+              <div className={cn(isAdmin && 'sm:col-span-2')}><Label htmlFor="p-city">{t('common.city')}</Label><CitySelect id="p-city" value={form.city} onChange={v => setForm({ ...form, city: v })} allowCustom /></div>
+              {!isAdmin && <div><Label htmlFor="p-inst">{t('common.institution')}</Label><InstitutionSelect id="p-inst" city={form.city} value={form.institution} onChange={v => setForm({ ...form, institution: v })} /></div>}
               <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={!form.name.trim()}>{t('common.save')}</Button></div>
             </form>
           </Card>

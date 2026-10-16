@@ -1023,7 +1023,7 @@ r = await clubA('DELETE', `/clubs/${clubId}/members/${oId}`)
 ok(r.status === 204 && !(await outsider('GET', '/auth/me')).data.user.club, 'any member can remove another member')
 await new Promise(res => setTimeout(res, 300))
 ok((await outsider('GET', '/me/notifications')).data.items.some(n => n.type === 'participant.clubRemoved'), 'the removed person is told')
-ok((await clubB('POST', `/clubs/${clubId}/leave`)).status === 204 && (await clubB('GET', '/me/club')).data.club === undefined, 'a member leaves the club')
+ok((await clubB('POST', `/clubs/${clubId}/leave`)).data?.closed === false && (await clubB('GET', '/me/club')).data.club === undefined, 'a member leaves the club')
 
 
 // ---------- 29. rating: clubs, and where speakers and teams come from ----------
@@ -2367,5 +2367,55 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })
   ok((await host.c('POST', `/ballots/${debate.id}`, { ...vote(asSheet, 'proposition'), asJudgeId: judgeId })).data?.error === 'tournament_finished', 'a finished tournament keeps its ballots')
 }
+// ---------- 63. feedback 10-16: clubs close with their last member, the log, mixed posts, motions, rating levels ----------
+{
+  // a club's last member leaving closes the club; with others in it, the member simply leaves
+  const solo = await newAccount('Одинокий Капитан')
+  const cl = await solo.c('POST', '/clubs', { name: `Закрытие ${jtag}`, city: 'Астана', institution: 'Лицей №1' })
+  ok(cl.status === 201, 'a member creates a club')
+  await solo.c('PATCH', `/clubs/${cl.data.id}`, { name: `Закрытие ${jtag}`, city: 'Астана', institution: 'Лицей №1', description: 'Новое описание' })
+  await solo.c('POST', `/clubs/${cl.data.id}/teams`, { name: 'Команда А' })
+  const mine = (await solo.c('GET', `/clubs/${cl.data.id}`)).data
+  const edited = mine.log.find(l => l.action === 'edited')
+  ok(edited?.detail === 'description', 'the log names only the fields that changed')
+  ok(mine.log.every(l => !l.action.startsWith('logo') && l.action !== 'code.reset'), 'the log keeps logo changes and link resets out')
+  const left = await solo.c('POST', `/clubs/${cl.data.id}/leave`)
+  ok(left.status === 200 && left.data?.closed === true, "the last member's leaving closes the club")
+  ok((await client()('GET', `/clubs/${cl.data.id}`)).status === 404, 'a closed club is gone')
+  ok((await solo.c('POST', '/clubs', { name: `Закрытие ${jtag}`, city: 'Астана' })).status === 201, 'its name is free again and its last member may found a new club')
+
+  // a teammate post can be for school and university alike; a school filter lists it too
+  const seeker = await newAccount('Смешанный Искатель')
+  const mixedPost = await seeker.c('POST', '/teammates', { kind: 'team_needed', city: 'Актобе', level: 'mixed', languages: ['ru'], text: `Ищу команду на любые турниры ${jtag}` })
+  ok(mixedPost.status === 201, 'a teammate post may be mixed')
+  const bySchool = (await client()('GET', `/teammates?city=${encodeURIComponent('Актобе')}&level=school`)).data
+  ok(bySchool.some(p => p.id === mixedPost.data.id), 'a school filter also lists mixed posts')
+  ok((await client()('GET', `/teammates?level=mixed&city=${encodeURIComponent('Актобе')}`)).data.every(p => p.level === 'mixed'), 'the mixed filter lists only mixed posts')
+
+  // motions: a mixed tournament belongs to both levels; search ignores case, quotes and ё
+  const host = await newAccount('Банк Организатор')
+  const mt = (await host.c('POST', '/tournaments', { ...tBody(440), name: `Банк ${jtag}`, level: 'mixed', preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${mt.id}`, { moderation: 'approved' })
+  const mr = (await host.c('GET', `/tournaments/${mt.id}`)).data.rounds[0]
+  await host.c('PATCH', `/rounds/${mr.id}`, { motion: `Эта палата запретит ёлочные базары ${jtag}` })
+  for (const n of ['Банк А', 'Банк Б']) await host.c('POST', `/tournaments/${mt.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await addJudge(host.c, mt.id, 'Банк Судья')
+  await host.c('PATCH', `/tournaments/${mt.id}`, { status: 'ongoing' })
+  await host.c('POST', `/rounds/${mr.id}/draw`, { addSwing: false })
+  const rel = await host.c('PATCH', `/rounds/${mr.id}`, { status: 'released' })
+  ok(rel.status === 200, 'the bank round is released')
+  // the bank is paged: look for this run's motion by its tag together with the filter
+  const find = async q => (await client()('GET', `/motions?${q}${q.includes('search=') ? '' : `&search=${jtag}`}`)).data.items.some(m => m.motion.includes(jtag))
+  ok(await find('level=school') && await find('level=university'), 'a mixed tournament motion is listed for both levels')
+  ok(await find(`search=${encodeURIComponent(`«ЕЛОЧНЫЕ БАЗАРЫ ${jtag}»`)}`), 'motion search ignores case, quotes and ё')
+  ok(!(await find(`search=${encodeURIComponent(`елочные лыжи ${jtag}`)}`)), 'motion search needs every word')
+
+  // the rating: a row's level comes from its school or university; speakers carry a link to their history
+  const rating = (await client()('GET', '/rating')).data
+  ok(rating.teams.every(r => !(/школ|лицей|гимназ/i.test(r.institution) && r.level === 'university') && !(/университет/i.test(r.institution) && r.level === 'school')),
+    "a team's level follows its school or university")
+  ok(rating.speakers.every(s => s.last?.tournamentId && s.last?.speakerId), 'every rated speaker links to their history')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

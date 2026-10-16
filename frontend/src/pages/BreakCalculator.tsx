@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Input, Label } from '@/components/ui/input'
 import { BackButton } from '@/components/layout/BackButton'
+import { FormatPicker } from '@/components/tools/FormatPicker'
+import { formatById } from '@/content/formats'
 
 // Break calculator: how many wins (BP: team points) a team needs to make the break.
 // The inputs live in the address, so a link shares the exact calculation.
@@ -19,7 +21,9 @@ export default function BreakCalculator() {
     const v = Number(params.get(k))
     return Number.isFinite(v) && v >= limits[k][0] && v <= limits[k][1] ? Math.round(v) : d
   }
-  const format: CalcFormat = params.get('format') === 'bp' ? 'bp' : 'two'
+  // any format can be picked; British Parliamentary counts team points (3-2-1-0), every two-team format counts wins
+  const formatId = formatById(params.get('format') ?? '')?.id ?? 'wsdc'
+  const format: CalcFormat = formatId === 'bp' ? 'bp' : 'two'
   const teams = num('teams', 32), rounds = num('rounds', 5), breakSize = Math.min(num('breakSize', 8), teams)
   const set = (k: string, v: string) => { const p = new URLSearchParams(params); p.set(k, v); setParams(p, { replace: true }) }
   const result = useMemo(() => calculateBreak({ teams, rounds, breakSize, format }), [teams, rounds, breakSize, format])
@@ -38,15 +42,8 @@ export default function BreakCalculator() {
 
         <Card className="mt-6 grid grid-cols-1 gap-4 p-5 sm:grid-cols-4">
           <div className="sm:col-span-4">
-            <Label>{t('breakCalc.format')}</Label>
-            <div className="mt-1 inline-flex rounded-xl bg-muted p-1" role="radiogroup" aria-label={t('breakCalc.format')}>
-              {(['two', 'bp'] as const).map(f => (
-                <button key={f} type="button" role="radio" aria-checked={format === f} onClick={() => set('format', f)}
-                  className={cn('cursor-pointer rounded-lg px-3 py-1.5 text-sm font-semibold transition-all', format === f ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
-                  {t(`breakCalc.formats.${f}`)}
-                </button>
-              ))}
-            </div>
+            <FormatPicker label={t('breakCalc.format')} value={formatId} onChange={id => set('format', id)} />
+            <p className="mt-1.5 text-xs text-muted-foreground">{t(`breakCalc.formats.${format}`)}</p>
           </div>
           {([['teams', teams], ['rounds', rounds], ['breakSize', breakSize]] as const).map(([k, v]) => (
             <div key={k}>

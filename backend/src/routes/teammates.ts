@@ -18,9 +18,10 @@ const kind = z.enum(['team_needed', 'speaker_needed'])
 const active = () => ({ closed: false, expiresAt: { gt: new Date() } })
 
 teammatesRouter.get('/teammates', async (req, res) => {
-  const q = query(req, z.object({ kind: kind.optional(), city: z.string().trim().max(60).optional(), level: z.enum(['school', 'university']).optional() }))
+  const q = query(req, z.object({ kind: kind.optional(), city: z.string().trim().max(60).optional(), level: z.enum(['school', 'university', 'mixed']).optional() }))
   const posts = await prisma.teammatePost.findMany({
-    where: { ...active(), ...(q.kind && { kind: q.kind }), ...(q.city && { city: q.city }), ...(q.level && { level: q.level }), user: { blocked: false } },
+    where: { ...active(), ...(q.kind && { kind: q.kind }), ...(q.city && { city: q.city }), // a post for school or university also lists posts open to both ("mixed")
+    ...(q.level && { level: q.level === 'mixed' ? 'mixed' : { in: [q.level, 'mixed'] } }), user: { blocked: false } },
     include: { user: { select: { name: true, institution: true } }, _count: { select: { replies: true } } },
     orderBy: { createdAt: 'desc' },
     take: 100,
@@ -36,7 +37,7 @@ teammatesRouter.get('/teammates', async (req, res) => {
 
 teammatesRouter.post('/teammates', requireAuth(), requireVerified, async (req, res) => {
   const d = body(req, z.object({
-    kind, city: z.string().trim().min(2).max(60), level: z.enum(['school', 'university']),
+    kind, city: z.string().trim().min(2).max(60), level: z.enum(['school', 'university', 'mixed']),
     languages: z.array(z.enum(['ru', 'kz', 'en'])).min(1).max(3), text: z.string().trim().min(10).max(500),
   }))
   const count = await prisma.teammatePost.count({ where: { userId: req.user!.id, ...active() } })

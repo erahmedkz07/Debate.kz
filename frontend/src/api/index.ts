@@ -457,7 +457,8 @@ export const createClub = (d: { name: string; city: string; institution?: string
 export const updateClub = (id: string, d: { name?: string; city?: string; institution?: string; description?: string }) => http<{ ok: true }>('PATCH', `/clubs/${id}`, d)
 export const resetClubCode = (id: string) => http<{ joinCode: string }>('POST', `/clubs/${id}/code`)
 export const joinClub = (code: string) => http<{ id: string }>('POST', '/clubs/join', { code })
-export const leaveClub = (id: string) => http<void>('POST', `/clubs/${id}/leave`)
+// closed: the last member left, so the club was deleted
+export const leaveClub = (id: string) => http<{ closed: boolean }>('POST', `/clubs/${id}/leave`)
 export const removeClubMember = (id: string, userId: string) => http<void>('DELETE', `/clubs/${id}/members/${userId}`)
 export const createClubTeam = (id: string, name: string, join = false) => http<Ref>('POST', `/clubs/${id}/teams`, { name, join })
 export const renameClubTeam = (teamId: string, name: string) => http<{ ok: true }>('PATCH', `/club-teams/${teamId}`, { name })

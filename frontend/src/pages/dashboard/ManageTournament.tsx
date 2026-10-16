@@ -44,6 +44,7 @@ import { JudgeFeedbackDialog, Stars } from '@/components/tournament/JudgeFeedbac
 import { formatOfTournament } from '@/content/formats'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { NumberChoice } from '@/components/ui/number-choice'
+import { InstitutionSelect } from '@/components/ui/institution-select'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -241,7 +242,7 @@ function Registrations({ data, reload }: SectionProps) {
 }
 
 /* ---------- Teams ---------- */
-function TeamDialog({ team, open, onOpenChange, onSave, saving, speakers }: { team: Team | null; open: boolean; onOpenChange: (v: boolean) => void; onSave: (t: TeamInput) => void; saving: boolean; speakers: number }) {
+function TeamDialog({ team, open, onOpenChange, onSave, saving, speakers, city }: { team: Team | null; open: boolean; onOpenChange: (v: boolean) => void; onSave: (t: TeamInput) => void; saving: boolean; speakers: number; city: string }) {
   const { t } = useTranslation()
   // as many speakers as the tournament's format has (APF: 2, WSDC and Karl Popper: 3)
   const empty: TeamInput = { name: '', institution: '', speakers: Array.from({ length: speakers }, () => '') }
@@ -256,7 +257,7 @@ function TeamDialog({ team, open, onOpenChange, onSave, saving, speakers }: { te
         <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (valid) onSave(form) }}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div><Label htmlFor="tn">{t('tournament.registerDialog.teamName')}</Label><Input id="tn" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
-            <div><Label htmlFor="ti">{t('tournament.registerDialog.institution')}</Label><Input id="ti" value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} /></div>
+            <div><Label htmlFor="ti">{t('tournament.registerDialog.institution')}</Label><InstitutionSelect id="ti" city={city} value={form.institution} onChange={v => setForm({ ...form, institution: v })} /></div>
           </div>
           {form.speakers.map((s, i) => (
             <div key={i}>
@@ -390,7 +391,7 @@ function Teams({ data, reload }: SectionProps) {
           </table>
         </Card>
       )}
-      <TeamDialog team={editing} open={open} onOpenChange={setOpen} onSave={save} saving={busy === 'save'} speakers={formatOfTournament(data.format).score.speakersPerTeam} />
+      <TeamDialog team={editing} open={open} onOpenChange={setOpen} onSave={save} saving={busy === 'save'} speakers={formatOfTournament(data.format).score.speakersPerTeam} city={data.city} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t('dashboard.teams.confirmDelete', { name: toDelete?.name })}>
           <div className="flex justify-end gap-2">
