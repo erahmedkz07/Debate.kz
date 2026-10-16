@@ -5,7 +5,7 @@ import { fromDay, isRealDay, toDay, todayKz } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { assertCanManage, assertOwner, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
+import { assertCanManage, assertOwner, leaguesOf, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { announceBreak, cancelBreak, categoriesOf, MAX_BREAK, validBreak } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
@@ -154,6 +154,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
       key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), size: z.number().int().min(2).max(MAX_BREAK),
     })).max(3).optional(),
     roomLinks: z.record(z.string().trim().min(1).max(60), httpsUrl).optional(),
+    // leagues inside the tournament (a Russian and a Kazakh league): set before the first draw
+    leagues: z.array(z.object({ key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40) })).max(4).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
   }))
   const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })
@@ -196,6 +198,16 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
       const left = tm.categories.filter(k => keys.includes(k))
       if (left.length !== tm.categories.length) await prisma.team.update({ where: { id: tm.id }, data: { categories: left } })
     }
+  }
+  if (rest.leagues) {
+    const keys = rest.leagues.map(l => l.key)
+    if (new Set(keys).size !== keys.length || rest.leagues.length === 1) throw badRequest('invalid_leagues')
+    // after a draw the leagues may be renamed, not added or removed (the rooms already keep them apart)
+    const before = leaguesOf(cur).map(l => l.key)
+    const drawn = await prisma.debate.count({ where: { round: { tournamentId: cur.id } } })
+    if (drawn && (before.length !== keys.length || before.some(k => !keys.includes(k)))) throw forbidden('leagues_after_draw')
+    // a removed league no longer holds its teams
+    await prisma.team.updateMany({ where: { tournamentId: cur.id, league: { notIn: keys } }, data: { league: null } })
   }
   if (roomLinks) data.roomLinks = roomLinks
   if (coverUrl !== undefined && coverUrl !== cur.coverUrl) {
@@ -299,7 +311,17 @@ const teamSchema = z.object({
   institution: z.string().trim().min(2).max(150),
   city: z.string().trim().max(60).optional(),
   speakers: z.array(z.string().trim().min(3).max(100)).min(1).max(3), // the tournament's format says how many (LD: one)
+  league: z.string().max(24).nullable().optional(),
 })
+
+// with leagues, every team names one of them; without, none
+function leagueFor(t: { leagues: unknown }, league?: string | null) {
+  const keys = leaguesOf(t).map(l => l.key)
+  if (!keys.length) return null
+  if (!league) throw badRequest('league_required')
+  if (!keys.includes(league)) throw badRequest('invalid_league')
+  return league
+}
 
 // a team has exactly as many speakers as the tournament's format needs
 export function assertSpeakers(format: string, speakers: string[]) {
@@ -319,12 +341,49 @@ organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
   if (await prisma.team.findUnique({ where: { tournamentId_name: { tournamentId: t.id, name: d.name } } })) throw conflict('team_name_taken')
   const team = await prisma.team.create({
     data: {
-      tournamentId: t.id, name: d.name, city: d.city, institutionId: await institutionId(d.institution, t.level),
+      tournamentId: t.id, name: d.name, city: d.city, institutionId: await institutionId(d.institution, t.level), league: leagueFor(t, d.league),
       speakers: { create: d.speakers.map((name, i) => ({ name, position: i + 1 })) },
     },
     include: teamInclude,
   })
   res.status(201).json(toTeam(team))
+})
+
+// Judges by name, without accounts (a tournament run on paper): the owner enters their ballots for them ("as" a judge),
+// and a judge can still be linked to an account later by email. Names already in the tournament are skipped.
+organizerRouter.post('/tournaments/:id/judges/bulk', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  const d = body(req, z.object({ names: z.array(z.string().trim().min(3).max(100)).min(1).max(100) }))
+  const id = param(req, 'id')
+  const have = new Set((await prisma.judge.findMany({ where: { tournamentId: id }, select: { name: true } })).map(j => j.name.toLowerCase()))
+  const names = [...new Map(d.names.map(n => [n.toLowerCase(), n])).values()].filter(n => !have.has(n.toLowerCase()))
+  await prisma.judge.createMany({ data: names.map(name => ({ tournamentId: id, name })) })
+  res.status(201).json({ created: names.length, skipped: d.names.length - names.length })
+})
+
+// Many teams at once, by name (one per line): for a tournament whose teams have no accounts. Each gets placeholder
+// speakers ("Speaker 1"…) to rename at the registration desk; names already in the tournament are skipped.
+organizerRouter.post('/tournaments/:id/teams/bulk', org, async (req, res) => {
+  await assertCanManage(req.user, param(req, 'id'))
+  const d = body(req, z.object({
+    names: z.array(z.string().trim().min(2).max(60)).min(1).max(128),
+    institution: z.string().trim().min(2).max(150).optional(),
+    league: z.string().max(24).nullable().optional(),
+  }))
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { teams: { select: { name: true, swing: true } } } })
+  const league = leagueFor(t, d.league)
+  const taken = new Set(t.teams.map(x => x.name.toLowerCase()))
+  const names = [...new Map(d.names.map(n => [n.toLowerCase(), n])).values()].filter(n => !taken.has(n.toLowerCase()))
+  const count = t.teams.filter(x => !x.swing).length
+  if (count + names.length > t.maxTeams) throw badRequest('tournament_full')
+  assertRoomForTeam(t, count + names.length - 1)
+  const speakers = rulesOf(t.format).speakers
+  const inst = d.institution ? await institutionId(d.institution, t.level) : null
+  const created = await prisma.$transaction(names.map(name => prisma.team.create({
+    data: { tournamentId: t.id, name, league, institutionId: inst, speakers: { create: Array.from({ length: speakers }, (_, i) => ({ name: `Спикер ${i + 1}`, position: i + 1 })) } },
+    include: teamInclude,
+  })))
+  res.status(201).json({ created: created.map(toTeam), skipped: d.names.length - names.length })
 })
 
 organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
@@ -342,9 +401,14 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
     if (d.name !== existing.name) {
       await tx.teamRegistration.updateMany({ where: { tournamentId: existing.tournamentId, teamName: existing.name }, data: { teamName: d.name } })
     }
+    // the league of a team that has played stays (its rounds were paired inside it)
+    const league = leagueFor(existing.tournament, d.league ?? existing.league)
+    if (league !== existing.league && await tx.debate.count({ where: { OR: [{ propositionTeamId: existing.id }, { oppositionTeamId: existing.id }, { closingPropositionTeamId: existing.id }, { closingOppositionTeamId: existing.id }] } })) {
+      throw forbidden('team_in_draw')
+    }
     return tx.team.update({
       where: { id: existing.id },
-      data: { name: d.name, city: d.city, institutionId: await institutionId(d.institution, existing.tournament.level) },
+      data: { name: d.name, city: d.city, institutionId: await institutionId(d.institution, existing.tournament.level), league },
       include: teamInclude,
     })
   })

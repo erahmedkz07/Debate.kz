@@ -2,12 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, LayoutDashboard, ListOrdered, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, UserX, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, UserX, Users, X } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
-  updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, type TeamInput,
+  updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, type TeamInput,
 } from '@/api'
-import type { Debate, Judge, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
+import type { Debate, Judge, League, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn, formatDate, formatDateRange, formatDateTime, initials, todayKz } from '@/lib/utils'
@@ -45,6 +45,7 @@ import { formatOfTournament } from '@/content/formats'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { NumberChoice } from '@/components/ui/number-choice'
 import { InstitutionSelect } from '@/components/ui/institution-select'
+import { LeagueTabs, leagueName } from '@/components/tournament/LeagueTabs'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -242,15 +243,15 @@ function Registrations({ data, reload }: SectionProps) {
 }
 
 /* ---------- Teams ---------- */
-function TeamDialog({ team, open, onOpenChange, onSave, saving, speakers, city }: { team: Team | null; open: boolean; onOpenChange: (v: boolean) => void; onSave: (t: TeamInput) => void; saving: boolean; speakers: number; city: string }) {
+function TeamDialog({ team, open, onOpenChange, onSave, saving, speakers, city, leagues = [], league: defaultLeague }: { team: Team | null; open: boolean; onOpenChange: (v: boolean) => void; onSave: (t: TeamInput) => void; saving: boolean; speakers: number; city: string; leagues?: League[]; league?: string }) {
   const { t } = useTranslation()
   // as many speakers as the tournament's format has (APF: 2, WSDC and Karl Popper: 3)
-  const empty: TeamInput = { name: '', institution: '', speakers: Array.from({ length: speakers }, () => '') }
+  const empty: TeamInput = { name: '', institution: '', speakers: Array.from({ length: speakers }, () => ''), ...(leagues.length && { league: defaultLeague || leagues[0].key }) }
   const [form, setForm] = useState<TeamInput>(empty)
   useEffect(() => {
-    if (open) setForm(team ? { name: team.name, institution: team.institution, speakers: team.speakers.map(s => s.name) } : empty)
+    if (open) setForm(team ? { name: team.name, institution: team.institution, speakers: team.speakers.map(s => s.name), ...(leagues.length && { league: team.league ?? leagues[0].key }) } : empty)
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
-  const valid = form.name.trim().length >= 2 && form.institution.trim().length >= 2 && form.speakers.every(s => s.trim().length >= 3)
+  const valid = form.name.trim().length >= 2 && form.institution.trim().length >= 2 && form.speakers.every(s => s.trim().length >= 3) && (!leagues.length || !!form.league)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent heading={team ? t('dashboard.teams.editTitle') : t('dashboard.teams.addTitle')}>
@@ -259,6 +260,10 @@ function TeamDialog({ team, open, onOpenChange, onSave, saving, speakers, city }
             <div><Label htmlFor="tn">{t('tournament.registerDialog.teamName')}</Label><Input id="tn" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label htmlFor="ti">{t('tournament.registerDialog.institution')}</Label><InstitutionSelect id="ti" city={city} value={form.institution} onChange={v => setForm({ ...form, institution: v })} /></div>
           </div>
+          {leagues.length > 0 && (
+            <div><Label htmlFor="tl">{t('leagues.league')}</Label>
+              <Select id="tl" value={form.league} onValueChange={v => setForm({ ...form, league: v })} options={leagues.map(l => ({ value: l.key, label: l.name }))} /></div>
+          )}
           {form.speakers.map((s, i) => (
             <div key={i}>
               <Label htmlFor={`sp${i}`}>{t('tournament.registerDialog.speaker', { n: i + 1 })}</Label>
@@ -318,7 +323,13 @@ function Teams({ data, reload }: SectionProps) {
   const { busy, run } = useAction()
   const [editing, setEditing] = useState<Team | null>(null)
   const [open, setOpen] = useState(false)
+  const [bulk, setBulk] = useState(false)
   const [toDelete, setToDelete] = useState<Team | null>(null)
+  const leagues = data.leagues ?? []
+  const [league, setLeague] = useState('')
+  const shown = data.teams.filter(x => !league || x.league === league)
+  // teams of a tournament with leagues that are in none: the draw waits for them
+  const noLeague = leagues.length ? data.teams.filter(x => !x.swing && !leagues.some(l => l.key === x.league)).length : 0
 
   const save = async (input: TeamInput) => {
     const ok = await run('save', () => (editing ? updateTeam(editing.id, input) : addTeam(data.id, input)), t('dashboard.teams.saved'))
@@ -331,7 +342,21 @@ function Teams({ data, reload }: SectionProps) {
   return (
     <>
       <SectionTitle title={`${t('dashboard.nav.teams')} · ${data.teams.filter(x => !x.swing).length}/${data.maxTeams}`}
-        action={<Button disabled={data.teams.length >= data.maxTeams} onClick={() => { setEditing(null); setOpen(true) }}><Plus className="size-4" />{t('dashboard.teams.add')}</Button>} />
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" disabled={data.teams.length >= data.maxTeams} onClick={() => setBulk(true)}><ListPlus className="size-4" />{t('dashboard.teams.bulk')}</Button>
+            <Button disabled={data.teams.length >= data.maxTeams} onClick={() => { setEditing(null); setOpen(true) }}><Plus className="size-4" />{t('dashboard.teams.add')}</Button>
+          </div>
+        } />
+      {leagues.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <LeagueTabs leagues={leagues} value={league} onChange={setLeague} all />
+          <span className="text-sm text-muted-foreground">{leagues.map(l => `${l.name}: ${data.teams.filter(x => !x.swing && x.league === l.key).length}`).join(' · ')}</span>
+        </div>
+      )}
+      {noLeague > 0 && (
+        <p className="mb-4 flex items-start gap-2 rounded-2xl border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{t('leagues.teamsWithout', { count: noLeague })}</p>
+      )}
       {data.status !== 'finished' && data.teams.length > 0 && <CheckinCard data={data} reload={reload} />}
       {data.teams.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('common.empty')} /> : (
         <Card className="overflow-x-auto">
@@ -340,13 +365,14 @@ function Teams({ data, reload }: SectionProps) {
               <tr><th className="px-5 py-3">{t('common.team')}</th><th className="px-5 py-3">{t('tournament.speakers')}</th><th className="w-44 px-5 py-3" /></tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {data.teams.map(team => (
+              {shown.map(team => (
                 <tr key={team.id} className="hover:bg-muted/40">
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <EntityLogo src={team.logoUrl} name={team.name} size="sm" />
                       <div>
-                        <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}{team.swing && <Badge variant="outline">{t('dashboard.checkin.swing')}</Badge>}</p>
+                        <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}{team.swing && <Badge variant="outline">{t('dashboard.checkin.swing')}</Badge>}
+                          {leagues.length > 0 && team.league && <Badge variant="muted">{leagueName(leagues, team.league)}</Badge>}</p>
                         <p className="text-xs text-muted-foreground">{team.institution}</p>
                         {!team.swing && (data.breakCategories ?? []).length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
@@ -391,7 +417,8 @@ function Teams({ data, reload }: SectionProps) {
           </table>
         </Card>
       )}
-      <TeamDialog team={editing} open={open} onOpenChange={setOpen} onSave={save} saving={busy === 'save'} speakers={formatOfTournament(data.format).score.speakersPerTeam} city={data.city} />
+      <TeamDialog team={editing} open={open} onOpenChange={setOpen} onSave={save} saving={busy === 'save'} speakers={formatOfTournament(data.format).score.speakersPerTeam} city={data.city} leagues={leagues} league={league} />
+      <BulkTeamsDialog data={data} open={bulk} onOpenChange={setBulk} league={league} onDone={reload} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t('dashboard.teams.confirmDelete', { name: toDelete?.name })}>
           <div className="flex justify-end gap-2">
@@ -401,6 +428,133 @@ function Teams({ data, reload }: SectionProps) {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+// Judges by name, one per line, without accounts: the owner enters their ballots for them
+function JudgesBulkDialog({ tournamentId, open, onOpenChange, onDone }: { tournamentId: string; open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const [text, setText] = useState('')
+  useEffect(() => { if (open) setText('') }, [open])
+  const names = [...new Set(text.split('\n').map(l => l.replace(/^\s*(?:\d+[.)]|[-•*–])\s*/, '').trim()).filter(n => n.length >= 3))]
+  const submit = async () => {
+    let r: Awaited<ReturnType<typeof addJudgesBulk>> | undefined
+    if (await run('judges', async () => { r = await addJudgesBulk(tournamentId, names) }) && r) {
+      toast.success(t('dashboard.judges.bulkDone', { count: r.created }), r.skipped ? { description: t('dashboard.teams.bulkSkipped', { count: r.skipped }) } : undefined)
+      onOpenChange(false); onDone()
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent heading={t('dashboard.judges.bulkTitle')} description={t('dashboard.judges.bulkText')}>
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="bj">{t('dashboard.judges.bulkNames')}</Label>
+            <Textarea id="bj" rows={8} value={text} onChange={e => setText(e.target.value)} placeholder={'Айгерим Сапарова\nДаурен Ахметов'} />
+            <p className="mt-1 text-xs text-muted-foreground">{t('dashboard.judges.bulkCount', { count: names.length })}</p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button disabled={!names.length || busy === 'judges'} onClick={submit}>{busy === 'judges' && <Loader2 className="size-4 animate-spin" />}{t('dashboard.judges.bulkAdd', { count: names.length })}</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/* ---------- Leagues ---------- */
+// Leagues inside one tournament (a Russian and a Kazakh league): each league is drawn and ranked on its own, so its
+// teams only meet each other. Set before the first draw; afterwards they can only be renamed.
+function LeaguesCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const saved = data.leagues ?? []
+  const [list, setList] = useState<League[]>(saved)
+  useEffect(() => setList(data.leagues ?? []), [data.leagues])
+  const drawn = data.debates.length > 0
+  const dirty = JSON.stringify(list) !== JSON.stringify(saved)
+  const valid = list.length !== 1 && list.every(l => l.name.trim().length >= 2)
+  const nextKey = () => { for (let i = 1; ; i++) if (!list.some(l => l.key === `l${i}`)) return `l${i}` }
+  const save = async () => { if (await run('leagues', () => updateTournament(data.id, { leagues: list.map(l => ({ ...l, name: l.name.trim() })) }), t('common.saved'))) reload() }
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="flex items-center gap-2 font-bold"><Languages className="size-4 text-primary" />{t('leagues.title')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t('leagues.text')}</p>
+      </div>
+      {list.length === 0 ? (
+        <Button variant="outline" onClick={() => setList([{ key: 'l1', name: t('leagues.defaultRu') }, { key: 'l2', name: t('leagues.defaultKz') }])}>
+          <Plus className="size-4" />{t('leagues.enable')}
+        </Button>
+      ) : (
+        <ul className="space-y-2">
+          {list.map((l, i) => (
+            <li key={l.key} className="flex items-center gap-2">
+              <Input value={l.name} maxLength={40} aria-label={t('leagues.name', { n: i + 1 })} onChange={e => setList(list.map(x => (x.key === l.key ? { ...x, name: e.target.value } : x)))} />
+              {!drawn && (
+                <Button variant="ghost" size="icon" aria-label={t('common.delete')} onClick={() => setList(list.filter(x => x.key !== l.key))}><Trash2 className="size-4" /></Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {list.length > 0 && !drawn && list.length < 4 && (
+        <Button variant="ghost" size="sm" onClick={() => setList([...list, { key: nextKey(), name: '' }])}><Plus className="size-4" />{t('leagues.add')}</Button>
+      )}
+      {drawn && <p className="text-xs text-muted-foreground">{t('leagues.lockedAfterDraw')}</p>}
+      {list.length === 1 && <p className="text-xs text-danger">{t('leagues.atLeastTwo')}</p>}
+      <div className="flex justify-end gap-2">
+        {dirty && <Button variant="ghost" onClick={() => setList(saved)}>{t('common.cancel')}</Button>}
+        <Button disabled={!dirty || !valid || busy === 'leagues'} onClick={save}>{t('common.save')}</Button>
+      </div>
+    </Card>
+  )
+}
+
+// Many teams at once: one name per line, for teams without accounts. Speakers get placeholder names ("Спикер 1"…)
+// that the organizer corrects at the registration desk.
+function BulkTeamsDialog({ data, open, onOpenChange, league: defaultLeague, onDone }: { data: TournamentDetails; open: boolean; onOpenChange: (v: boolean) => void; league?: string; onDone: () => void }) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const leagues = data.leagues ?? []
+  const [text, setText] = useState('')
+  const [league, setLeague] = useState('')
+  const [institution, setInstitution] = useState('')
+  useEffect(() => { if (open) { setText(''); setInstitution(''); setLeague(defaultLeague || leagues[0]?.key || '') } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  // "1. Impact" / "1) Impact" / "• Impact": the list as it is pasted from a chat
+  const names = [...new Set(text.split('\n').map(l => l.replace(/^\s*(?:\d+[.)]|[-•*–])\s*/, '').trim()).filter(n => n.length >= 2))]
+  const room = data.maxTeams - data.teams.filter(x => !x.swing).length
+  const submit = async () => {
+    let r: Awaited<ReturnType<typeof addTeamsBulk>> | undefined
+    if (await run('bulk', async () => { r = await addTeamsBulk(data.id, { names, ...(leagues.length && { league }), ...(institution && { institution }) }) }) && r) {
+      toast.success(t('dashboard.teams.bulkDone', { count: r.created.length }), r.skipped ? { description: t('dashboard.teams.bulkSkipped', { count: r.skipped }) } : undefined)
+      onOpenChange(false); onDone()
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent heading={t('dashboard.teams.bulkTitle')} description={t('dashboard.teams.bulkText')}>
+        <div className="space-y-4">
+          {leagues.length > 0 && (
+            <div><Label htmlFor="bl">{t('leagues.league')}</Label><Select id="bl" value={league} onValueChange={setLeague} options={leagues.map(l => ({ value: l.key, label: l.name }))} /></div>
+          )}
+          <div>
+            <Label htmlFor="bt">{t('dashboard.teams.bulkNames')}</Label>
+            <Textarea id="bt" rows={10} value={text} onChange={e => setText(e.target.value)} placeholder={'1. Impact\n2. Alnur team\n3. Болашақ 26'} />
+            <p className="mt-1 text-xs text-muted-foreground">{t('dashboard.teams.bulkCount', { count: names.length })}{names.length > room && <span className="text-danger"> · {t('dashboard.teams.bulkTooMany', { count: room })}</span>}</p>
+          </div>
+          <div><Label htmlFor="bi">{t('dashboard.teams.bulkInstitution')}</Label><InstitutionSelect id="bi" city={data.city} value={institution} onChange={setInstitution} /></div>
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button disabled={!names.length || names.length > room || (leagues.length > 0 && !league) || busy === 'bulk'} onClick={submit}>
+              {busy === 'bulk' && <Loader2 className="size-4 animate-spin" />}{t('dashboard.teams.bulkAdd', { count: names.length })}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -426,14 +580,17 @@ function Judges({ data, reload }: SectionProps) {
     if (ok) { setEmail(''); setLinkFor(null) }
   }
   const withoutAccount = data.judges.filter(j => j.hasAccount === false).length
+  const [bulk, setBulk] = useState(false)
   return (
     <>
       <SectionTitle title={`${t('dashboard.nav.judges')} · ${data.judges.length}`}
         action={
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setBulk(true)}><ListPlus className="size-4" />{t('dashboard.judges.bulk')}</Button>
             <InviteButton tournamentId={data.id} kind="judge" variant="primary" />
           </div>
         } />
+      <JudgesBulkDialog tournamentId={data.id} open={bulk} onOpenChange={setBulk} onDone={reload} />
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
       {withoutAccount > 0 && (
         <p className="mb-5 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">
@@ -719,9 +876,10 @@ function ConflictsDialog({ judge, data, onClose, onSaved }: { judge: Judge | nul
 function judgesNeeded(data: TournamentDetails, presentOnly = false, addSwing = true, round?: Round) {
   const perRoom = isBP(data.format) ? 4 : 2
   if (round?.kind === 'elimination') return Math.max(1, (round.teamsInRound ?? perRoom) / perRoom)
-  let n = data.teams.filter(x => !x.swing && (!presentOnly || x.checkedIn)).length
-  if (n % perRoom && addSwing) n += perRoom - (n % perRoom)
-  return Math.max(1, Math.ceil(n / perRoom))
+  const playing = data.teams.filter(x => !x.swing && (!presentOnly || x.checkedIn))
+  // leagues fill their rooms on their own: an odd league needs its own swing team
+  const groups = data.leagues?.length ? data.leagues.map(l => playing.filter(x => x.league === l.key).length) : [playing.length]
+  return Math.max(1, groups.reduce((rooms, n) => rooms + Math.ceil((n % perRoom && addSwing ? n + perRoom - (n % perRoom) : n) / perRoom), 0))
 }
 
 const dayMs = 24 * 60 * 60 * 1000
@@ -801,8 +959,10 @@ function Draw({ data, reload }: SectionProps) {
   const round = data.rounds.find(r => r.id === roundId)
   if (!round) return <EmptyState title={t('common.empty')} />
 
-  const current = data.debates.filter(d => d.roundId === round.id)
   const team = (id: string) => data.teams.find(x => x.id === id)
+  // leagues: each league's rooms together, in the order of the leagues
+  const leagueOrder = (d: Debate) => (data.leagues ?? []).findIndex(l => l.key === team(d.propositionTeamId)?.league)
+  const current = data.debates.filter(d => d.roundId === round.id).sort((a, b) => leagueOrder(a) - leagueOrder(b))
   const judge = (id: string) => data.judges.find(j => j.id === id)
   const editable = round.status !== 'completed'
   const rooms = [...new Set([...(data.rooms?.length ? data.rooms : DEFAULT_ROOMS), ...current.map(d => d.room)])]
@@ -917,7 +1077,8 @@ function Draw({ data, reload }: SectionProps) {
                         onValueChange={v => patch(d, { room: v })} options={rooms.map(r => ({ value: r, label: r }))} />
                       <OnlineLink url={d.onlineUrl} className="mt-1 text-xs" label={t('online.link')} />
                     </td>
-                    <td className="px-4 py-3 font-bold">{team(d.propositionTeamId)?.name}</td>
+                    <td className="px-4 py-3 font-bold">{team(d.propositionTeamId)?.name}
+                      {(data.leagues ?? []).length > 0 && <span className="block text-xs font-normal text-muted-foreground">{leagueName(data.leagues, team(d.propositionTeamId)?.league)}</span>}</td>
                     <td className="px-2 py-3">
                       <Button variant="ghost" size="icon" disabled={!editable || d.ballotStatus !== 'pending'} title={t('dashboard.draw.swap')} aria-label={t('dashboard.draw.swap')}
                         onClick={() => patch(d, { swapSides: true })}>
@@ -1308,6 +1469,7 @@ function SettingsSection({ data, reload }: SectionProps) {
           {parts.includes('conduct') && (
             <TabsContent value="conduct" className="space-y-5">
               <RoomsCard data={data} reload={reload} />
+              <LeaguesCard data={data} reload={reload} />
               {!data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}
             </TabsContent>
           )}

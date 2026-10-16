@@ -269,6 +269,7 @@ export const updateTournament = (id: string, data: Partial<{
   city: string; region: string; district: string | null; venue: string | null; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
   breakCategories: { key: string; name: string; size: number }[]
+  leagues: { key: string; name: string }[]
   selectionMode: 'manual' | 'first_come' | 'lottery'
   clubQuota: number | null
   coverUrl: string | null
@@ -277,7 +278,12 @@ export const updateTournament = (id: string, data: Partial<{
 export const deleteTournament = (id: string) => http<void>('DELETE', `/tournaments/${id}`)
 export const adminDeleteTournament = (id: string, reason: string) => http<void>('DELETE', `/admin/tournaments/${id}`, { reason })
 
-export interface TeamInput { name: string; institution: string; speakers: string[] }
+export interface TeamInput { name: string; institution: string; speakers: string[]; league?: string }
+// many teams by name, with placeholder speakers ("Спикер 1"…): names already in the tournament are skipped
+// judges by name, without accounts: the owner enters their ballots for them
+export const addJudgesBulk = (tournamentId: string, names: string[]) => http<{ created: number; skipped: number }>('POST', `/tournaments/${tournamentId}/judges/bulk`, { names })
+export const addTeamsBulk = (tournamentId: string, data: { names: string[]; league?: string; institution?: string }) =>
+  http<{ created: Team[]; skipped: number }>('POST', `/tournaments/${tournamentId}/teams/bulk`, data)
 export const addTeam = (tournamentId: string, data: TeamInput) => http<Team>('POST', `/tournaments/${tournamentId}/teams`, data)
 export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH', `/teams/${teamId}`, data)
 export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${teamId}`)

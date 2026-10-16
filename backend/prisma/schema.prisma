@@ -222,6 +222,7 @@ model Tournament {
   preliminaryRounds    Int              @map("preliminary_rounds")
   breakSize            Int              @map("break_size")
   breakCategories      Json             @default("[]") @map("break_categories") // [{ key, name, size }]: extra brackets (novices, juniors…)
+  leagues              Json             @default("[]") // [{ key, name }]: leagues inside one tournament (a Russian and a Kazakh league): each pairs, ranks and breaks on its own
   languages            String[]
   plan                 Plan             @default(free)
   paid                 Boolean          @default(true)
@@ -325,6 +326,7 @@ model Team {
   breakSeed            Int?            @map("break_seed") // 1..breakSize once the break is announced; null = did not break
   breakCategory        String?         @map("break_category") // the bracket the team broke into: null = the open break
   categories           String[]        @default([]) // break categories the team may break in (keys of tournaments.break_categories)
+  league               String? // its league (a key of tournaments.leagues); every team has one when the tournament has leagues
   clubId               String?         @map("club_id") // the club the team came from (ratings, same-club draw rule)
   clubTeamId           String?         @map("club_team_id")
   createdAt            DateTime        @default(now()) @map("created_at")

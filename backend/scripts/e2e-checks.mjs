@@ -2417,5 +2417,61 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(rating.speakers.every(s => s.last?.tournamentId && s.last?.speakerId), 'every rated speaker links to their history')
 }
 
+// ---------- 64. leagues inside one tournament; teams and judges by name, without accounts ----------
+{
+  const host = await newAccount('Лига Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(450), name: `Лиги ${jtag}`, maxTeams: 16, preliminaryRounds: 2, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'l1', name: 'Русская лига' }] })).data?.error === 'invalid_leagues', 'one league alone is refused')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'l1', name: 'Русская лига' }, { key: 'l2', name: 'Қазақ лигасы' }] })).status === 200, 'the organizer sets two leagues')
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.leagues?.length === 2, 'the tournament shows its leagues')
+
+  // teams by name: placeholder speakers, a league each, duplicates skipped
+  ok((await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { names: ['Impact'] })).data?.error === 'league_required', 'with leagues a team needs one')
+  const ru = await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'l1', names: ['Impact', 'Alnur team', 'Болашақ 26', 'Аманат', 'Les Elles', 'impact'] })
+  ok(ru.status === 201 && ru.data.created.length === 5 && ru.data.skipped === 1, 'teams are added by name; a repeated name is skipped')
+  ok(ru.data.created[0].speakers.map(s => s.name).join(',') === 'Спикер 1,Спикер 2,Спикер 3', 'they get placeholder speakers')
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'l2', names: ['Алаш 65', 'ASNA CLUB', 'Зердешки', 'Намыс'] })
+  ok((await host.c('POST', `/tournaments/${t.id}/teams`, { name: 'Без лиги', institution: 'Школа №1', speakers: ['Аа Бб', 'Вв Гг', 'Дд Ее'] })).data?.error === 'league_required', 'a team typed in also needs a league')
+
+  // judges by name, no accounts; five rooms (5 + swing, and 4)
+  const j = await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Судья Первый', 'Судья Второй', 'Судья Третий', 'Судья Четвёртый', 'Судья Пятый', 'Судья Первый'] })
+  ok(j.status === 201 && j.data.created === 5 && j.data.skipped === 1, 'judges are added by name without accounts')
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const d0 = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const r1 = d0.rounds[0]
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: 'ЭП разрешит ИИ для домашних заданий / БП ЖИ-ге рұқсат береді' })
+  ok((await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })).data?.error === 'league_odd_number_of_teams', 'an odd league asks for its swing team')
+  const drawn = await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: true })
+  ok(drawn.status === 201, 'the leagues are drawn')
+  const d1 = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const league = id => d1.teams.find(x => x.id === id)?.league
+  const debates = d1.debates.filter(d => d.roundId === r1.id)
+  ok(debates.length === 5 && debates.every(d => league(d.propositionTeamId) === league(d.oppositionTeamId)), 'teams meet only teams of their own league')
+  const swing = d1.teams.find(x => x.swing)
+  ok(swing?.league === 'l1' && d1.teams.filter(x => x.swing).length === 1, 'the odd league gets its own swing team')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'l1', name: 'Русская лига' }] })).data?.error === 'invalid_leagues', 'leagues stay two or more')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'l1', name: 'Орыс лигасы' }, { key: 'l2', name: 'Қазақ лигасы' }] })).status === 200, 'after the draw a league can be renamed')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'l1', name: 'Р' + 'усская' }, { key: 'l3', name: 'Новая' }] })).data?.error === 'leagues_after_draw', 'after the draw leagues are not swapped')
+
+  // the owner enters the ballot of a judge without an account
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'released' })
+  const room = debates.find(d => league(d.propositionTeamId) === 'l2')
+  const judgeId = room.judgeIds[0]
+  const sheet = (await host.c('GET', `/ballots/${room.id}?as=${judgeId}`)).data
+  ok(sheet.canSubmit === true && sheet.onBehalfOf?.judgeId === judgeId, "the owner opens a judge's ballot")
+  const scores = {}
+  sheet.proposition.speakers.forEach(x => (scores[x.id] = 72)); sheet.opposition.speakers.forEach(x => (scores[x.id] = 69))
+  const sent = await host.c('POST', `/ballots/${room.id}`, {
+    winner: 'proposition', scores, reply: { proposition: 36, opposition: 34 },
+    replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id }, asJudgeId: judgeId,
+  })
+  ok(sent.status === 201, "the owner sends it for the judge")
+  // the table counts completed rounds: the other rooms' ballots are not needed for this check
+  await db.query("update rounds set status = 'completed' where id = $1", [r1.id])
+  const table = (await client()('GET', `/tournaments/${t.id}/standings`)).data.teams
+  ok(table.some(r => r.team.id === room.propositionTeamId && r.wins === 1 && r.team.league === 'l2'), "the table carries each team's league")
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
