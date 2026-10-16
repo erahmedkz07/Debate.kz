@@ -39,6 +39,7 @@ import { quoted } from '@/lib/motion'
 import { SpeakerInviteButton } from '@/components/tournament/SpeakerInviteButton'
 import { InstitutionSelect } from '@/components/ui/institution-select'
 import { LeagueTabs, leagueName } from '@/components/tournament/LeagueTabs'
+import { RichText } from '@/components/ui/rich-text'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -187,7 +188,10 @@ function Overview({ data }: { data: TournamentDetails }) {
       <div className="space-y-6">
         <Card className="p-6">
           <h2 className="text-xl font-bold">{t('tournament.about')}</h2>
-          <p className="mt-3 leading-relaxed text-muted-foreground">{data.description}</p>
+          {/* paragraphs, lists, bold and links as the organizer wrote them */}
+          {data.description.trim()
+            ? <RichText text={data.description} className="mt-3 text-muted-foreground" />
+            : <p className="mt-3 text-muted-foreground">{t('tournament.noDescription')}</p>}
         </Card>
         {data.status === 'finished' && data.awards && data.awards.length > 0 && (
           <Card className="p-6">

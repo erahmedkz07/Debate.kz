@@ -16,7 +16,7 @@ import { useAsync } from '@/lib/hooks'
 import { cn, formatDateRange, todayKz } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { FieldError, Input, Label, Switch, Textarea } from '@/components/ui/input'
+import { FieldError, Input, Label, Switch } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { DatePicker } from '@/components/ui/date-picker'
 
@@ -26,6 +26,7 @@ import { BP_BREAKS } from '@/lib/formats'
 import { PlacePicker, placeDistrict } from '@/components/tournament/PlacePicker'
 import { cityName, regionByCode } from '@/content/geo'
 import { NumberChoice } from '@/components/ui/number-choice'
+import { RichTextEditor } from '@/components/ui/rich-text-editor'
 type Step = 'basic' | 'format' | 'registration' | 'payment' | 'summary'
 
 // how many top seeds skip the first playoff round when the break is not a power of two (6 -> 2 byes)
@@ -269,7 +270,7 @@ export default function CreateTournament() {
                   </div>
                   <div>
                     <Label htmlFor="desc">{t('wizard.description')}</Label>
-                    <Textarea id="desc" rows={3} {...register('description')} />
+                    <RichTextEditor id="desc" rows={6} value={v.description ?? ''} onChange={x => setValue('description', x)} />
                   </div>
                 </>
               )}
