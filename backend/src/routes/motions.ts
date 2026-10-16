@@ -32,14 +32,20 @@ motionsRouter.get('/motions', async (req, res) => {
     topics: topicsOf(r.motion), language: languageOf(r.motion),
     tournament: { id: r.tournament.id, name: r.tournament.name, level: r.tournament.level, city: r.tournament.city },
   }))
-  const needle = q.search?.toLowerCase()
-  const filtered = all.filter(m =>
-    (!q.level || m.tournament.level === q.level)
-    && (!q.lang || m.language === q.lang)
-    && (!q.topic || m.topics.includes(q.topic))
-    && (!needle || m.motion.toLowerCase().includes(needle) || m.infoSlide?.toLowerCase().includes(needle) || m.tournament.name.toLowerCase().includes(needle)))
-  // how many motions each topic has (for the filter chips), counted over the whole bank
-  const topicCounts = Object.fromEntries(TOPICS.map(t => [t, all.filter(m => m.topics.includes(t)).length]))
+  // search ignores case, ё/е, quotes and punctuation: "эта палата", «Эта палата…» and "ЭТА ПАЛАТА" find the same motions
+  const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  const words = q.search ? norm(q.search).split(' ').filter(Boolean) : []
+  const matches = (m: (typeof all)[number]) => {
+    if (!words.length) return true
+    const hay = norm(`${m.motion} ${m.infoSlide ?? ''} ${m.tournament.name} ${m.tournament.city}`)
+    return words.every(w => hay.includes(w))
+  }
+  // a mixed tournament (school and university teams together) belongs to both levels
+  const levelOk = (m: (typeof all)[number]) => !q.level || m.tournament.level === q.level || m.tournament.level === 'mixed'
+  const base = all.filter(m => levelOk(m) && (!q.lang || m.language === q.lang) && matches(m))
+  const filtered = base.filter(m => !q.topic || m.topics.includes(q.topic))
+  // how many motions each topic has under the other filters (the chips' numbers match what a click shows)
+  const topicCounts = Object.fromEntries(TOPICS.map(t => [t, base.filter(m => m.topics.includes(t)).length]))
   res.json({
     items: filtered.slice((q.page - 1) * PAGE, q.page * PAGE),
     total: filtered.length,
