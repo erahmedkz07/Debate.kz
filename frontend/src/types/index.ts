@@ -28,8 +28,11 @@ export interface Tournament {
   preliminaryRounds: number
   breakSize: number
   breakCategories?: BreakCategory[] // extra brackets (novices, juniors…)
+  leagues?: League[] // leagues inside the tournament: each pairs and ranks on its own
   languages: Lang[]
 }
+
+export interface League { key: string; name: string }
 
 export interface Speaker {
   id: string
@@ -53,6 +56,7 @@ export interface Team {
   breakSeed?: number // 1..breakSize once the break is announced
   breakCategory?: string // the category bracket it broke into (none = the open break)
   categories?: string[] // break categories the team may break in
+  league?: string // its league (a key of the tournament's leagues)
   institutionId?: string // organizers only (judge conflicts)
 }
 

@@ -22,7 +22,11 @@ export const toSummary = (t: SummaryRow) => ({
   cover: coverOf(t), organizer: t.organizerName, description: t.description,
   preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
   breakCategories: t.breakCategories as { key: string; name: string; size: number }[],
+  leagues: leaguesOf(t),
 })
+
+// the tournament's leagues ([] when it has none)
+export const leaguesOf = (t: { leagues: unknown }) => (Array.isArray(t.leagues) ? t.leagues : []) as { key: string; name: string }[]
 
 export const teamInclude = {
   institution: true, speakers: { orderBy: { position: 'asc' } },
@@ -34,7 +38,7 @@ export const toTeam = (t: TeamRow) => ({
   id: t.id, tournamentId: t.tournamentId, name: t.name, institution: t.institution?.name ?? '', city: t.city ?? '',
   // userId: a link to the person's public page (an account that did not hide its profile)
   speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id, ...(s.userId && { userId: s.userId }) })),
-  checkedIn: !!t.checkedInAt, swing: t.swing,
+  checkedIn: !!t.checkedInAt, swing: t.swing, ...(t.league && { league: t.league }),
   club: t.club ? { id: t.club.id, name: t.club.name, logoUrl: t.club.logoUrl ?? undefined } : undefined, // where the team comes from
   clubTeam: t.clubTeam ? { id: t.clubTeam.id, name: t.clubTeam.name } : undefined,
   // the picture shown next to the team: its own club-team logo, else its club's

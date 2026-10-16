@@ -38,6 +38,7 @@ import { cityName } from '@/content/geo'
 import { quoted } from '@/lib/motion'
 import { SpeakerInviteButton } from '@/components/tournament/SpeakerInviteButton'
 import { InstitutionSelect } from '@/components/ui/institution-select'
+import { LeagueTabs, leagueName } from '@/components/tournament/LeagueTabs'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
 
@@ -261,9 +262,14 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
   const { user } = useAuth()
   // the team's own speakers and the organizers can invite a teammate typed in by name to link their account
   const manager = !!data.myRole
+  const leagues = data.leagues ?? []
+  const [league, setLeague] = useState('')
+  const shown = data.teams.filter(x => !league || x.league === league)
   return (
+    <>
+    {leagues.length > 0 && <LeagueTabs className="mb-5 w-fit" leagues={leagues} value={league} onChange={setLeague} all />}
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {data.teams.map(team => (
+      {shown.map(team => (
         <Card key={team.id} className="p-5 transition-shadow hover:shadow-md">
           <div className="flex items-start gap-3">
             <EntityLogo src={team.logoUrl} name={team.name} />
@@ -281,9 +287,11 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
             ))}
           </ul>
           <span className="sr-only">{t('tournament.speakers')}</span>
+          {team.league && leagues.length > 0 && <Badge variant="muted" className="mt-3">{leagueName(leagues, team.league)}</Badge>}
         </Card>
       ))}
     </div>
+    </>
   )
 }
 
@@ -293,11 +301,16 @@ function DrawTab({ data }: { data: TournamentDetails }) {
   const sides = useSides(data.format)
   const released = data.rounds.filter(r => r.status !== 'draft')
   const [roundId, setRoundId] = useState(released.at(-1)?.id)
+  // leagues: the draw shows one league at a time (its rooms only)
+  const leagues = data.leagues ?? []
+  const [league, setLeague] = useState('')
   if (!released.length) return <EmptyState icon={<CalendarDays className="size-7" />} title={t('tournament.noDraw')} text={t('tournament.noDrawText')} />
 
   const round = released.find(r => r.id === roundId) ?? released[0]
-  const debates = data.debates.filter(d => d.roundId === round.id)
   const team = (id: string) => data.teams.find(x => x.id === id)!
+  // each league's rooms together, in the order of the leagues
+  const leagueOrder = (d: Debate) => leagues.findIndex(l => l.key === team(d.propositionTeamId)?.league)
+  const debates = data.debates.filter(d => d.roundId === round.id && (!league || team(d.propositionTeamId)?.league === league)).sort((a, b) => leagueOrder(a) - leagueOrder(b))
   const judges = (d: Debate) => d.judgeIds.map(id => data.judges.find(j => j.id === id)!).filter(Boolean)
   // BP: four teams per room, each shown with its place once decided
   const sideList = sidesOf(data.format)
@@ -318,6 +331,7 @@ function DrawTab({ data }: { data: TournamentDetails }) {
           </button>
         ))}
       </div>
+      {leagues.length > 0 && <LeagueTabs className="mb-4 w-fit" leagues={leagues} value={league} onChange={setLeague} all />}
       <RoundBanner round={round} />
       {/* organizers see a closed round's results: a note says the others do not */}
       {silentRoundIds(data).has(round.id) && !!data.myRole && (
@@ -339,7 +353,7 @@ function DrawTab({ data }: { data: TournamentDetails }) {
           <tbody className="divide-y divide-border">
             {debates.map(d => (
               <tr key={d.id} className="hover:bg-muted/40">
-                <td className="px-5 py-4 font-semibold">{d.room}</td>
+                <td className="px-5 py-4 font-semibold">{d.room}{!league && leagues.length > 0 && <span className="block text-xs font-normal text-muted-foreground">{leagueName(leagues, team(d.propositionTeamId)?.league)}</span>}</td>
                 {sideList.map(side => <td key={side} className={cn(bp ? 'px-3' : 'px-5', 'py-4')}>{cell(d, side)}</td>)}
                 <td className="px-5 py-4 text-muted-foreground">
                   {judges(d).map((j, i) => <span key={j.id}>{i > 0 && ', '}{j.name}{i === 0 && <Star className="ml-1 inline size-3 -translate-y-px text-primary" fill="currentColor" aria-label={t('tournament.chair')} />}</span>)}
@@ -353,7 +367,8 @@ function DrawTab({ data }: { data: TournamentDetails }) {
       <div className="mt-4 space-y-3 md:hidden">
         {debates.map(d => (
           <Card key={d.id} className="p-4">
-            <p className="flex items-center gap-1.5 text-xs font-bold text-primary"><DoorOpen className="size-3.5" />{d.room}</p>
+            <p className="flex items-center gap-1.5 text-xs font-bold text-primary"><DoorOpen className="size-3.5" />{d.room}
+              {!league && leagues.length > 0 && <span className="font-normal text-muted-foreground">· {leagueName(leagues, team(d.propositionTeamId)?.league)}</span>}</p>
             {bp ? (
               <div className="mt-3 grid grid-cols-2 gap-2 text-center">
                 {sideList.map(side => (
@@ -415,8 +430,11 @@ function RoundBanner({ round }: { round: Round }) {
   )
 }
 
-export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'myRole'> }) {
+export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'myRole' | 'leagues'> }) {
   const { t } = useTranslation()
+  // leagues: each league has its own table (ranks start at 1 in each)
+  const leagues = tournament?.leagues ?? []
+  const [league, setLeague] = useState(leagues[0]?.key ?? '')
   const sides = useSides(tournament?.format)
   const roundName = useRoundName()
   // silent rounds: the public table stops before them (organizers see everything)
@@ -431,11 +449,18 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
       <Button asChild size="sm" variant="outline"><a href={`/tournaments/${id}/report`} target="_blank" rel="noopener"><Printer className="size-4" />{t('export.pdf')}</a></Button>
     </div>
   )
-  const { data, loading, error, reload } = useAsync(() => getStandings(id), [id])
+  const standings = useAsync(() => getStandings(id), [id])
+  const { error, loading, reload } = standings
   if (error) return <ErrorState onRetry={reload} />
-  if (loading || !data) return <div className="space-y-2">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>
+  if (loading || !standings.data) return <div className="space-y-2">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>
+  const inLeague = (team: { league?: string }) => !leagues.length || team.league === league
+  const data = {
+    teams: standings.data.teams.filter(r => inLeague(r.team)).map((r, i) => ({ ...r, rank: i + 1 })),
+    speakers: standings.data.speakers.filter(r => inLeague(r.team)).map((r, i) => ({ ...r, rank: i + 1 })),
+  }
+  const leagueBar = leagues.length > 0 && <LeagueTabs className="mb-4 w-fit" leagues={leagues} value={league} onChange={setLeague} />
   const empty = kind === 'teams' ? data.teams.every(r => r.wins + r.losses === 0) : data.speakers.every(s => s.total === 0)
-  if (empty) return <EmptyState icon={<Trophy className="size-7" />} title={t('tournament.noResults')} text={t('tournament.noResultsText')} />
+  if (empty) return <>{leagueBar}<EmptyState icon={<Trophy className="size-7" />} title={t('tournament.noResults')} text={t('tournament.noResultsText')} /></>
 
   const medal = (rank: number) => rank <= 3
     ? <span className={cn('grid size-8 place-items-center rounded-full text-sm font-extrabold', rank === 1 ? 'bg-accent text-navy' : rank === 2 ? 'bg-slate-200 text-slate-700' : 'bg-orange-200 text-orange-800')}>{rank}</span>
@@ -454,6 +479,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
     return (
       <>
       {exportBar}
+      {leagueBar}
       {silentNote}
       {forecast && (
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
@@ -502,6 +528,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
   }
   return (
     <>
+    {leagueBar}
     {silentNote}
     <Card className="overflow-x-auto">
       <table className="w-full min-w-[520px] text-sm">
