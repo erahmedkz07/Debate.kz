@@ -2703,5 +2703,60 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(!d.judges.find(j => j.id === bJudge).left && !d.teams.find(x => x.id === aOpp).withdrawn, 'a judge and a team can come back')
 }
 
+// ---------- 70. each league breaks on its own ----------
+{
+  const host = await newAccount('Брейк Лиг Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(510), name: `Брейк лиг ${jtag}`, maxTeams: 16, preliminaryRounds: 1, breakSize: 4 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'ru', name: 'Русская лига' }, { key: 'kz', name: 'Қазақ лигасы' }] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'ru', names: ['БР1', 'БР2', 'БР3', 'БР4'] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'kz', names: ['БҚ1', 'БҚ2', 'БҚ3', 'БҚ4', 'БҚ5', 'БҚ6'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { league: 'ru', names: ['Брейк Судья Р1', 'Брейк Судья Р2'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { league: 'kz', names: ['Брейк Судья Қ1', 'Брейк Судья Қ2', 'Брейк Судья Қ3'] })
+  const set = await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'ru', name: 'Русская лига', breakSize: 2 }, { key: 'kz', name: 'Қазақ лигасы', breakSize: 4 }] })
+  ok(set.status === 200, 'each league gets its own break size')
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const get = async () => (await host.c('GET', `/tournaments/${t.id}`)).data
+  let d = await get()
+  ok(d.leagues.find(l => l.key === 'kz').breakSize === 4, 'the league break size is kept')
+  const r1 = d.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: `ЭП разрешит телефоны ${jtag}`, status: 'released' })
+  d = await get()
+  // every room ends by a technical loss of the opposition: the proposition teams win
+  for (const x of d.debates.filter(x => x.roundId === r1.id)) await host.c('POST', `/debates/${x.id}/forfeit`, { side: 'opposition' })
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })
+  d = await get()
+  const league = id => d.teams.find(x => x.id === id).league
+  const winners = d.debates.filter(x => x.roundId === r1.id).map(x => x.propositionTeamId)
+  // a withdrawn Kazakh winner does not break
+  const gone = winners.find(id => league(id) === 'kz')
+  await host.c('DELETE', `/teams/${gone}`)
+  const br = await host.c('POST', `/tournaments/${t.id}/break`)
+  ok(br.status === 201 && br.data.byLeague === true && br.data.seeds.length === 0, 'with leagues there is no common break')
+  const ru = br.data.categories.find(c => c.key === 'ru'), kz = br.data.categories.find(c => c.key === 'kz')
+  ok(ru.seeds.length === 2 && ru.seeds.every(s => league(s.team.id) === 'ru'), 'the Russian league breaks its own 2 teams')
+  ok(kz.seeds.length === 4 && kz.seeds.every(s => league(s.team.id) === 'kz') && !kz.seeds.some(s => s.team.id === gone), 'the Kazakh league breaks its own 4 teams, without the withdrawn one')
+  ok(ru.seeds.every(s => winners.includes(s.team.id)), "the league's best teams break")
+  ok(ru.rounds.length === 1 && kz.rounds.length === 2 && kz.rounds[0].name.includes('Қазақ лигасы'), 'each league has its own playoff rounds')
+  // the Kazakh semifinal: Kazakh teams, Kazakh judges
+  d = await get()
+  const semi = d.rounds.find(r => r.id === kz.rounds[0].id)
+  ok([200, 201].includes((await host.c('POST', `/rounds/${semi.id}/draw`, {})).status), 'the league semifinal is drawn')
+  d = await get()
+  const rooms = d.debates.filter(x => x.roundId === semi.id)
+  const jl = id => d.judges.find(j => j.id === id).league
+  ok(rooms.length === 2 && rooms.every(x => league(x.propositionTeamId) === 'kz' && league(x.oppositionTeamId) === 'kz'), 'the semifinal rooms are Kazakh only')
+  ok(rooms.every(x => x.judgeIds.every(j => jl(j) === 'kz')), 'the league playoffs take judges of the league')
+  // the Russian final at the same time: its own judges
+  const fin = d.rounds.find(r => r.id === ru.rounds[0].id)
+  await host.c('POST', `/rounds/${fin.id}/draw`, {})
+  d = await get()
+  const finRoom = d.debates.find(x => x.roundId === fin.id)
+  ok(finRoom && league(finRoom.propositionTeamId) === 'ru' && finRoom.judgeIds.every(j => jl(j) === 'ru'), 'the Russian final: Russian teams and judges')
+  const pub = (await client()('GET', `/tournaments/${t.id}/bracket`)).data
+  ok(pub.categories?.length === 2, 'the public page shows a bracket per league')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

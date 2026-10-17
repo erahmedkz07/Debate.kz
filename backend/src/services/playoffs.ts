@@ -2,7 +2,7 @@ import { badRequest, forbidden } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { BP_SIDES, isBP, teamOnSide, type SideCode } from './formats.js'
 import { assignPositions } from './pairing.js'
-import { getStandings, teamInclude, toTeam } from './tournaments.js'
+import { getStandings, leaguesOf, teamInclude, toTeam } from './tournaments.js'
 import { STAGE_NAME, stageOf } from './stages.js'
 
 // The break (playoffs). When every preliminary round is completed the organizer announces the break: the top
@@ -18,6 +18,17 @@ import { STAGE_NAME, stageOf } from './stages.js'
 
 export interface BreakCategory { key: string; name: string; size: number }
 export const categoriesOf = (t: { breakCategories: unknown }) => (Array.isArray(t.breakCategories) ? t.breakCategories : []) as BreakCategory[]
+
+// Leagues break on their own: each league has its own bracket of its own best teams (a Russian league of 4, a Kazakh
+// league of 8), with no open break; a league without its own size takes the tournament's. The brackets work like
+// category brackets (the league key is the category of its rounds and seeds).
+export const leagueBreaksOf = (t: { leagues: unknown; breakSize: number }): BreakCategory[] =>
+  leaguesOf(t).map(l => ({ key: l.key, name: l.name, size: l.breakSize ?? t.breakSize }))
+// the brackets beside the open one: the leagues', else the break categories
+const sideBracketsOf = (t: { leagues: unknown; breakSize: number; breakCategories: unknown }) => {
+  const leagues = leagueBreaksOf(t)
+  return leagues.length ? leagues : categoriesOf(t)
+}
 
 // seeds in bracket order: 1 and 2 at opposite ends, then 1–N, 2–(N-1)… (for 8: 1 8 4 5 2 7 3 6)
 export function bracketOrder(n: number): number[] {
@@ -59,21 +70,35 @@ export function firstRoundPairs(breakSize: number) {
 export async function announceBreak(tournamentId: string) {
   const t = await prisma.tournament.findUniqueOrThrow({
     where: { id: tournamentId },
-    include: { rounds: { orderBy: { number: 'asc' } }, teams: { where: { swing: false }, select: { id: true, categories: true } } },
+    include: { rounds: { orderBy: { number: 'asc' } }, teams: { where: { swing: false, withdrawnAt: null }, select: { id: true, categories: true, league: true } } },
   })
   const bp = isBP(t.format)
   if (t.status !== 'ongoing') throw badRequest('tournament_not_ongoing')
   if (t.rounds.some(r => r.kind === 'elimination')) throw badRequest('break_already_announced')
   const prelims = t.rounds.filter(r => r.kind === 'preliminary')
   if (!prelims.length || prelims.some(r => r.status !== 'completed')) throw badRequest('preliminaries_unfinished')
+  // the table without withdrawn teams
+  const inPlay = new Set(t.teams.map(x => x.id))
+  const order = (await getStandings(tournamentId)).teams.map(r => r.team.id).filter(id => inPlay.has(id))
+  const brackets: { category: BreakCategory | null; seeds: string[] }[] = []
+  const leagues = leagueBreaksOf(t)
+  if (leagues.length) {
+    // each league: its best teams, in the order of its own table
+    const leagueOf = new Map(t.teams.map(x => [x.id, x.league]))
+    for (const l of leagues) {
+      if (!validBreak(l.size, bp)) throw badRequest('break_too_small', { category: l.name })
+      const pool = order.filter(id => leagueOf.get(id) === l.key)
+      if (pool.length < l.size) throw badRequest('not_enough_teams_for_break', { need: l.size, have: pool.length, category: l.name })
+      brackets.push({ category: l, seeds: pool.slice(0, l.size) })
+    }
+  }
+  if (!leagues.length) {
   if (!validBreak(t.breakSize, bp)) throw badRequest('break_too_small')
-  if (t.teams.length < t.breakSize) throw badRequest('not_enough_teams_for_break', { need: t.breakSize, have: t.teams.length })
-
-  const order = (await getStandings(tournamentId)).teams.map(r => r.team.id)
+  if (order.length < t.breakSize) throw badRequest('not_enough_teams_for_break', { need: t.breakSize, have: order.length })
   const open = order.slice(0, t.breakSize)
   // each category: its eligible teams in the order of the table, without those already in a bracket
   const eligible = new Map(t.teams.map(x => [x.id, new Set(x.categories)]))
-  const brackets: { category: BreakCategory | null; seeds: string[] }[] = [{ category: null, seeds: open }]
+  brackets.push({ category: null, seeds: open })
   const taken = new Set(open)
   for (const c of categoriesOf(t)) {
     const pool = order.filter(id => !taken.has(id) && eligible.get(id)?.has(c.key))
@@ -81,6 +106,7 @@ export async function announceBreak(tournamentId: string) {
     const seeds = pool.slice(0, c.size)
     seeds.forEach(id => taken.add(id))
     brackets.push({ category: c, seeds })
+  }
   }
 
   let next = Math.max(...t.rounds.map(r => r.number)) + 1
@@ -188,7 +214,7 @@ function championOf(rounds: ElimRound[]) {
 
 // the whole playoffs for the tournament page: the open bracket and one per category; draft rounds stay hidden from the public
 export async function getBracket(tournamentId: string, manager: boolean) {
-  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { format: true, breakSize: true, breakCategories: true } })
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { format: true, breakSize: true, breakCategories: true, leagues: true } })
   const bp = isBP(t.format)
   const [seeded, rounds] = await Promise.all([
     prisma.team.findMany({ where: { tournamentId, breakSeed: { not: null } }, include: teamInclude, orderBy: { breakSeed: 'asc' } }),
@@ -216,7 +242,8 @@ export async function getBracket(tournamentId: string, manager: boolean) {
   return {
     format: t.format, breakSize: t.breakSize, announced: rounds.length > 0,
     ...bracket(null),
-    categories: categoriesOf(t).map(c => ({ key: c.key, name: c.name, size: c.size, ...bracket(c.key) })),
+    categories: sideBracketsOf(t).map(c => ({ key: c.key, name: c.name, size: c.size, ...bracket(c.key) })),
+    ...(leagueBreaksOf(t).length && { byLeague: true }),
   }
 }
 
@@ -259,11 +286,11 @@ export async function finalPlaces(tournamentId: string): Promise<Map<string, num
 
 // places inside the category brackets: team -> { category name, place } (empty while the playoffs are not over)
 export async function categoryPlaces(tournamentId: string): Promise<Map<string, { category: string; place: number }>> {
-  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { breakCategories: true } })
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { breakCategories: true, leagues: true, breakSize: true } })
   const all = await prisma.round.findMany({ where: { tournamentId, kind: 'elimination' }, orderBy: { number: 'desc' }, include: { debates: true } })
   const out = new Map<string, { category: string; place: number }>()
   if (all.some(r => r.status !== 'completed')) return out
-  for (const c of categoriesOf(t)) {
+  for (const c of sideBracketsOf(t)) {
     for (const [id, place] of exitPlaces(all.filter(r => r.category === c.key))) out.set(id, { category: c.name, place })
   }
   return out

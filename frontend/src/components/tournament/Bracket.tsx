@@ -25,14 +25,14 @@ export function PlayoffTab({ id }: { id: string }) {
       {data.categories.filter(c => c.rounds.length).map(c => (
         <section key={c.key} aria-label={c.name}>
           <h2 className="mb-4 text-xl font-extrabold">{t('playoff.categoryBracket', { name: c.name })}</h2>
-          <BracketView data={c} format={data.format} category={c.name} />
+          <BracketView data={c} format={data.format} category={c.name} league={data.byLeague} />
         </section>
       ))}
     </div>
   )
 }
 
-function BracketView({ data, format, category }: { data: BracketPart; format: string; category?: string }) {
+function BracketView({ data, format, category, league }: { data: BracketPart; format: string; category?: string; league?: boolean }) {
   const { t } = useTranslation()
   const bp = isBP(format)
   const byId = new Map(data.seeds.map(s => [s.team.id, s]))
@@ -41,7 +41,7 @@ function BracketView({ data, format, category }: { data: BracketPart; format: st
     <div className="space-y-5">
       {data.champion && (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-accent to-orange-400 p-5 text-navy sm:p-6">
-          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider"><Crown className="size-4" />{category ? t('playoff.categoryChampion', { name: category }) : t('playoff.champion')}</p>
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider"><Crown className="size-4" />{category ? t(league ? 'playoff.leagueChampion' : 'playoff.categoryChampion', { name: category }) : t('playoff.champion')}</p>
           <div className="mt-2 flex items-center gap-3">
             <EntityLogo src={data.champion.logoUrl} name={data.champion.name} />
             <div>

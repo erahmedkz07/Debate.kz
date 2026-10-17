@@ -48,12 +48,21 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   // the break: the bracket decides who meets whom; no swing teams, no power pairing
   if (round.kind === 'elimination') {
     const { rooms, slots } = await eliminationRooms(roundId)
-    const [teams, judges] = await Promise.all([
-      prisma.team.findMany({ where: { id: { in: rooms.flat() } }, select: { id: true, institutionId: true } }),
+    const [teams, judges, elsewhere] = await Promise.all([
+      prisma.team.findMany({ where: { id: { in: rooms.flat() } }, select: { id: true, institutionId: true, league: true } }),
       prisma.judge.findMany({ where: { tournamentId: tId, leftAt: null }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
+      // judges of another bracket's playoff round that is still on (the leagues play at the same time): chosen last
+      prisma.debateJudge.findMany({ where: { debate: { round: { tournamentId: tId, kind: 'elimination', status: { not: 'completed' }, id: { not: roundId }, category: { not: round.category } } } }, select: { judgeId: true } }),
     ])
     if (judges.length < rooms.length) throw badRequest('not_enough_judges', { need: rooms.length, have: judges.length, teams: teams.length })
-    const judgeConflicts = await seatJudgesAndSave(round, rooms, await rankJudges(tId, judges), slots, await conflictChecker(tId), await seenBy(tId, roundId))
+    const leagues = leaguesOf(round.tournament)
+    const leagueOfTeam = leagues.length ? new Map(teams.map(x => [x.id, x.league] as const)) : null
+    const clash = withLeagues(await conflictChecker(tId), judges, rooms, leagueOfTeam, leagues)
+    const busy = new Set(elsewhere.map(x => x.judgeId))
+    const ranked = await rankJudges(tId, judges)
+    const ordered = [...ranked.filter(j => !busy.has(j.id)), ...ranked.filter(j => busy.has(j.id))]
+    const roomNames = roomsFor(rooms, round.tournament.rooms, (round.tournament.roomLeagues ?? {}) as Record<string, string>, leagueOfTeam)
+    const judgeConflicts = await seatJudgesAndSave(round, rooms, ordered, slots, clash, await seenBy(tId, roundId), roomNames)
     return { method: 'bracket' as const, protectClubs: false, sameClub: 0, rematches: 0, judgeConflicts }
   }
   // power pairing reads the table and the rematch rule reads earlier debates: the earlier preliminary rounds must be over

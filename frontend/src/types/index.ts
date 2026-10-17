@@ -32,7 +32,7 @@ export interface Tournament {
   languages: Lang[]
 }
 
-export interface League { key: string; name: string }
+export interface League { key: string; name: string; breakSize?: number } // breakSize: the league's own break (else the tournament's)
 
 export interface Speaker {
   id: string

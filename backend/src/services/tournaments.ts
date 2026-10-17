@@ -32,7 +32,7 @@ export const motionFor = (r: { motion: string; leagueMotions?: unknown }, league
 export const infoSlideFor = (r: { infoSlide: string | null; leagueMotions?: unknown }, league?: string | null) => (league && lm(r)[league]?.infoSlide) || r.infoSlide || undefined
 
 // the tournament's leagues ([] when it has none)
-export const leaguesOf = (t: { leagues: unknown }) => (Array.isArray(t.leagues) ? t.leagues : []) as { key: string; name: string }[]
+export const leaguesOf = (t: { leagues: unknown }) => (Array.isArray(t.leagues) ? t.leagues : []) as { key: string; name: string; breakSize?: number }[]
 
 export const teamInclude = {
   institution: true, speakers: { orderBy: { position: 'asc' } },

@@ -325,6 +325,7 @@ export interface BracketPart {
 export interface Bracket extends BracketPart {
   format: string; breakSize: number; announced: boolean
   categories: (BracketPart & { key: string; name: string; size: number })[]
+  byLeague?: true // the brackets are the leagues' (no open break)
 }
 export const getBracket = (id: string) => http<Bracket>('GET', `/tournaments/${encodeURIComponent(id)}/bracket`)
 export const announceBreak = (id: string) => http<Bracket>('POST', `/tournaments/${encodeURIComponent(id)}/break`)
