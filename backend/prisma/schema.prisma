@@ -368,6 +368,8 @@ model Judge {
   institutionId String?            @map("institution_id")
   rating        Int                @default(5) // 1..10
   userId        String?            @map("user_id")
+  league        String? // with leagues: the league this judge judges (null = any league)
+  accessKey     String?            @unique @map("access_key") // a judge without an account opens their debates and ballots by this link
   tournament    Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   institution   Institution?       @relation(fields: [institutionId], references: [id])
   user          User?              @relation(fields: [userId], references: [id], onDelete: SetNull)

@@ -234,8 +234,18 @@ export interface BallotData {
   closingOpposition?: Team
   judges: Judge[]
 }
-export const getBallot = (debateId: string, asJudgeId?: string) =>
-  or404(http<BallotData>('GET', `/ballots/${encodeURIComponent(debateId)}${asJudgeId ? `?as=${encodeURIComponent(asJudgeId)}` : ''}`))
+export const getBallot = (debateId: string, asJudgeId?: string, judgeKey?: string) =>
+  or404(http<BallotData>('GET', `/ballots/${encodeURIComponent(debateId)}${asJudgeId ? `?as=${encodeURIComponent(asJudgeId)}` : ''}`, undefined, judgeKey))
+
+// a judge without an account: their debates by their personal link
+export interface JudgeLinkData {
+  judge: { id: string; name: string }
+  tournament: { id: string; name: string; city: string; format: string }
+  assignments: { debateId: string; room: string; isChair: boolean; sent: boolean; round: { number: number; name: string; motion: string; status: string }; teams: string[] }[]
+}
+export const getJudgeLink = (key: string) => http<JudgeLinkData>('GET', '/judge-link', undefined, key)
+export const setJudgeLeague = (judgeId: string, league: string | null) => http<{ id: string; league: string | null }>('PATCH', `/judges/${judgeId}`, { league })
+export const newJudgeLink = (judgeId: string) => http<{ accessKey: string }>('POST', `/judges/${judgeId}/link`, {})
 
 export interface BallotPayload {
   winner?: Side // two-team formats
@@ -247,8 +257,8 @@ export interface BallotPayload {
   feedback?: Record<string, string> // speakerId or "reply:<side>" -> short comment to the speaker
   asJudgeId?: string // an organizer enters or corrects this judge's ballot
 }
-export const submitBallot = (debateId: string, payload: BallotPayload) =>
-  http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload)
+export const submitBallot = (debateId: string, payload: BallotPayload, judgeKey?: string) =>
+  http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload, judgeKey)
 
 // ---------- organizer ----------
 
@@ -283,7 +293,8 @@ export const adminDeleteTournament = (id: string, reason: string) => http<void>(
 export interface TeamInput { name: string; institution: string; speakers: string[]; league?: string }
 // many teams by name, with placeholder speakers ("Спикер 1"…): names already in the tournament are skipped
 // judges by name, without accounts: the owner enters their ballots for them
-export const addJudgesBulk = (tournamentId: string, names: string[]) => http<{ created: number; skipped: number }>('POST', `/tournaments/${tournamentId}/judges/bulk`, { names })
+export const addJudgesBulk = (tournamentId: string, names: string[], league?: string) =>
+  http<{ created: number; skipped: number }>('POST', `/tournaments/${tournamentId}/judges/bulk`, { names, ...(league && { league }) })
 export const addTeamsBulk = (tournamentId: string, data: { names: string[]; league?: string; institution?: string }) =>
   http<{ created: Team[]; skipped: number }>('POST', `/tournaments/${tournamentId}/teams/bulk`, data)
 export const addTeam = (tournamentId: string, data: TeamInput) => http<Team>('POST', `/tournaments/${tournamentId}/teams`, data)

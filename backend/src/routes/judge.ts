@@ -1,9 +1,9 @@
-import { Router } from 'express'
+import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
 import type { User } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
-import { badRequest, forbidden, notFound } from '../lib/errors.js'
+import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
 import { isOrganizerOf, organizerLink, teamInclude, toDebate, toTeam } from '../services/tournaments.js'
@@ -12,6 +12,46 @@ import { background, notify } from '../services/notify.js'
 
 export const judgeRouter = Router()
 
+
+// A judge without an account comes with their personal link's key (the X-Judge-Key header): they see their own
+// debates and send their own ballots, nothing else. The key wins over a session on the same device.
+type KeyJudge = { id: string; name: string; tournamentId: string }
+async function judgeByKey(req: Request): Promise<KeyJudge | null> {
+  const key = req.get('x-judge-key')
+  if (!key) return null
+  const judge = await prisma.judge.findUnique({ where: { accessKey: key }, select: { id: true, name: true, tournamentId: true } })
+  if (!judge) throw forbidden('judge_link_invalid')
+  return judge
+}
+// the ballot routes: the judge's link, or else a signed-in person
+const userOrJudgeKey = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.locals.keyJudge = await judgeByKey(req)
+    if (res.locals.keyJudge) return next()
+  } catch (e) { return next(e) }
+  return requireAuth()(req, res, next)
+}
+
+// a judge's personal page: their tournament and every released debate they sit in
+judgeRouter.get('/judge-link', async (req, res) => {
+  const judge = await judgeByKey(req)
+  if (!judge) throw unauthorized()
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: judge.tournamentId }, select: { id: true, name: true, city: true, format: true, leagues: true } })
+  const links = await prisma.debateJudge.findMany({
+    where: { judgeId: judge.id, debate: { round: { status: { not: 'draft' } } } },
+    include: { debate: { include: { round: true, proposition: { include: teamInclude }, opposition: { include: teamInclude }, closingProposition: { include: teamInclude }, closingOpposition: { include: teamInclude }, ballots: { where: { judgeId: judge.id }, select: { id: true } } } } },
+    orderBy: [{ debate: { round: { number: 'desc' } } }],
+  })
+  res.json({
+    judge: { id: judge.id, name: judge.name },
+    tournament: { id: t.id, name: t.name, city: t.city, format: t.format },
+    assignments: links.map(({ debate: d, isChair }) => ({
+      debateId: d.id, room: d.room, isChair, sent: d.ballots.length > 0,
+      round: { number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status },
+      teams: [d.proposition, d.opposition, d.closingProposition, d.closingOpposition].filter(Boolean).map(x => x!.name),
+    })),
+  })
+})
 
 // all debates where the signed-in user sits on the panel
 judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {
@@ -47,7 +87,7 @@ judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {
 // ("as" = that judge): a lost phone, a typo found after the round, a judge who left. Co-organizers only read. Such a
 // ballot is marked with the name of who entered it and the judge is told. British Parliamentary: the panel confers
 // and the chair sends the one agreed ballot; wings read it.
-async function loadBallotContext(debateId: string, user: User, asJudgeId?: string) {
+async function loadBallotContext(debateId: string, user: User | null, asJudgeId?: string, keyJudge?: KeyJudge | null) {
   const d = await prisma.debate.findUnique({
     where: { id: debateId },
     include: {
@@ -61,11 +101,13 @@ async function loadBallotContext(debateId: string, user: User, asJudgeId?: strin
     },
   })
   if (!d) throw notFound('debate_not_found')
-  const manager = await isOrganizerOf(user, d.round.tournamentId)
+  // a judge by their link: that judge only, never an organizer
+  if (keyJudge && !d.judges.some(j => j.judgeId === keyJudge.id)) throw forbidden('not_on_panel')
+  const manager = !keyJudge && await isOrganizerOf(user ?? undefined, d.round.tournamentId)
   // correcting a ballot is for the owner and site admins only (agreed by both admins)
-  const corrector = user.role === 'admin' || (await organizerLink(user, d.round.tournamentId))?.role === 'owner'
+  const corrector = !keyJudge && !!user && (user.role === 'admin' || (await organizerLink(user, d.round.tournamentId))?.role === 'owner')
   if (asJudgeId && !corrector) throw forbidden(manager ? 'owner_only' : 'organizers_only')
-  const mine = asJudgeId ? d.judges.find(j => j.judgeId === asJudgeId) : d.judges.find(j => j.judge.userId === user.id)
+  const mine = keyJudge ? d.judges.find(j => j.judgeId === keyJudge.id) : asJudgeId ? d.judges.find(j => j.judgeId === asJudgeId) : d.judges.find(j => j.judge.userId === user?.id)
   if (asJudgeId && !mine) throw notFound('judge_not_on_panel')
   const myJudge = mine?.judge
   if (!myJudge && !manager) throw forbidden('not_on_panel')
@@ -80,8 +122,9 @@ async function loadBallotContext(debateId: string, user: User, asJudgeId?: strin
 
 const asParam = (req: { query: Record<string, unknown> }) => (typeof req.query.as === 'string' && req.query.as ? req.query.as : undefined)
 
-judgeRouter.get('/ballots/:debateId', requireAuth(), async (req, res) => {
-  const { d, myJudge, rules, teams, sides, canSubmit, onBehalf, corrector } = await loadBallotContext(param(req, 'debateId'), req.user!, asParam(req))
+judgeRouter.get('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
+  const keyJudge = res.locals.keyJudge as KeyJudge | null
+  const { d, myJudge, rules, teams, sides, canSubmit, onBehalf, corrector } = await loadBallotContext(param(req, 'debateId'), keyJudge ? null : req.user!, keyJudge ? undefined : asParam(req), keyJudge)
   // organizers (and BP wings) read every judge's ballot as it was sent; a judge who sends one sees the form
   const speakerName = new Map(sides.flatMap(side => teams[side]!.speakers).map(s => [s.id, s.name]))
   const sideOrder = (x: SideCode) => BP_SIDES.indexOf(x)
@@ -145,9 +188,10 @@ const ballotSchema = z.object({
   asJudgeId: z.string().optional(), // the owner or an admin enters or corrects this judge's ballot
 })
 
-judgeRouter.post('/ballots/:debateId', requireAuth(), async (req, res) => {
+judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
   const data = body(req, ballotSchema)
-  const { d, myJudge, rules, teams, sides, canSubmit, onBehalf } = await loadBallotContext(param(req, 'debateId'), req.user!, data.asJudgeId)
+  const keyJudge = res.locals.keyJudge as KeyJudge | null
+  const { d, myJudge, rules, teams, sides, canSubmit, onBehalf } = await loadBallotContext(param(req, 'debateId'), keyJudge ? null : req.user!, keyJudge ? undefined : data.asJudgeId, keyJudge)
   // a judge sends their own ballot; the owner or an admin may send it for a judge of the panel (asJudgeId)
   if (!myJudge) throw forbidden('judges_only')
   // BP: the panel agrees and the chair sends the one ballot

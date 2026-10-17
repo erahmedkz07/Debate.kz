@@ -7,13 +7,14 @@ export class ApiError extends Error {
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
-export async function http<T>(method: string, path: string, body?: unknown): Promise<T> {
+// judgeKey: a judge without an account, by their personal link (sent as X-Judge-Key instead of a session)
+export async function http<T>(method: string, path: string, body?: unknown, judgeKey?: string): Promise<T> {
   let res: Response
   try {
     res = await fetch(BASE + path, {
       method,
       credentials: 'include',
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      headers: { ...(body !== undefined && { 'Content-Type': 'application/json' }), ...(judgeKey && { 'X-Judge-Key': judgeKey }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
@@ -23,7 +24,7 @@ export async function http<T>(method: string, path: string, body?: unknown): Pro
   const data = await res.json().catch(() => null)
   // the session ended elsewhere (logged out on another device, password changed, blocked): the app signs the person out
   // and sends them to the login page instead of showing a generic error (wrong passwords at /auth are not this case)
-  if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event(SESSION_EXPIRED))
+  if (res.status === 401 && !path.startsWith('/auth/') && !judgeKey) window.dispatchEvent(new Event(SESSION_EXPIRED))
   if (!res.ok) throw new ApiError(res.status, data?.error ?? 'unknown_error', data?.details)
   return data as T
 }

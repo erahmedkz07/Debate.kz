@@ -169,8 +169,10 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     })),
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
-      hasAccount: !!j.userId, // only judges with an account can send ballots
-      ...(j.userId && { userId: j.userId }),
+      hasAccount: !!j.userId, // a judge without an account judges by their personal link
+      ...(j.userId && { userId: j.userId }), ...(j.league && { league: j.league }),
+      // organizers: the personal link of a judge without an account
+      ...(manager && j.accessKey && { accessKey: j.accessKey }),
       // organizers: conflicts the draw respects (personal ones and the judge's club)
       ...(manager && { conflictTeamIds: j.conflicts.map(c => c.teamId), clubId: j.user?.clubMembership?.clubId ?? undefined, institutionId: j.institutionId ?? undefined }),
     })),
