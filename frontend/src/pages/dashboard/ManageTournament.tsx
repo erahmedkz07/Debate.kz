@@ -488,15 +488,20 @@ function RoundsBreakCard({ data, reload }: SectionProps) {
   const prelimsNow = data.rounds.filter(r => r.kind !== 'elimination').length
   const [prelims, setPrelims] = useState(prelimsNow)
   const [breakSize, setBreakSize] = useState(data.breakSize)
+  // with leagues: each league breaks on its own, with its own number of teams
+  const leagues = data.leagues ?? []
+  const savedSizes = () => Object.fromEntries(leagues.map(l => [l.key, l.breakSize ?? data.breakSize]))
+  const [sizes, setSizes] = useState<Record<string, number>>(savedSizes)
   const [bad, setBad] = useState<Record<string, boolean>>({})
-  useEffect(() => { setPrelims(prelimsNow); setBreakSize(data.breakSize) }, [prelimsNow, data.breakSize])
+  useEffect(() => { setPrelims(prelimsNow); setBreakSize(data.breakSize); setSizes(savedSizes()) }, [prelimsNow, data.breakSize, data.leagues]) // eslint-disable-line react-hooks/exhaustive-deps
   const locked = data.rounds.some(r => r.kind === 'elimination')
   const bp = isBP(data.format)
-  const dirty = prelims !== prelimsNow || breakSize !== data.breakSize
+  const dirty = prelims !== prelimsNow || breakSize !== data.breakSize || JSON.stringify(sizes) !== JSON.stringify(savedSizes())
   const byes = !bp && breakSize >= 2 ? 2 ** Math.ceil(Math.log2(breakSize)) - breakSize : 0
   const ok = (k: string) => (v: boolean) => setBad(b => (!!b[k] === !v ? b : { ...b, [k]: !v }))
   const save = async () => {
-    if (await run('rounds', () => updateTournament(data.id, { preliminaryRounds: prelims, breakSize }), t('common.saved'))) reload()
+    const withLeagues = leagues.length ? { leagues: leagues.map(l => ({ ...l, breakSize: sizes[l.key] })) } : {}
+    if (await run('rounds', () => updateTournament(data.id, { preliminaryRounds: prelims, breakSize, ...withLeagues }), t('common.saved'))) reload()
   }
   return (
     <Card className="space-y-4 p-6">
@@ -511,6 +516,16 @@ function RoundsBreakCard({ data, reload }: SectionProps) {
             <NumberChoice id="rb-prelims" value={prelims} onChange={setPrelims} onValidity={ok('prelims')} presets={[2, 3, 4, 5, 6, 7, 8]} min={1} max={12} />
           )}
         </div>
+        {leagues.length > 0 ? leagues.map(l => (
+          <div key={l.key}>
+            <Label htmlFor={`rb-break-${l.key}`}>{t('leagues.breakSize', { name: l.name })}</Label>
+            {locked ? <p className="text-sm font-semibold">{sizes[l.key]}</p> : bp ? (
+              <Select id={`rb-break-${l.key}`} value={String(sizes[l.key])} onValueChange={v => setSizes({ ...sizes, [l.key]: Number(v) })} options={BP_BREAKS.map(n => ({ value: String(n), label: String(n) }))} />
+            ) : (
+              <NumberChoice id={`rb-break-${l.key}`} value={sizes[l.key]} onChange={v => setSizes({ ...sizes, [l.key]: v })} onValidity={ok(`break-${l.key}`)} presets={[2, 4, 8, 16]} min={2} max={64} />
+            )}
+          </div>
+        )) : (
         <div>
           <Label htmlFor="rb-break">{t('wizard.breakSize')}</Label>
           {locked ? <p className="text-sm font-semibold">{data.breakSize}</p> : bp ? (
@@ -520,10 +535,12 @@ function RoundsBreakCard({ data, reload }: SectionProps) {
           )}
           {!locked && byes > 0 && <p className="mt-1 text-xs text-muted-foreground">{t('wizard.breakByes', { count: byes })}</p>}
         </div>
+        )}
       </div>
+      {leagues.length > 0 && <p className="text-xs text-muted-foreground">{t('leagues.breakHint')}</p>}
       {!locked && (
         <div className="flex justify-end gap-2">
-          {dirty && <Button variant="ghost" onClick={() => { setPrelims(prelimsNow); setBreakSize(data.breakSize) }}>{t('common.cancel')}</Button>}
+          {dirty && <Button variant="ghost" onClick={() => { setPrelims(prelimsNow); setBreakSize(data.breakSize); setSizes(savedSizes()) }}>{t('common.cancel')}</Button>}
           <Button disabled={!dirty || Object.values(bad).some(Boolean) || busy === 'rounds'} onClick={save}>{t('common.save')}</Button>
         </div>
       )}
@@ -939,7 +956,10 @@ function BreakCard({ data, reload }: SectionProps) {
   const elimination = data.rounds.filter(r => r.kind === 'elimination')
   const prelims = data.rounds.filter(r => r.kind !== 'elimination')
   const seeds = data.teams.filter(x => x.breakSeed && !x.breakCategory).sort((a, b) => a.breakSeed! - b.breakSeed!)
-  const categorySeeds = (data.breakCategories ?? []).map(c => ({ ...c, teams: data.teams.filter(x => x.breakCategory === c.key).sort((a, b) => a.breakSeed! - b.breakSeed!) }))
+  // with leagues every league has its own bracket (no open break); otherwise the break categories beside the open one
+  const leagues = data.leagues ?? []
+  const sideBrackets = leagues.length ? leagues.map(l => ({ key: l.key, name: l.name, size: l.breakSize ?? data.breakSize })) : (data.breakCategories ?? [])
+  const categorySeeds = sideBrackets.map(c => ({ ...c, teams: data.teams.filter(x => x.breakCategory === c.key).sort((a, b) => a.breakSeed! - b.breakSeed!) }))
   const blocker = data.status !== 'ongoing' ? t('dashboard.break.needOngoing')
     : !prelims.length || prelims.some(r => r.status !== 'completed') ? t('dashboard.break.needPrelims') : null
   const canCancel = elimination.length > 0 && elimination.every(r => r.status === 'draft')
@@ -951,7 +971,7 @@ function BreakCard({ data, reload }: SectionProps) {
         <div className="flex items-center gap-3">
           <span className="grid size-9 place-items-center rounded-lg bg-accent-soft text-navy dark:text-accent"><Trophy className="size-4" /></span>
           <div>
-            <p className="font-bold">{t('dashboard.break.title', { count: data.breakSize })}</p>
+            <p className="font-bold">{leagues.length ? t('leagues.breakTitle', { list: categorySeeds.map(c => `${c.name} — ${c.size}`).join(' · ') }) : t('dashboard.break.title', { count: data.breakSize })}</p>
             <p className="text-xs text-muted-foreground">{t(isBP(data.format) ? 'dashboard.break.hintBP' : 'dashboard.break.hint')}</p>
           </div>
         </div>
@@ -966,7 +986,7 @@ function BreakCard({ data, reload }: SectionProps) {
         )}
       </div>
       {elimination.length === 0 && blocker && <p className="mt-3 text-xs text-muted-foreground">{blocker}</p>}
-      {elimination.length === 0 && categorySeeds.length > 0 && (
+      {elimination.length === 0 && categorySeeds.length > 0 && !leagues.length && (
         <p className="mt-3 text-xs text-muted-foreground">{t('dashboard.categories.alsoBreak', { list: categorySeeds.map(c => `${c.name} (${c.size})`).join(', ') })}</p>
       )}
       {categorySeeds.filter(c => c.teams.length).map(c => (
