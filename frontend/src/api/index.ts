@@ -300,9 +300,13 @@ export const addTeamsBulk = (tournamentId: string, data: { names: string[]; leag
   http<{ created: Team[]; skipped: number }>('POST', `/tournaments/${tournamentId}/teams/bulk`, data)
 export const addTeam = (tournamentId: string, data: TeamInput) => http<Team>('POST', `/tournaments/${tournamentId}/teams`, data)
 export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH', `/teams/${teamId}`, data)
-export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${teamId}`)
+export const deleteTeam = (teamId: string) => http<{ withdrawn?: boolean } | undefined>('DELETE', `/teams/${teamId}`)
+export const returnTeam = (teamId: string) => http<void>('POST', `/teams/${teamId}/return`)
 
-export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
+export const deleteJudge = (judgeId: string) => http<{ left: boolean }>('DELETE', `/judges/${judgeId}`)
+export const returnJudge = (judgeId: string) => http<void>('POST', `/judges/${judgeId}/return`)
+// a technical loss: the side that did not come (null undoes it)
+export const setForfeit = (debateId: string, side: 'proposition' | 'opposition' | null) => http<{ ok: true }>('POST', `/debates/${debateId}/forfeit`, { side })
 export const setJudgeConflicts = (judgeId: string, teamIds: string[]) => http<{ judgeId: string; teamIds: string[] }>('PUT', `/judges/${judgeId}/conflicts`, { teamIds })
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; leagueMotions: Record<string, { motion: string; infoSlide?: string }>; status: 'released' | 'completed'; silent: boolean }>) =>

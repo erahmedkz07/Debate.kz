@@ -175,9 +175,11 @@ ok(rematches === 0, `no rematches (${rematches})`)
 const top = standAfter.teams.slice(0, 2).map(x => x.team.id)
 ok(draw.slice(0).some(d => top.includes(d.propositionTeamId) || top.includes(d.oppositionTeamId)), 'strongest teams are in the draw')
 
-// chair swap: judge already sitting in another room must be refused
+// chair swap: a judge already sitting in another room moves here, the two rooms swap chairs (then swap back)
 r = await org('PATCH', `/debates/${draw[0].id}`, { chairJudgeId: draw[1].judgeIds[0] })
-ok(r.status === 409 && r.data.error === 'judge_busy_in_round', 'judge cannot be put into two rooms')
+const swapped = (await org('GET', `/tournaments/${t4.id}`)).data.debates.find(d => d.id === draw[1].id)
+ok(r.status === 200 && r.data.judgeIds[0] === draw[1].judgeIds[0] && swapped.judgeIds[0] === draw[0].judgeIds[0], 'a judge busy in another room swaps rooms, never sits in two')
+await org('PATCH', `/debates/${draw[0].id}`, { chairJudgeId: draw[0].judgeIds[0] })
 r = await org('PATCH', `/debates/${draw[0].id}`, { swapSides: true, room: 'Актовый зал' })
 ok(r.status === 200 && r.data.propositionTeamId === draw[0].oppositionTeamId && r.data.room === 'Актовый зал', 'swap sides + change room')
 
@@ -364,11 +366,9 @@ ok(r.status === 403 && r.data.error === 'not_approved', 'an unmoderated tourname
 // ---------- 10. removing judges ----------
 r = await addJudge(fresh, pendingOwn.id, 'Лишний Судья')
 r = await fresh('DELETE', `/judges/${r.data.id}`)
-ok(r.status === 204, 'a judge who is not in any draw can be removed')
+ok(r.status === 200 && r.data.left === false, 'a judge who is not in any draw can be removed')
 const t4full = (await org('GET', `/tournaments/${t4id}`)).data
 const drawnJudge = t4full.judges.find(j => t4full.debates.some(d => d.judgeIds.includes(j.id)))
-r = await org('DELETE', `/judges/${drawnJudge.id}`)
-ok(r.status === 403 && r.data.error === 'judge_in_draw', 'a judge already in a draw cannot be removed')
 r = await sabina('DELETE', `/judges/${drawnJudge.id}`)
 ok(r.status === 403, 'outsiders cannot remove judges')
 
@@ -2611,6 +2611,96 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const pr = (await plain.c('GET', `/tournaments/${p.id}`)).data.rounds[0]
   await plain.c('POST', `/rounds/${pr.id}/draw`, { addSwing: false })
   ok((await plain.c('GET', `/tournaments/${p.id}`)).data.debates[0].room === 'Комната 1', 'without rooms of its own a room is "Комната 1", not a sample name')
+}
+
+// ---------- 69. live fixes: a judge who left, judges moved between rooms, a withdrawn team, a technical loss ----------
+{
+  const host = await newAccount('Живой Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(500), name: `Живой турнир ${jtag}`, maxTeams: 16, preliminaryRounds: 3, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Жив А', 'Жив Б', 'Жив В', 'Жив Г', 'Жив Д', 'Жив Е']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Жив Судья 1', 'Жив Судья 2', 'Жив Судья 3'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const get = async () => (await host.c('GET', `/tournaments/${t.id}`)).data
+  let d = await get()
+  const [r1, r2] = d.rounds
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  d = await get()
+  const [A, B, C] = d.debates.filter(x => x.roundId === r1.id)
+  const room = id => d.debates.find(x => x.id === id)
+  ok([A, B, C].every(x => x.judgeIds.length === 1), 'each room has its chair')
+  // the chair of room B is chosen for room A: the rooms swap chairs instead of an error
+  ok((await host.c('PATCH', `/debates/${A.id}`, { chairJudgeId: B.judgeIds[0] })).status === 200, 'a judge busy in another room can be chosen')
+  d = await get()
+  ok(room(A.id).judgeIds[0] === B.judgeIds[0] && room(B.id).judgeIds[0] === A.judgeIds[0], 'the two rooms swap their chairs')
+  // a new judge as a wing of A, then as a wing of C: moves out of A
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Жив Судья 4'] })
+  d = await get()
+  const w = d.judges.find(j => j.name === 'Жив Судья 4').id
+  await host.c('PATCH', `/debates/${A.id}`, { wingJudgeIds: [w] })
+  ok((await host.c('PATCH', `/debates/${C.id}`, { wingJudgeIds: [w] })).status === 200, 'a wing busy in another room can be chosen')
+  d = await get()
+  ok(!room(A.id).judgeIds.includes(w) && room(C.id).judgeIds.includes(w), 'the wing moves to the new room')
+  // the chair of C leaves without a ballot: deleted, the wing takes the chair
+  const cChair = room(C.id).judgeIds[0]
+  const gone = await host.c('DELETE', `/judges/${cChair}`)
+  ok(gone.status === 200 && gone.data.left === false, 'a judge with no ballots who left is deleted, even when in the draw')
+  d = await get()
+  ok(!d.judges.some(j => j.id === cChair) && room(C.id).judgeIds.length === 1 && room(C.id).judgeIds[0] === w, "the room's wing becomes its chair")
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: `ЭП введёт школьную форму ${jtag}`, status: 'released' })
+  // a technical loss in room A: the opposition did not come
+  const vote = (sheet, win) => {
+    const lo = win === 'proposition' ? 'opposition' : 'proposition'
+    const scores = {}
+    sheet[win].speakers.forEach(x => (scores[x.id] = 72)); sheet[lo].speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: win, scores, reply: { [win]: 36, [lo]: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  const stranger = await newAccount('Живой Чужой')
+  ok((await stranger.c('POST', `/debates/${A.id}/forfeit`, { side: 'opposition' })).status === 403, 'only organizers give a technical loss')
+  const ff = await host.c('POST', `/debates/${A.id}/forfeit`, { side: 'opposition' })
+  d = await get()
+  ok(ff.status === 200 && room(A.id).winner === 'proposition' && room(A.id).forfeit === 'opposition' && room(A.id).ballotStatus === 'confirmed', 'a technical loss: the other side wins')
+  const aJudge = room(A.id).judgeIds[0]
+  const aSheet = (await host.c('GET', `/ballots/${A.id}?as=${aJudge}`)).data
+  ok((await host.c('POST', `/ballots/${A.id}`, { ...vote(aSheet, 'opposition'), asJudgeId: aJudge })).data?.error === 'debate_forfeited', 'a forfeited room takes no ballot')
+  await host.c('POST', `/debates/${A.id}/forfeit`, { side: null })
+  d = await get()
+  ok(!room(A.id).forfeit && !room(A.id).winner && room(A.id).ballotStatus === 'pending', 'a technical loss can be undone')
+  await host.c('POST', `/debates/${A.id}/forfeit`, { side: 'opposition' })
+  // B and C send their ballots
+  for (const x of [B, C]) {
+    const j = room(x.id).judgeIds[0]
+    const sheet = (await host.c('GET', `/ballots/${x.id}?as=${j}`)).data
+    await host.c('POST', `/ballots/${x.id}`, { ...vote(sheet, 'proposition'), asJudgeId: j })
+  }
+  ok((await host.c('POST', `/debates/${B.id}/forfeit`, { side: 'opposition' })).data?.error === 'ballots_already_submitted', 'no technical loss over sent ballots')
+  // the judge of B leaves after their ballot: kept as left, the ballot stays
+  const bJudge = room(B.id).judgeIds[0]
+  const left = await host.c('DELETE', `/judges/${bJudge}`)
+  d = await get()
+  ok(left.data?.left === true && d.judges.find(j => j.id === bJudge)?.left === true && room(B.id).judgeIds.includes(bJudge), 'a judge with a sent ballot is marked as left, the ballot stays')
+  ok((await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })).status === 200, 'the round with a technical loss is completed')
+  const aProp = room(A.id).propositionTeamId, aOpp = room(A.id).oppositionTeamId
+  const table = (await host.c('GET', `/tournaments/${t.id}/standings`)).data.teams
+  ok(table.find(x => x.team.id === aProp)?.wins === 1 && table.find(x => x.team.id === aOpp)?.wins === 0, 'the technical win counts in the standings')
+  // teams that did not come back are withdrawn; the next draw leaves them out, and the judge who left
+  const wd = await host.c('DELETE', `/teams/${aOpp}`)
+  ok(wd.status === 200 && wd.data.withdrawn === true, 'a team already drawn is withdrawn, not refused')
+  const cOpp = room(C.id).oppositionTeamId
+  await host.c('DELETE', `/teams/${cOpp}`)
+  d = await get()
+  ok(d.teams.find(x => x.id === aOpp)?.withdrawn === true, 'the withdrawn team stays in the list, marked')
+  await host.c('POST', `/rounds/${r2.id}/draw`, { addSwing: false })
+  d = await get()
+  const next = d.debates.filter(x => x.roundId === r2.id)
+  const inNext = next.flatMap(x => [x.propositionTeamId, x.oppositionTeamId])
+  ok(next.length === 2 && !inNext.includes(aOpp) && !inNext.includes(cOpp), 'the next draw leaves the withdrawn teams out')
+  ok(!next.some(x => x.judgeIds.includes(bJudge)), 'the next draw leaves the judge who left out')
+  // both come back
+  await host.c('POST', `/judges/${bJudge}/return`)
+  await host.c('POST', `/teams/${aOpp}/return`)
+  d = await get()
+  ok(!d.judges.find(j => j.id === bJudge).left && !d.teams.find(x => x.id === aOpp).withdrawn, 'a judge and a team can come back')
 }
 
 await db.end()
