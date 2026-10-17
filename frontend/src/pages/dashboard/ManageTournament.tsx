@@ -1345,32 +1345,63 @@ function Ballots({ data }: SectionProps) {
   const roundName = useRoundName()
   const active = data.rounds.filter(r => r.status !== 'draft')
   const [roundId, setRoundId] = useState(active.at(-1)?.id ?? '')
-  const list = data.debates.filter(d => d.roundId === roundId)
+  // leagues: one league's rooms, or every league in its own block with its own count
+  const leagues = data.leagues ?? []
+  const [leagueTab, setLeagueTab] = useState('')
+  const leagueOf = (d: Debate) => data.teams.find(x => x.id === d.propositionTeamId)?.league
+  const all = data.debates.filter(d => d.roundId === roundId)
+  const list = all.filter(d => !leagueTab || leagueOf(d) === leagueTab)
   const done = list.filter(d => d.ballotStatus !== 'pending').length
   const variant = { pending: 'outline', submitted: 'accent', confirmed: 'success' } as const
   if (!active.length) return <><SectionTitle title={t('dashboard.nav.ballots')} /><EmptyState icon={<ClipboardList className="size-7" />} title={t('tournament.noDraw')} /></>
+  const cards = (rooms: Debate[]) => (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      {rooms.map(d => (
+        <Card key={d.id} className="flex items-center gap-4 p-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-muted-foreground">{d.room}</p>
+            <p className="truncate font-bold">{sidesOf(data.format).map(side => data.teams.find(x => x.id === teamIdOn(d, side))?.name).join(d.closingPropositionTeamId ? ' · ' : ' vs ')}</p>
+          </div>
+          <Badge variant={variant[d.ballotStatus]}>{t(`dashboard.ballots.${d.ballotStatus}`)}</Badge>
+          <Button asChild variant="ghost" size="icon" aria-label={t('dashboard.ballots.open')} title={t('dashboard.ballots.open')}>
+            <Link to={`/ballot/${d.id}`}><ExternalLink className="size-4" /></Link>
+          </Button>
+        </Card>
+      ))}
+    </div>
+  )
+  const sent = (rooms: Debate[]) => rooms.filter(d => d.ballotStatus !== 'pending').length
   return (
     <>
       <SectionTitle title={t('dashboard.nav.ballots')}
         action={<Select value={roundId} onValueChange={setRoundId} className="w-40" aria-label={t('dashboard.draw.round')} options={active.map(r => ({ value: r.id, label: roundName(r) }))} />} />
+      {leagues.length > 0 && <LeagueTabs className="mb-4 w-fit" leagues={leagues} value={leagueTab} onChange={setLeagueTab} all />}
       <Card className="mb-4 p-5">
         <div className="flex justify-between text-sm font-semibold"><span>{t('dashboard.ballots.progress', { done, total: list.length })}</span><span className="text-primary">{list.length ? Math.round((done / list.length) * 100) : 0}%</span></div>
         <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-gradient-to-r from-primary to-success transition-all" style={{ width: `${list.length ? (done / list.length) * 100 : 0}%` }} /></div>
+        {/* every league's own count, when all are shown */}
+        {leagues.length > 0 && !leagueTab && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {leagues.map(l => { const rooms = all.filter(d => leagueOf(d) === l.key); return `${l.name}: ${sent(rooms)}/${rooms.length}` }).join(' · ')}
+          </p>
+        )}
       </Card>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {list.map(d => (
-          <Card key={d.id} className="flex items-center gap-4 p-4">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-muted-foreground">{d.room}</p>
-              <p className="truncate font-bold">{sidesOf(data.format).map(side => data.teams.find(x => x.id === teamIdOn(d, side))?.name).join(d.closingPropositionTeamId ? ' · ' : ' vs ')}</p>
-            </div>
-            <Badge variant={variant[d.ballotStatus]}>{t(`dashboard.ballots.${d.ballotStatus}`)}</Badge>
-            <Button asChild variant="ghost" size="icon" aria-label={t('dashboard.ballots.open')} title={t('dashboard.ballots.open')}>
-              <Link to={`/ballot/${d.id}`}><ExternalLink className="size-4" /></Link>
-            </Button>
-          </Card>
-        ))}
-      </div>
+      {leagues.length > 0 && !leagueTab ? (
+        <div className="space-y-6">
+          {leagues.map(l => {
+            const rooms = all.filter(d => leagueOf(d) === l.key)
+            if (!rooms.length) return null
+            return (
+              <section key={l.key}>
+                <h3 className="mb-3 flex items-center justify-between gap-2 text-sm font-bold uppercase tracking-wider text-primary">
+                  <span>{l.name}</span><span className="text-xs font-semibold normal-case tracking-normal text-muted-foreground">{t('dashboard.ballots.progress', { done: sent(rooms), total: rooms.length })}</span>
+                </h3>
+                {cards(rooms)}
+              </section>
+            )
+          })}
+        </div>
+      ) : cards(list)}
     </>
   )
 }
