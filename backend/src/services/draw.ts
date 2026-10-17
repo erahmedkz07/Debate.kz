@@ -50,7 +50,7 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     const { rooms, slots } = await eliminationRooms(roundId)
     const [teams, judges] = await Promise.all([
       prisma.team.findMany({ where: { id: { in: rooms.flat() } }, select: { id: true, institutionId: true } }),
-      prisma.judge.findMany({ where: { tournamentId: tId }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
+      prisma.judge.findMany({ where: { tournamentId: tId, leftAt: null }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
     ])
     if (judges.length < rooms.length) throw badRequest('not_enough_judges', { need: rooms.length, have: judges.length, teams: teams.length })
     const judgeConflicts = await seatJudgesAndSave(round, rooms, await rankJudges(tId, judges), slots, await conflictChecker(tId), await seenBy(tId, roundId))
@@ -63,10 +63,10 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   if (isBP(round.tournament.format) && (opts.method === 'round_robin' || BRACKET_METHODS.includes(opts.method ?? 'power'))) throw badRequest('method_not_for_bp')
   const [allTeams, judges, previous] = await Promise.all([
     prisma.team.findMany({
-      where: { tournamentId: tId, swing: false, ...(opts.presentOnly && { checkedInAt: { not: null } }) },
+      where: { tournamentId: tId, swing: false, withdrawnAt: null, ...(opts.presentOnly && { checkedInAt: { not: null } }) },
       select: { id: true, institutionId: true, clubId: true, league: true, name: true },
     }),
-    prisma.judge.findMany({ where: { tournamentId: tId }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
+    prisma.judge.findMany({ where: { tournamentId: tId, leftAt: null }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
     prisma.debate.findMany({
       where: { round: { tournamentId: tId, number: { lt: round.number } } },
       select: { propositionTeamId: true, oppositionTeamId: true, closingPropositionTeamId: true, closingOppositionTeamId: true },

@@ -328,6 +328,7 @@ model Team {
   breakCategory        String?         @map("break_category") // the bracket the team broke into: null = the open break
   categories           String[]        @default([]) // break categories the team may break in (keys of tournaments.break_categories)
   league               String? // its league (a key of tournaments.leagues); every team has one when the tournament has leagues
+  withdrawnAt          DateTime?       @map("withdrawn_at") // the team left (did not come back): its results stay, no new rounds
   clubId               String?         @map("club_id") // the club the team came from (ratings, same-club draw rule)
   clubTeamId           String?         @map("club_team_id")
   createdAt            DateTime        @default(now()) @map("created_at")
@@ -371,6 +372,7 @@ model Judge {
   userId        String?            @map("user_id")
   league        String? // with leagues: the league this judge judges (null = any league)
   accessKey     String?            @unique @map("access_key") // a judge without an account opens their debates and ballots by this link
+  leftAt        DateTime?          @map("left_at") // the judge left the tournament: their sent ballots stay, no new rooms
   tournament    Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   institution   Institution?       @relation(fields: [institutionId], references: [id])
   user          User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -407,6 +409,7 @@ model Round {
 }
 
 model Debate {
+  forfeit       String? // the side that did not come: the other side wins without ballots (a technical loss)
   id                       String          @id @default(cuid())
   roundId                  String          @map("round_id")
   room                     String

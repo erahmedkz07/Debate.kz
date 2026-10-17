@@ -454,6 +454,35 @@ organizerRouter.patch('/teams/:teamId', org, async (req, res) => {
   res.json(toTeam(team))
 })
 
+// a withdrawn team comes back
+organizerRouter.post('/teams/:teamId/return', org, async (req, res) => {
+  const team = await prisma.team.findUnique({ where: { id: param(req, 'teamId') } })
+  if (!team) throw notFound('team_not_found')
+  await assertCanManage(req.user, team.tournamentId)
+  await prisma.team.update({ where: { id: team.id }, data: { withdrawnAt: null } })
+  res.status(204).end()
+})
+
+// ---- a technical loss: a team did not come, the other side wins without ballots ----
+organizerRouter.post('/debates/:debateId/forfeit', org, async (req, res) => {
+  const debate = await prisma.debate.findUnique({ where: { id: param(req, 'debateId') }, include: { round: { include: { tournament: { select: { format: true } } } } } })
+  if (!debate) throw notFound('debate_not_found')
+  await assertCanManage(req.user, debate.round.tournamentId)
+  if (debate.round.status === 'completed') throw forbidden('round_completed')
+  if (debate.round.status === 'draft') throw badRequest('round_not_released')
+  if (debate.closingPropositionTeamId) throw badRequest('forfeit_two_teams_only')
+  const { side } = body(req, z.object({ side: z.enum(['proposition', 'opposition']).nullable() }))
+  if (side === null) {
+    // undo: the debate waits for its ballots again
+    if (!debate.forfeit) return void res.json({ ok: true })
+    await prisma.debate.update({ where: { id: debate.id }, data: { forfeit: null, winner: null, ballotStatus: 'pending' } })
+    return void res.json({ ok: true })
+  }
+  if (await prisma.ballot.count({ where: { debateId: debate.id } })) throw forbidden('ballots_already_submitted')
+  await prisma.debate.update({ where: { id: debate.id }, data: { forfeit: side, winner: side === 'proposition' ? 'opposition' : 'proposition', ballotStatus: 'confirmed' } })
+  res.json({ ok: true })
+})
+
 // which break categories a team may break in (novices, juniors…): the whole list is replaced
 organizerRouter.put('/teams/:teamId/categories', org, async (req, res) => {
   const team = await prisma.team.findUnique({ where: { id: param(req, 'teamId') }, include: { tournament: { select: { breakCategories: true, rounds: { select: { kind: true } } } } } })
@@ -472,7 +501,11 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
   if (!team) throw notFound('team_not_found')
   await assertCanManage(req.user, team.tournamentId)
   const played = await prisma.debate.count({ where: { OR: [{ propositionTeamId: team.id }, { oppositionTeamId: team.id }, { closingPropositionTeamId: team.id }, { closingOppositionTeamId: team.id }] } })
-  if (played) throw forbidden('team_in_draw')
+  // a team already in a draw is withdrawn: its rounds and results stay, the next draws leave it out
+  if (played) {
+    await prisma.team.update({ where: { id: team.id }, data: { withdrawnAt: new Date(), checkedInAt: null } })
+    return void res.json({ withdrawn: true })
+  }
   await prisma.team.delete({ where: { id: team.id } })
   // the team's application no longer holds a place; the waitlist moves up
   await prisma.teamRegistration.updateMany({ where: { tournamentId: team.tournamentId, teamName: team.name, status: 'confirmed' }, data: { status: 'rejected' } })
@@ -539,14 +572,40 @@ organizerRouter.post('/judges/:judgeId/link', org, async (req, res) => {
   res.json({ accessKey })
 })
 
+// A judge who left: with no ballot sent the judge is deleted; with ballots sent the judge is marked as left, so the
+// results stay. Either way the judge leaves every room of a round that is not completed and has no ballot of theirs;
+// a chair's place goes to a wing of the room.
 organizerRouter.delete('/judges/:judgeId', org, async (req, res) => {
   const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
   if (!judge) throw notFound('judge_not_found')
   await assertCanManage(req.user, judge.tournamentId)
-  if (await prisma.debateJudge.count({ where: { judgeId: judge.id } })) throw forbidden('judge_in_draw')
-  await prisma.judge.delete({ where: { id: judge.id } })
+  const sent = await prisma.ballot.count({ where: { judgeId: judge.id } })
+  await prisma.$transaction(async tx => {
+    const seats = await tx.debateJudge.findMany({ where: { judgeId: judge.id, debate: { round: { status: { not: 'completed' } }, ballots: { none: { judgeId: judge.id } } } } })
+    for (const seat of seats) await leaveRoom(tx, seat.debateId, judge.id, seat.isChair)
+    if (sent) await tx.judge.update({ where: { id: judge.id }, data: { leftAt: new Date() } })
+    else await tx.judge.delete({ where: { id: judge.id } })
+  })
+  res.json({ left: sent > 0 })
+})
+
+// a judge who left comes back
+organizerRouter.post('/judges/:judgeId/return', org, async (req, res) => {
+  const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
+  if (!judge) throw notFound('judge_not_found')
+  await assertCanManage(req.user, judge.tournamentId)
+  await prisma.judge.update({ where: { id: judge.id }, data: { leftAt: null } })
   res.status(204).end()
 })
+
+// a judge leaves one room; if they chaired it, its first wing takes the chair
+async function leaveRoom(tx: Prisma.TransactionClient, debateId: string, judgeId: string, wasChair: boolean) {
+  await tx.debateJudge.delete({ where: { debateId_judgeId: { debateId, judgeId } } })
+  if (wasChair) {
+    const wing = await tx.debateJudge.findFirst({ where: { debateId }, orderBy: { judgeId: 'asc' } })
+    if (wing) await tx.debateJudge.update({ where: { debateId_judgeId: { debateId, judgeId: wing.judgeId } }, data: { isChair: true } })
+  }
+}
 
 // ---------- rounds & draw ----------
 
@@ -649,13 +708,24 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
     if (d.chairJudgeId) {
       const judge = await tx.judge.findUnique({ where: { id: d.chairJudgeId } })
       if (!judge || judge.tournamentId !== debate.round.tournamentId) throw badRequest('invalid_judge')
-      // a judge can sit in only one room per round
+      // a judge sits in one room per round: one already in another room moves here, and this room's chair takes their
+      // place there (the rooms swap judges), unless that judge has already sent a ballot there
       const busy = await tx.debateJudge.findFirst({ where: { judgeId: judge.id, debate: { roundId: debate.roundId, id: { not: debate.id } } } })
-      if (busy) throw conflict('judge_busy_in_round')
+      if (busy) {
+        if (await tx.ballot.count({ where: { debateId: busy.debateId, judgeId: judge.id } })) throw conflict('judge_busy_in_round')
+        await tx.debateJudge.delete({ where: { debateId_judgeId: { debateId: busy.debateId, judgeId: judge.id } } })
+        const oldChair = debate.judges.find(j => j.isChair)
+        if (oldChair && oldChair.judgeId !== judge.id && !await tx.debateJudge.findUnique({ where: { debateId_judgeId: { debateId: busy.debateId, judgeId: oldChair.judgeId } } })) {
+          await tx.debateJudge.create({ data: { debateId: busy.debateId, judgeId: oldChair.judgeId, isChair: busy.isChair } })
+        } else if (busy.isChair) {
+          const wing = await tx.debateJudge.findFirst({ where: { debateId: busy.debateId } })
+          if (wing) await tx.debateJudge.update({ where: { debateId_judgeId: { debateId: busy.debateId, judgeId: wing.judgeId } }, data: { isChair: true } })
+        }
+      }
       await tx.debateJudge.updateMany({ where: { debateId: debate.id }, data: { isChair: false } })
       await tx.debateJudge.deleteMany({ where: { debateId: debate.id, judgeId: judge.id } })
       const oldChair = debate.judges.find(j => j.isChair)
-      if (oldChair && oldChair.judgeId !== judge.id) await tx.debateJudge.delete({ where: { debateId_judgeId: { debateId: debate.id, judgeId: oldChair.judgeId } } })
+      if (oldChair && oldChair.judgeId !== judge.id) await tx.debateJudge.deleteMany({ where: { debateId: debate.id, judgeId: oldChair.judgeId } })
       await tx.debateJudge.create({ data: { debateId: debate.id, judgeId: judge.id, isChair: true } })
     }
     if (d.wingJudgeIds) {
@@ -665,8 +735,12 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
       if (chair && wings.includes(chair.judgeId)) throw badRequest('invalid_judge')
       const valid = await tx.judge.count({ where: { id: { in: wings }, tournamentId: debate.round.tournamentId } })
       if (valid !== wings.length) throw badRequest('invalid_judge')
-      const busy = await tx.debateJudge.findFirst({ where: { judgeId: { in: wings }, debate: { roundId: debate.roundId, id: { not: debate.id } } } })
-      if (busy) throw conflict('judge_busy_in_round')
+      // wings already in another room move here (unless they sent a ballot there)
+      const busy = await tx.debateJudge.findMany({ where: { judgeId: { in: wings }, debate: { roundId: debate.roundId, id: { not: debate.id } } } })
+      for (const b of busy) {
+        if (await tx.ballot.count({ where: { debateId: b.debateId, judgeId: b.judgeId } })) throw conflict('judge_busy_in_round')
+        await leaveRoom(tx, b.debateId, b.judgeId, b.isChair)
+      }
       await tx.debateJudge.deleteMany({ where: { debateId: debate.id, isChair: false } })
       if (wings.length) await tx.debateJudge.createMany({ data: wings.map(judgeId => ({ debateId: debate.id, judgeId, isChair: false })) })
     }

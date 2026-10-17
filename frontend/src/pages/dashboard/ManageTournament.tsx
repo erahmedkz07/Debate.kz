@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Copy, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, Link2, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, Users, X } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, returnJudge, returnTeam, setForfeit, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
 } from '@/api'
 import { leagueMotion, type Debate, type Judge, type League, type Round, type ScheduleItem, type Team, type TournamentDetails, type TournamentStatus } from '@/types'
@@ -335,8 +335,10 @@ function Teams({ data, reload }: SectionProps) {
     const ok = await run('save', () => (editing ? updateTeam(editing.id, input) : addTeam(data.id, input)), t('dashboard.teams.saved'))
     if (ok) { setOpen(false); reload() }
   }
+  // a team already in a draw is withdrawn (its results stay), else deleted
+  const played = (team: Team | null) => !!team && data.debates.some(d => sidesOf(data.format).some(side => teamIdOn(d, side) === team.id))
   const remove = async () => {
-    if (await run('delete', () => deleteTeam(toDelete!.id), t('dashboard.teams.deleted'))) { setToDelete(null); reload() }
+    if (await run('delete', () => deleteTeam(toDelete!.id), t(played(toDelete) ? 'dashboard.teams.withdrawnDone' : 'dashboard.teams.deleted'))) { setToDelete(null); reload() }
   }
 
   return (
@@ -366,12 +368,13 @@ function Teams({ data, reload }: SectionProps) {
             </thead>
             <tbody className="divide-y divide-border">
               {shown.map(team => (
-                <tr key={team.id} className="hover:bg-muted/40">
+                <tr key={team.id} className={cn('hover:bg-muted/40', team.withdrawn && 'opacity-60')}>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <EntityLogo src={team.logoUrl} name={team.name} size="sm" />
                       <div>
                         <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}{team.swing && <Badge variant="outline">{t('dashboard.checkin.swing')}</Badge>}
+                          {team.withdrawn && <Badge variant="danger">{t('dashboard.teams.withdrawn')}</Badge>}
                           {leagues.length > 0 && team.league && <Badge variant="muted">{leagueName(leagues, team.league)}</Badge>}</p>
                         <p className="text-xs text-muted-foreground">{team.institution}</p>
                         {!team.swing && (data.breakCategories ?? []).length > 0 && (
@@ -399,7 +402,7 @@ function Teams({ data, reload }: SectionProps) {
                   <td className="px-5 py-3.5 text-muted-foreground">{team.speakers.map(s => s.name).join(', ')}</td>
                   <td className="px-5 py-3.5">
                     <div className="flex justify-end gap-1">
-                      {!team.swing && data.status !== 'finished' && (
+                      {!team.swing && !team.withdrawn && data.status !== 'finished' && (
                         <Button variant="ghost" size="sm" aria-pressed={!!team.checkedIn} disabled={busy === `ci-${team.id}`}
                           className={cn(team.checkedIn ? 'text-success' : 'text-muted-foreground')} title={t('dashboard.checkin.toggle')}
                           onClick={async () => { if (await run(`ci-${team.id}`, () => setTeamCheckin(team.id, !team.checkedIn))) reload() }}>
@@ -408,7 +411,13 @@ function Teams({ data, reload }: SectionProps) {
                         </Button>
                       )}
                       <Button variant="ghost" size="icon" aria-label={t('common.edit')} onClick={() => { setEditing(team); setOpen(true) }}><Pencil className="size-4" /></Button>
-                      <Button variant="ghost" size="icon" aria-label={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(team)}><Trash2 className="size-4" /></Button>
+                      {team.withdrawn ? (
+                        <Button variant="ghost" size="sm" disabled={busy === `ret-${team.id}`} onClick={async () => { if (await run(`ret-${team.id}`, () => returnTeam(team.id), t('dashboard.teams.returned'))) reload() }}>
+                          <Undo2 className="size-4" />{t('dashboard.teams.return')}
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t(played(team) ? 'dashboard.teams.withdraw' : 'common.delete')} className="hover:text-danger" onClick={() => setToDelete(team)}><Trash2 className="size-4" /></Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -420,10 +429,11 @@ function Teams({ data, reload }: SectionProps) {
       <TeamDialog team={editing} open={open} onOpenChange={setOpen} onSave={save} saving={busy === 'save'} speakers={formatOfTournament(data.format).score.speakersPerTeam} city={data.city} leagues={leagues} league={league} />
       <BulkTeamsDialog data={data} open={bulk} onOpenChange={setBulk} league={league} onDone={reload} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
-        <DialogContent heading={t('dashboard.teams.confirmDelete', { name: toDelete?.name })}>
+        <DialogContent heading={t(played(toDelete) ? 'dashboard.teams.confirmWithdraw' : 'dashboard.teams.confirmDelete', { name: toDelete?.name })}
+          description={played(toDelete) ? t('dashboard.teams.withdrawHint') : undefined}>
           <div className="flex justify-end gap-2">
             <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
-            <Button variant="danger" disabled={busy === 'delete'} onClick={remove}><Trash2 className="size-4" />{t('common.delete')}</Button>
+            <Button variant="danger" disabled={busy === 'delete'} onClick={remove}><Trash2 className="size-4" />{t(played(toDelete) ? 'dashboard.teams.withdraw' : 'common.delete')}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -671,6 +681,7 @@ function Judges({ data, reload }: SectionProps) {
   const remove = async () => {
     if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
   }
+  const comeBack = async (j: Judge) => { if (await run(`ret-${j.id}`, () => returnJudge(j.id), t('dashboard.judges.returned'))) reload() }
   const sendLink = async () => {
     if (!linkFor || !email.trim()) return
     const ok = await run('link', () => inviteByEmail(data.id, email.trim(), 'judge', linkFor.id), t('dashboard.judges.linkSent', { email: email.trim() }))
@@ -709,12 +720,12 @@ function Judges({ data, reload }: SectionProps) {
       {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {shown.map(j => (
-          <Card key={j.id} className="space-y-3 p-4">
+          <Card key={j.id} className={cn('space-y-3 p-4', j.left && 'opacity-60')}>
             {/* the judge on one row, the small actions at its end; the link and the league under it (phones too) */}
             <div className="flex items-center gap-3">
               <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
               <div className="min-w-0 flex-1">
-                <p className="truncate font-bold">{j.name}</p>
+                <p className="flex items-center gap-1.5 font-bold"><span className="truncate">{j.name}</span>{j.left && <Badge variant="danger">{t('dashboard.judges.left')}</Badge>}</p>
                 {j.hasAccount === false
                   ? <p className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground"><Link2 className="size-3.5" />{t('dashboard.judges.byLinkShort')}</p>
                   : <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>}
@@ -727,9 +738,15 @@ function Judges({ data, reload }: SectionProps) {
               <Button variant="ghost" size="sm" className="shrink-0 px-2" onClick={() => setConflictsOf(j)} title={t('dashboard.conflicts.title', { name: j.name })} aria-label={t('dashboard.conflicts.title', { name: j.name })}>
                 <ShieldAlert className="size-4" />{j.conflictTeamIds?.length ? j.conflictTeamIds.length : ''}
               </Button>
-              <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="shrink-0 hover:text-danger" onClick={() => setToDelete(j)}>
-                <Trash2 className="size-4" />
-              </Button>
+              {j.left ? (
+                <Button variant="ghost" size="icon" aria-label={t('dashboard.judges.return')} title={t('dashboard.judges.return')} className="shrink-0" disabled={busy === `ret-${j.id}`} onClick={() => comeBack(j)}>
+                  <Undo2 className="size-4" />
+                </Button>
+              ) : (
+                <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="shrink-0 hover:text-danger" onClick={() => setToDelete(j)}>
+                  <Trash2 className="size-4" />
+                </Button>
+              )}
             </div>
             {(j.hasAccount === false || leagues.length > 0) && (
               <div className="flex flex-wrap gap-2">
@@ -1114,6 +1131,8 @@ function Draw({ data, reload }: SectionProps) {
   // leagues: each league's rooms together, in the order of the leagues
   const leagueOrder = (d: Debate) => (data.leagues ?? []).findIndex(l => l.key === team(d.propositionTeamId)?.league)
   const allRooms = data.debates.filter(d => d.roundId === round.id).sort((a, b) => leagueOrder(a) - leagueOrder(b))
+  // the room of this round a judge already sits in (other than d): choosing them moves them here
+  const roomOf = (d: Debate, judgeId: string) => allRooms.find(x => x.id !== d.id && x.judgeIds.includes(judgeId))?.room
   const current = allRooms.filter(d => !leagueTab || team(d.propositionTeamId)?.league === leagueTab)
   const leagues = data.leagues ?? []
   // a header row before each league's first room (when all leagues are shown)
@@ -1248,6 +1267,7 @@ function Draw({ data, reload }: SectionProps) {
                       <OnlineLink url={d.onlineUrl} className="mt-1 text-xs" label={t('online.link')} />
                     </td>
                     <td className="px-4 py-3 font-bold">{team(d.propositionTeamId)?.name}
+                      {d.forfeit && <span className="block text-xs font-semibold text-danger">{t('dashboard.forfeit.badge', { team: team(teamIdOn(d, d.forfeit)!)?.name })}</span>}
                       {(data.leagues ?? []).length > 0 && <span className="block text-xs font-normal text-muted-foreground">{leagueName(data.leagues, team(d.propositionTeamId)?.league)}</span>}</td>
                     <td className="px-2 py-3">
                       <Button variant="ghost" size="icon" disabled={!editable || d.ballotStatus !== 'pending'} title={t('dashboard.draw.swap')} aria-label={t('dashboard.draw.swap')}
@@ -1259,7 +1279,7 @@ function Draw({ data, reload }: SectionProps) {
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
                         onValueChange={v => patch(d, { chairJudgeId: v })}
-                        options={data.judges.map(j => ({ value: j.id, label: j.name, hint: j.institution || undefined }))} />
+                        options={data.judges.filter(j => !j.left || d.judgeIds.includes(j.id)).map(j => ({ value: j.id, label: j.name, hint: roomOf(d, j.id) ? t('dashboard.draw.nowIn', { room: roomOf(d, j.id) }) : j.institution || undefined }))} />
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                         {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
                         {d.judgeIds.some(id => { const j = judge(id); return j && sideList.some(side => conflictReason(j, team(teamIdOn(d, side) ?? ''))) }) && (
@@ -1299,7 +1319,8 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
   useEffect(() => { if (debate) setSel(debate.judgeIds.slice(1)) }, [debate])
   if (!debate) return null
   const chair = debate.judgeIds[0]
-  const elsewhere = new Set(data.debates.filter(x => x.roundId === debate.roundId && x.id !== debate.id).flatMap(x => x.judgeIds))
+  // a judge from another room of this round moves here
+  const elsewhere = new Map(data.debates.filter(x => x.roundId === debate.roundId && x.id !== debate.id).flatMap(x => x.judgeIds.map(id => [id, x.room] as const)))
   const toggle = (id: string) => setSel(s => (s.includes(id) ? s.filter(x => x !== id) : s.length < 4 ? [...s, id] : s))
   const team = (id: string) => data.teams.find(x => x.id === id)?.name
   return (
@@ -1307,12 +1328,12 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
       <DialogContent heading={t('dashboard.draw.wingsTitle')} description={`${debate.room} · ${sidesOf(data.format).map(side => team(teamIdOn(debate, side)!)).join(debate.closingPropositionTeamId ? ' · ' : ' vs ')}`}>
         <p className="text-sm text-muted-foreground">{t('dashboard.draw.wingsText')}</p>
         <ul className="mt-4 max-h-80 space-y-1.5 overflow-y-auto">
-          {data.judges.filter(j => j.id !== chair).map(j => {
-            const busyThere = elsewhere.has(j.id)
+          {data.judges.filter(j => j.id !== chair && (!j.left || debate.judgeIds.includes(j.id))).map(j => {
+            const busyThere = elsewhere.get(j.id)
             const on = sel.includes(j.id)
             return (
               <li key={j.id}>
-                <button type="button" disabled={busyThere} onClick={() => toggle(j.id)} aria-pressed={on}
+                <button type="button" onClick={() => toggle(j.id)} aria-pressed={on}
                   className={cn('flex w-full cursor-pointer items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                     on ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
                   <span className={cn('grid size-5 shrink-0 place-items-center rounded-md border-2', on ? 'border-primary bg-primary text-primary-foreground' : 'border-border')}>
@@ -1320,7 +1341,7 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{j.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{busyThere ? t('dashboard.draw.busyElsewhere') : j.institution || '—'}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{busyThere ? t('dashboard.draw.nowIn', { room: busyThere }) : j.institution || '—'}</span>
                   </span>
                 </button>
               </li>
@@ -1340,8 +1361,15 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
 }
 
 /* ---------- Ballots ---------- */
-function Ballots({ data }: SectionProps) {
+function Ballots({ data, reload }: SectionProps) {
   const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const [forfeitFor, setForfeitFor] = useState<Debate | null>(null)
+  const twoTeams = sidesOf(data.format).length === 2
+  const teamName = (id?: string) => data.teams.find(x => x.id === id)?.name
+  const forfeit = async (d: Debate, side: 'proposition' | 'opposition' | null) => {
+    if (await run(`ff-${d.id}`, () => setForfeit(d.id, side), t(side ? 'dashboard.forfeit.done' : 'dashboard.forfeit.undone'))) { setForfeitFor(null); reload() }
+  }
   const roundName = useRoundName()
   const active = data.rounds.filter(r => r.status !== 'draft')
   const [roundId, setRoundId] = useState(active.at(-1)?.id ?? '')
@@ -1351,6 +1379,7 @@ function Ballots({ data }: SectionProps) {
   const leagueOf = (d: Debate) => data.teams.find(x => x.id === d.propositionTeamId)?.league
   const all = data.debates.filter(d => d.roundId === roundId)
   const list = all.filter(d => !leagueTab || leagueOf(d) === leagueTab)
+  const roundOpen = data.rounds.find(r => r.id === roundId)?.status === 'released'
   const done = list.filter(d => d.ballotStatus !== 'pending').length
   const variant = { pending: 'outline', submitted: 'accent', confirmed: 'success' } as const
   if (!active.length) return <><SectionTitle title={t('dashboard.nav.ballots')} /><EmptyState icon={<ClipboardList className="size-7" />} title={t('tournament.noDraw')} /></>
@@ -1361,8 +1390,20 @@ function Ballots({ data }: SectionProps) {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-muted-foreground">{d.room}</p>
             <p className="truncate font-bold">{sidesOf(data.format).map(side => data.teams.find(x => x.id === teamIdOn(d, side))?.name).join(d.closingPropositionTeamId ? ' · ' : ' vs ')}</p>
+            {d.forfeit && <p className="text-xs font-semibold text-danger">{t('dashboard.forfeit.badge', { team: teamName(teamIdOn(d, d.forfeit)) })}</p>}
           </div>
-          <Badge variant={variant[d.ballotStatus]}>{t(`dashboard.ballots.${d.ballotStatus}`)}</Badge>
+          {d.forfeit
+            ? <Badge variant="danger">{t('dashboard.forfeit.short')}</Badge>
+            : <Badge variant={variant[d.ballotStatus]}>{t(`dashboard.ballots.${d.ballotStatus}`)}</Badge>}
+          {twoTeams && roundOpen && (d.forfeit ? (
+            <Button variant="ghost" size="icon" aria-label={t('dashboard.forfeit.undo')} title={t('dashboard.forfeit.undo')} disabled={busy === `ff-${d.id}`} onClick={() => forfeit(d, null)}>
+              <Undo2 className="size-4" />
+            </Button>
+          ) : d.ballotStatus === 'pending' && (
+            <Button variant="ghost" size="icon" aria-label={t('dashboard.forfeit.title')} title={t('dashboard.forfeit.title')} className="hover:text-danger" onClick={() => setForfeitFor(d)}>
+              <Flag className="size-4" />
+            </Button>
+          ))}
           <Button asChild variant="ghost" size="icon" aria-label={t('dashboard.ballots.open')} title={t('dashboard.ballots.open')}>
             <Link to={`/ballot/${d.id}`}><ExternalLink className="size-4" /></Link>
           </Button>
@@ -1402,6 +1443,21 @@ function Ballots({ data }: SectionProps) {
           })}
         </div>
       ) : cards(list)}
+      <Dialog open={!!forfeitFor} onOpenChange={o => !o && setForfeitFor(null)}>
+        <DialogContent heading={t('dashboard.forfeit.title')} description={t('dashboard.forfeit.text')}>
+          {forfeitFor && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {(['proposition', 'opposition'] as const).map(side => (
+                <Button key={side} variant="outline" className="h-auto flex-col py-3" disabled={busy === `ff-${forfeitFor.id}`} onClick={() => forfeit(forfeitFor, side)}>
+                  <span className="font-bold">{teamName(teamIdOn(forfeitFor, side))}</span>
+                  <span className="text-xs font-normal text-muted-foreground">{t('dashboard.forfeit.notCame')}</span>
+                </Button>
+              ))}
+            </div>
+          )}
+          <div className="mt-4 flex justify-end"><DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose></div>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

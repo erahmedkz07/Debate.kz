@@ -197,6 +197,7 @@ judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
   // BP: the panel agrees and the chair sends the one ballot
   if (!canSubmit) throw forbidden('chair_only')
   if (d.round.status === 'draft') throw badRequest('round_not_released')
+  if (d.forfeit) throw forbidden('debate_forfeited')
   if (onBehalf) {
     // an organizer corrects ballots until the tournament is over; in the playoffs, until the next stage is drawn
     if (d.round.tournament.status === 'finished') throw forbidden('tournament_finished')

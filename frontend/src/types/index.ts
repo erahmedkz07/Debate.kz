@@ -57,6 +57,7 @@ export interface Team {
   breakCategory?: string // the category bracket it broke into (none = the open break)
   categories?: string[] // break categories the team may break in
   league?: string // its league (a key of the tournament's leagues)
+  withdrawn?: boolean // the team left the tournament: its results stay, the next draws leave it out
   institutionId?: string // organizers only (judge conflicts)
 }
 
@@ -70,6 +71,7 @@ export interface Judge {
   hasAccount?: boolean // a judge without an account judges by their personal link
   userId?: string // links to the judge's public page
   league?: string // with leagues: the league this judge judges (none = any)
+  left?: boolean // the judge left the tournament: their sent ballots stay, no new rooms
   accessKey?: string // organizers only: the personal link of a judge without an account
   // organizers only: what the draw keeps this judge away from
   conflictTeamIds?: string[] // personal conflicts (relative, former coach…)
@@ -114,6 +116,7 @@ export interface Debate {
   judgeIds: string[]
   winner?: Side
   ballotStatus: 'pending' | 'submitted' | 'confirmed'
+  forfeit?: Side // a technical loss: this side did not come
 }
 
 export interface TeamStanding {

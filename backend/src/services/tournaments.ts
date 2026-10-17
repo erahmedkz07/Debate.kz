@@ -44,7 +44,7 @@ export const toTeam = (t: TeamRow) => ({
   id: t.id, tournamentId: t.tournamentId, name: t.name, institution: t.institution?.name ?? '', city: t.city ?? '',
   // userId: a link to the person's public page (an account that did not hide its profile)
   speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id, ...(s.userId && { userId: s.userId }) })),
-  checkedIn: !!t.checkedInAt, swing: t.swing, ...(t.league && { league: t.league }),
+  checkedIn: !!t.checkedInAt, swing: t.swing, ...(t.league && { league: t.league }), ...(t.withdrawnAt && { withdrawn: true }),
   club: t.club ? { id: t.club.id, name: t.club.name, logoUrl: t.club.logoUrl ?? undefined } : undefined, // where the team comes from
   clubTeam: t.clubTeam ? { id: t.clubTeam.id, name: t.clubTeam.name } : undefined,
   // the picture shown next to the team: its own club-team logo, else its club's
@@ -62,6 +62,7 @@ export const toDebate = (d: DebateRow, withLink = false) => ({
   ...(d.ranking.length && { ranking: d.ranking }),
   ...(d.bracketSlot !== null && { bracketSlot: d.bracketSlot }),
   judgeIds: d.judges.map(j => j.judgeId), winner: d.winner ?? undefined, ballotStatus: d.ballotStatus,
+  ...(d.forfeit && { forfeit: d.forfeit }),
   ...(withLink && d.onlineUrl && { onlineUrl: d.onlineUrl }),
 })
 
@@ -177,7 +178,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
       hasAccount: !!j.userId, // a judge without an account judges by their personal link
-      ...(j.userId && { userId: j.userId }), ...(j.league && { league: j.league }),
+      ...(j.userId && { userId: j.userId }), ...(j.league && { league: j.league }), ...(j.leftAt && { left: true }),
       // organizers: the personal link of a judge without an account
       ...(manager && j.accessKey && { accessKey: j.accessKey }),
       // organizers: conflicts the draw respects (personal ones and the judge's club)
