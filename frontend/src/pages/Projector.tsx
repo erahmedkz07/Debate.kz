@@ -12,6 +12,7 @@ import { useRoundName } from '@/lib/rounds'
 import { Logo } from '@/components/brand'
 import { Select } from '@/components/ui/select'
 import { quoted } from '@/lib/motion'
+import { leagueMotion } from '@/types'
 
 // Projector mode for the venue screen: the motion appears for everyone at the same moment,
 // then the preparation countdown runs; the draw can be shown in large type.
@@ -86,7 +87,9 @@ export default function Projector() {
   if (error) return <div className="grid min-h-dvh place-items-center bg-navy text-white">{t('projector.notFound')}</div>
   if (!data || !round) return <div className="min-h-dvh bg-navy" />
   // the motion of a draft round is visible only to organizers
-  const motionKnown = !!round.motion && (round.status !== 'draft' || manager)
+  // with leagues each league shows its own motion (a Kazakh and a Russian one), one under the other
+  const byLeague = (data.leagues ?? []).map(l => ({ name: l.name, ...leagueMotion(round, l.key) })).filter(x => x.motion)
+  const motionKnown = (!!round.motion || byLeague.length > 0) && (round.status !== 'draft' || manager)
 
   return (
     <div className="flex min-h-dvh flex-col bg-navy text-white">
@@ -116,7 +119,17 @@ export default function Projector() {
         )}
         {view === 'motion' && (
           <div className="max-w-6xl text-center">
-            {motionKnown ? (
+            {motionKnown && byLeague.length > 1 ? (
+              <div className="space-y-10 text-left">
+                {byLeague.map(x => (
+                  <div key={x.name}>
+                    <p className="text-sm font-bold uppercase tracking-[0.3em] text-accent">{x.name} · {t('projector.motion')}</p>
+                    <p className="mt-3 text-3xl font-extrabold leading-tight sm:text-4xl lg:text-5xl">{quoted(x.motion)}</p>
+                    {x.infoSlide && <p className="mt-4 whitespace-pre-line rounded-2xl bg-white/10 p-4 text-base leading-relaxed sm:text-lg">{x.infoSlide}</p>}
+                  </div>
+                ))}
+              </div>
+            ) : motionKnown ? (
               <>
                 {/* the motion comes first and always fits the screen: the longer it is, the smaller the type;
                     the info slide follows below in reading size */}

@@ -78,6 +78,7 @@ export interface Judge {
 }
 
 export interface Round {
+  leagueMotions?: Record<string, { motion?: string; infoSlide?: string }> // with leagues: each league's own motion
   id: string
   tournamentId: string
   number: number
@@ -150,6 +151,7 @@ export interface TournamentDetails extends Tournament {
   registrationDeadline?: string
   rooms?: string[]
   roomLinks?: Record<string, string> // room name -> video call link
+  roomLeagues?: Record<string, string> // with leagues: room name -> the league it is for
   awards?: { kind: 'best_speaker' | 'best_judge'; name: string }[] // best speaker / best judge (public after the finish)
   selectionMode?: 'manual' | 'first_come' | 'lottery' // how the places are filled
   clubQuota?: number // at most this many teams per club
@@ -476,3 +478,7 @@ export interface ClubJoinRequest {
   createdAt: string
   user: { id: string; name: string; avatarUrl?: string; institution?: string; city?: string }
 }
+
+// the motion and info slide a league plays (its own, else the round's)
+export const leagueMotion = (r: Pick<Round, 'motion' | 'infoSlide' | 'leagueMotions'>, league?: string) =>
+  ({ motion: (league && r.leagueMotions?.[league]?.motion) || r.motion, infoSlide: (league && r.leagueMotions?.[league]?.infoSlide) || r.infoSlide })

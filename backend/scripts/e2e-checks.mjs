@@ -2405,7 +2405,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const rel = await host.c('PATCH', `/rounds/${mr.id}`, { status: 'released' })
   ok(rel.status === 200, 'the bank round is released')
   // the bank is paged: look for this run's motion by its tag together with the filter
-  const find = async q => (await client()('GET', `/motions?${q}${q.includes('search=') ? '' : `&search=${jtag}`}`)).data.items.some(m => m.motion.includes(jtag))
+  const find = async q => (await client()('GET', `/motions?${q}${q.includes('search=') ? '' : `&search=${encodeURIComponent(`базары ${jtag}`)}`}`)).data.items.some(m => m.motion.includes(jtag))
   ok(await find('level=school') && await find('level=university'), 'a mixed tournament motion is listed for both levels')
   ok(await find(`search=${encodeURIComponent(`«ЕЛОЧНЫЕ БАЗАРЫ ${jtag}»`)}`), 'motion search ignores case, quotes and ё')
   ok(!(await find(`search=${encodeURIComponent(`елочные лыжи ${jtag}`)}`)), 'motion search needs every word')
@@ -2551,6 +2551,66 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(fresh.status === 200 && fresh.data.accessKey !== kzJudge.accessKey, 'the organizer makes a new link')
   ok((await jk('GET', '/judge-link')).data?.error === 'judge_link_invalid', 'the old link stops working')
   ok((await keyed('nonsense')('GET', `/ballots/${kzRoom.id}`)).status === 403, 'a made-up key opens nothing')
+}
+
+// ---------- 67. each league its own motion ----------
+{
+  const host = await newAccount('Темы Лиг Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(480), name: `Темы лиг ${jtag}`, maxTeams: 16, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'ru', name: 'Русская лига' }, { key: 'kz', name: 'Қазақ лигасы' }] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'ru', names: ['ТР1', 'ТР2'] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'kz', names: ['ТҚ1', 'ТҚ2'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Тема Судья Бір', 'Тема Судья Екі'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const r1 = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  ok((await host.c('PATCH', `/rounds/${r1.id}`, { leagueMotions: { ru: { motion: `ЭП запретит ИИ ${jtag}` } }, status: 'released' })).data?.error === 'need_motion_and_draw', 'a round waits for every league motion')
+  const r = await host.c('PATCH', `/rounds/${r1.id}`, { leagueMotions: { ru: { motion: `ЭП запретит ИИ ${jtag}` }, kz: { motion: `БП жасанды интеллектіге тыйым салады ${jtag}`, infoSlide: 'Ақпарат' } }, status: 'released' })
+  ok(r.status === 200, 'with both league motions the round is released')
+  const d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const kzRoom = d.debates.find(x => d.teams.find(tm => tm.id === x.propositionTeamId).league === 'kz')
+  const key = d.judges.find(j => j.id === kzRoom.judgeIds[0]).accessKey
+  const sheet = await fetch(`${A}/ballots/${kzRoom.id}`, { headers: { 'X-Judge-Key': key } }).then(x => x.json())
+  ok(sheet.round.motion.startsWith('БП жасанды'), "the judge's ballot shows the motion of their league")
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.rounds[0].leagueMotions?.kz?.infoSlide === 'Ақпарат', 'the public page gets every league motion')
+  // the bank is paged: look for each league's motion by its own words
+  const find = async q => (await client()('GET', `/motions?search=${encodeURIComponent(q)}`)).data.items.filter(m => m.tournament.id === t.id)
+  const ru = await find(`запретит ${jtag}`), kz = await find(`интеллектіге ${jtag}`)
+  ok(ru.length === 1 && ru[0].language === 'ru' && kz.length === 1 && kz[0].language === 'kz', 'the motion bank lists each league motion')
+}
+
+// ---------- 68. rooms by league; no sample rooms ----------
+{
+  const host = await newAccount('Кабинеты Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(490), name: `Кабинеты ${jtag}`, maxTeams: 16, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'ru', name: 'Русская лига' }, { key: 'kz', name: 'Қазақ лигасы' }] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'ru', names: ['КР1', 'КР2', 'КР3', 'КР4'] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'kz', names: ['КҚ1', 'КҚ2', 'КҚ3', 'КҚ4'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Каб Судья 1', 'Каб Судья 2', 'Каб Судья 3', 'Каб Судья 4'] })
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { rooms: ['Каб. 201'], roomLeagues: { 'Каб. 201': 'xx' } })).data?.error === 'invalid_league', 'a room needs a real league')
+  const rooms = ['Каб. 301', 'Каб. 201', 'Каб. 302', 'Каб. 202']
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { rooms, roomLeagues: { 'Каб. 201': 'kz', 'Каб. 202': 'kz', 'Каб. 301': 'ru', 'Каб. 302': 'ru', 'Нет такого': 'ru' } })).status === 200, 'rooms are given a league')
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  ok(Object.keys(d.roomLeagues).length === 4 && !d.roomLeagues['Нет такого'], 'only rooms of the tournament keep a league')
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const r1 = d.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const league = id => d.teams.find(x => x.id === id).league
+  const ds = d.debates.filter(x => x.roundId === r1.id)
+  ok(ds.every(x => d.roomLeagues[x.room] === league(x.propositionTeamId)), "every room takes a room of its league")
+  // no rooms of its own: numbered, no sample names
+  const plain = await newAccount('Без Кабинетов')
+  const p = (await plain.c('POST', '/tournaments', { ...tBody(491), name: `Без кабинетов ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${p.id}`, { moderation: 'approved' })
+  await plain.c('POST', `/tournaments/${p.id}/teams/bulk`, { names: ['БК1', 'БК2'] })
+  await plain.c('POST', `/tournaments/${p.id}/judges/bulk`, { names: ['Бк Судья'] })
+  await plain.c('PATCH', `/tournaments/${p.id}`, { status: 'ongoing' })
+  const pr = (await plain.c('GET', `/tournaments/${p.id}`)).data.rounds[0]
+  await plain.c('POST', `/rounds/${pr.id}/draw`, { addSwing: false })
+  ok((await plain.c('GET', `/tournaments/${p.id}`)).data.debates[0].room === 'Комната 1', 'without rooms of its own a room is "Комната 1", not a sample name')
 }
 
 await db.end()

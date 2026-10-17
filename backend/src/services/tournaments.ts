@@ -25,6 +25,12 @@ export const toSummary = (t: SummaryRow) => ({
   leagues: leaguesOf(t),
 })
 
+// with leagues each league may have its own motion and info slide (a Kazakh and a Russian one); else the round's
+type LeagueMotions = Record<string, { motion?: string; infoSlide?: string }>
+const lm = (r: { leagueMotions?: unknown }) => (r.leagueMotions && typeof r.leagueMotions === 'object' ? r.leagueMotions : {}) as LeagueMotions
+export const motionFor = (r: { motion: string; leagueMotions?: unknown }, league?: string | null) => (league && lm(r)[league]?.motion) || r.motion
+export const infoSlideFor = (r: { infoSlide: string | null; leagueMotions?: unknown }, league?: string | null) => (league && lm(r)[league]?.infoSlide) || r.infoSlide || undefined
+
 // the tournament's leagues ([] when it has none)
 export const leaguesOf = (t: { leagues: unknown }) => (Array.isArray(t.leagues) ? t.leagues : []) as { key: string; name: string }[]
 
@@ -130,6 +136,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     id: r.id, tournamentId: r.tournamentId, number: r.number, name: r.name,
     motion: r.status === 'draft' && !manager ? '' : r.motion,
     infoSlide: r.status === 'draft' && !manager ? undefined : r.infoSlide ?? undefined,
+    ...((r.status !== 'draft' || manager) && Object.keys(lm(r)).length && { leagueMotions: lm(r) }),
     status: r.status, date: toDay(r.date), ...(r.silent && { silent: true }),
     ...(r.kind === 'elimination' && {
       kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)),
@@ -151,7 +158,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       visible: t.visible, plan: t.plan, paid: t.paid, moderation: t.moderation, moderationNote: t.moderationNote ?? undefined,
       registrationOpen: t.registrationOpen,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
-      rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, pendingRegistrations: t.registrations.length,
+      rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, roomLeagues: (t.roomLeagues ?? {}) as Record<string, string>, pendingRegistrations: t.registrations.length,
       selectionMode: t.selectionMode, clubQuota: t.clubQuota ?? undefined,
       ...(t.drawOptions && { drawOptions: t.drawOptions as Record<string, unknown> }),
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),

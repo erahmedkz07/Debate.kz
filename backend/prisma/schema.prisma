@@ -222,6 +222,7 @@ model Tournament {
   preliminaryRounds    Int              @map("preliminary_rounds")
   breakSize            Int              @map("break_size")
   breakCategories      Json             @default("[]") @map("break_categories") // [{ key, name, size }]: extra brackets (novices, juniors…)
+  roomLeagues          Json             @default("{}") @map("room_leagues") // with leagues: { [room]: league } — which league's rooms a room takes
   leagues              Json             @default("[]") // [{ key, name }]: leagues inside one tournament (a Russian and a Kazakh league): each pairs, ranks and breaks on its own
   languages            String[]
   plan                 Plan             @default(free)
@@ -385,6 +386,7 @@ model Judge {
 }
 
 model Round {
+  leagueMotions Json @default("{}") @map("league_motions") // with leagues: { [league]: { motion, infoSlide } }, each league its own motion (Kazakh, Russian)
   id           String      @id @default(cuid())
   tournamentId String      @map("tournament_id")
   number       Int

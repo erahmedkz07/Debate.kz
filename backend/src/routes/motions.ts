@@ -22,16 +22,22 @@ const schema = z.object({
 motionsRouter.get('/motions', async (req, res) => {
   const q = query(req, schema)
   const rounds = await prisma.round.findMany({
-    where: { status: { not: 'draft' }, motion: { not: '' }, tournament: publicWhere },
+    where: { status: { not: 'draft' }, tournament: publicWhere },
     include: { tournament: { select: { id: true, name: true, level: true, city: true, startDate: true } } },
     orderBy: [{ date: 'desc' }, { number: 'asc' }],
     take: 5000,
   })
-  const all = rounds.map(r => ({
-    id: r.id, motion: r.motion, infoSlide: r.infoSlide ?? undefined, round: r.name, date: toDay(r.date),
-    topics: topicsOf(r.motion), language: languageOf(r.motion),
-    tournament: { id: r.tournament.id, name: r.tournament.name, level: r.tournament.level, city: r.tournament.city },
-  }))
+  // a round with leagues gives one entry per league motion (a Kazakh and a Russian one), besides its own motion
+  const all = rounds.flatMap(r => {
+    const own = r.motion ? [{ key: '', motion: r.motion, infoSlide: r.infoSlide ?? undefined }] : []
+    const leagues = Object.entries((r.leagueMotions ?? {}) as Record<string, { motion?: string; infoSlide?: string }>)
+      .filter(([, x]) => x.motion && x.motion !== r.motion).map(([key, x]) => ({ key, motion: x.motion!, infoSlide: x.infoSlide }))
+    return [...own, ...leagues].map(x => ({
+      id: x.key ? `${r.id}:${x.key}` : r.id, motion: x.motion, infoSlide: x.infoSlide, round: r.name, date: toDay(r.date),
+      topics: topicsOf(x.motion), language: languageOf(x.motion),
+      tournament: { id: r.tournament.id, name: r.tournament.name, level: r.tournament.level, city: r.tournament.city },
+    }))
+  })
   // search ignores case, ё/е, quotes and punctuation: "эта палата", «Эта палата…» and "ЭТА ПАЛАТА" find the same motions
   const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   const words = q.search ? norm(q.search).split(' ').filter(Boolean) : []

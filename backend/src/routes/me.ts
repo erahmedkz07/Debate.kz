@@ -13,7 +13,7 @@ import { clearSession, requireAuth, requireVerified, sessionUser, setSession } f
 import { removeOld } from './avatar.js'
 import { assertSpeakers } from './organizer.js'
 import { background, notifyNewRegistration } from '../services/notify.js'
-import { participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
+import { motionFor, participationIn, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 import { placeOf, sideLabel, sidesInDebate } from '../services/formats.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { onApplication } from '../services/selection.js'
@@ -133,7 +133,7 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
       side: sideLabel(side, bp),
       ...(place && { place }),
       tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
-      round: { id: d.round.id, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
+      round: { id: d.round.id, number: d.round.number, name: d.round.name, motion: motionFor(d.round, d.proposition.league), status: d.round.status, date: toDay(d.round.date) },
       opponent: { id: opponent.id, name: opponent.name },
       // 1st place in BP counts as a win, like in the standings
       result: d.winner && !silent ? (d.winner === side ? 'win' : 'loss') : null,
