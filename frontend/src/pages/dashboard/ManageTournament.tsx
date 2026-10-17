@@ -1528,6 +1528,38 @@ function Ballots({ data, reload }: SectionProps) {
   )
 }
 
+/* ---------- Certificates ---------- */
+// Every speaker and every judge gets a certificate when the tournament is finished (the best speaker and the best judge
+// also get an award diploma). The organizer prints them all, or the judges' or the speakers' only; a judge without an
+// account finds theirs on their personal link.
+function CertificatesCard({ data }: { data: TournamentDetails }) {
+  const { t } = useTranslation()
+  const speakers = data.teams.filter(x => !x.swing).reduce((n, x) => n + x.speakers.length, 0)
+  const judges = data.judges.length
+  const finished = data.status === 'finished'
+  const print = (only?: string) => `/tournaments/${data.id}/certificates/print${only ? `?only=${only}` : ''}`
+  return (
+    <Card className="mb-5 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-navy dark:text-accent"><Award className="size-4" /></span>
+          <div>
+            <p className="font-bold">{t('certificate.cardTitle')}</p>
+            <p className="text-sm text-muted-foreground">{t('certificate.cardText', { speakers, judges })}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t(finished ? 'certificate.cardLinkHint' : 'certificate.afterFinish')}</p>
+          </div>
+        </div>
+        {finished && (
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline"><a href={print('judges')} target="_blank" rel="noopener"><Gavel className="size-4" />{t('certificate.printJudges', { count: judges })}</a></Button>
+            <Button asChild size="sm" variant="outline"><a href={print('speakers')} target="_blank" rel="noopener"><Users className="size-4" />{t('certificate.printSpeakers', { count: speakers })}</a></Button>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 /* ---------- Settings ---------- */
 // city, dates and team limit can change until the tournament is finished
 function DetailsCard({ data, reload }: SectionProps) {
@@ -1938,7 +1970,7 @@ export default function ManageTournament() {
                 action={data.status === 'finished' && (
                   <Button asChild variant="outline"><a href={`/tournaments/${id}/certificates/print`} target="_blank" rel="noopener"><Award className="size-4" />{t('certificate.printAll')}</a></Button>
                 )} />
-              {data.status !== 'finished' && <p className="-mt-3 mb-4 text-sm text-muted-foreground">{t('certificate.afterFinish')}</p>}
+              <CertificatesCard data={data} />
               {data.status !== 'registration' && <AwardsCard id={id} finished={data.status === 'finished'} onChange={reload} />}
               <ResultsTab id={id} kind="teams" tournament={data} />
             </>

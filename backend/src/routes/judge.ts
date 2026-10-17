@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { isOrganizerOf, motionFor, organizerLink, teamInclude, toDebate, toTeam } from '../services/tournaments.js'
 import { BP_SIDES, rulesOf, sidesOf, type SideCode } from '../services/formats.js'
 import { background, notify } from '../services/notify.js'
+import { ensureCertificates } from '../services/certificates.js'
 
 export const judgeRouter = Router()
 
@@ -36,7 +37,10 @@ const userOrJudgeKey = async (req: Request, res: Response, next: NextFunction) =
 judgeRouter.get('/judge-link', async (req, res) => {
   const judge = await judgeByKey(req)
   if (!judge) throw unauthorized()
-  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: judge.tournamentId }, select: { id: true, name: true, city: true, format: true, leagues: true } })
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: judge.tournamentId }, select: { id: true, name: true, city: true, format: true, leagues: true, status: true } })
+  // a finished tournament: the judge's certificate (and an award diploma, if any) without an account
+  if (t.status === 'finished') await ensureCertificates(t.id)
+  const certificates = t.status === 'finished' ? await prisma.certificate.findMany({ where: { tournamentId: t.id, judgeId: judge.id }, select: { code: true, kind: true, award: true } }) : []
   const links = await prisma.debateJudge.findMany({
     where: { judgeId: judge.id, debate: { round: { status: { not: 'draft' } } } },
     include: { debate: { include: { round: true, proposition: { include: teamInclude }, opposition: { include: teamInclude }, closingProposition: { include: teamInclude }, closingOpposition: { include: teamInclude }, ballots: { where: { judgeId: judge.id }, select: { id: true } } } } },
@@ -45,6 +49,7 @@ judgeRouter.get('/judge-link', async (req, res) => {
   res.json({
     judge: { id: judge.id, name: judge.name },
     tournament: { id: t.id, name: t.name, city: t.city, format: t.format },
+    certificates: certificates.map(c => ({ code: c.code, kind: c.kind, ...(c.award && { award: c.award }) })),
     assignments: links.map(({ debate: d, isChair }) => ({
       debateId: d.id, room: d.room, isChair, sent: d.ballots.length > 0,
       round: { number: d.round.number, name: d.round.name, motion: motionFor(d.round, d.proposition.league), status: d.round.status },

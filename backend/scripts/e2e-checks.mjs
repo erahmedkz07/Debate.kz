@@ -2758,5 +2758,56 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(pub.categories?.length === 2, 'the public page shows a bracket per league')
 }
 
+// ---------- 71. a panel's ballots entered one by one; every judge's certificate, also by the personal link ----------
+{
+  const host = await newAccount('Коллегия Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(520), name: `Коллегия ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Колл А', 'Колл Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Колл Судья 1', 'Колл Судья 2', 'Колл Судья 3'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const get = async () => (await host.c('GET', `/tournaments/${t.id}`)).data
+  let d = await get()
+  const r1 = d.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  d = await get()
+  const room = d.debates[0]
+  // the panel: three judges in the one room
+  const others = d.judges.map(j => j.id).filter(id => id !== room.judgeIds[0])
+  await host.c('PATCH', `/debates/${room.id}`, { wingJudgeIds: others })
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: `ЭП отменит оценки ${jtag}`, status: 'released' })
+  d = await get()
+  const panel = d.debates[0].judgeIds
+  ok(panel.length === 3, 'a panel of three')
+  const vote = (sheet, win) => {
+    const lo = win === 'proposition' ? 'opposition' : 'proposition'
+    const scores = {}
+    sheet[win].speakers.forEach(x => (scores[x.id] = 72)); sheet[lo].speakers.forEach(x => (scores[x.id] = 68))
+    return { winner: win, scores, reply: { [win]: 36, [lo]: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  // the organizer enters the chair's ballot; the wings still open an empty form of their own and send it
+  const chairSheet = (await host.c('GET', `/ballots/${room.id}?as=${panel[0]}`)).data
+  await host.c('POST', `/ballots/${room.id}`, { ...vote(chairSheet, 'proposition'), asJudgeId: panel[0] })
+  for (const [i, j] of panel.slice(1).entries()) {
+    const key = d.judges.find(x => x.id === j).accessKey
+    const sheet = await fetch(`${A}/ballots/${room.id}`, { headers: { 'X-Judge-Key': key } }).then(x => x.json())
+    ok(sheet.canSubmit === true && !sheet.sent, `wing ${i + 1} opens their own empty ballot after the chair's was entered`)
+    const sent = await fetch(`${A}/ballots/${room.id}`, { method: 'POST', headers: { 'X-Judge-Key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(vote(sheet, i === 0 ? 'proposition' : 'opposition')) })
+    ok(sent.status === 201, `wing ${i + 1} sends their ballot`)
+  }
+  d = await get()
+  ok(d.debates[0].winner === 'proposition' && d.debates[0].ballotStatus === 'submitted', 'the panel decides 2:1')
+  // the tournament ends: every judge has a certificate, a judge without an account finds it by the link
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })
+  const fin = await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })
+  ok(fin.status === 200, 'the tournament finishes')
+  const certs = (await host.c('GET', `/tournaments/${t.id}/certificates`)).data
+  ok(certs.filter(c => c.kind === 'judge').length === 3, 'every judge gets a certificate, not only the best one')
+  const key = d.judges.find(x => x.id === panel[2]).accessKey
+  const page = await fetch(`${A}/judge-link`, { headers: { 'X-Judge-Key': key } }).then(x => x.json())
+  ok(page.certificates?.length === 1 && page.certificates[0].kind === 'judge', 'a judge without an account sees their certificate by the link')
+  ok((await client()('GET', `/certificates/${page.certificates[0].code}`)).data?.name === d.judges.find(x => x.id === panel[2]).name, 'the certificate opens by its code')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

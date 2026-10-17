@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, ChevronRight, DoorOpen, Gavel, Star } from 'lucide-react'
+import { Award, CheckCircle2, ChevronRight, DoorOpen, Gavel, Star } from 'lucide-react'
 import { getJudgeLink } from '@/api'
 import { useAsync } from '@/lib/hooks'
 import { quoted } from '@/lib/motion'
@@ -26,6 +26,15 @@ export default function JudgeLink() {
       <p className="text-sm font-semibold text-primary">{data.tournament.name} · {data.tournament.city}</p>
       <h1 className="mt-1 text-3xl font-extrabold tracking-tight">{data.judge.name}</h1>
       <p className="mt-2 text-muted-foreground">{t('judgeLink.text')}</p>
+      {data.certificates.length > 0 && (
+        <div className="mt-5 flex flex-wrap gap-2">
+          {data.certificates.map(c => (
+            <Link key={c.code} to={`/certificates/${c.code}`} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-bold text-navy hover:opacity-90">
+              <Award className="size-4" />{t(c.award ? 'judgeLink.awardCertificate' : 'judgeLink.certificate')}
+            </Link>
+          ))}
+        </div>
+      )}
       <div className="mt-6 space-y-3">
         {data.assignments.length === 0 && <EmptyState icon={<DoorOpen className="size-7" />} title={t('judgeLink.empty')} text={t('judgeLink.emptyText')} />}
         {data.assignments.map(a => (

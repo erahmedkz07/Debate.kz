@@ -80,7 +80,15 @@ function ScoreInput({ label, value, onChange, range, invalid }: { label: string;
   )
 }
 
+// One ballot per judge: the organizer enters the panel's ballots one after another on the same page (only ?as=
+// changes), so each judge's ballot is a fresh form, never the previous judge's "accepted" screen
 export default function Ballot() {
+  const { debateId = '', key: judgeKey } = useParams()
+  const [params] = useSearchParams()
+  return <BallotForm key={`${debateId}|${judgeKey ?? ''}|${params.get('as') ?? ''}`} />
+}
+
+function BallotForm() {
   const { debateId = '', key: judgeKey } = useParams()
   // ?as=<judgeId>: an organizer enters or corrects that judge's ballot
   const { t, i18n } = useTranslation()
