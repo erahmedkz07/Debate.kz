@@ -142,7 +142,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     ...(r.kind === 'elimination' && {
       kind: r.kind, teamsInRound: r.teamsInRound ?? undefined, stage: stageOf(r.teamsInRound ?? 0, isBP(t.format)),
       // a category bracket (novices…): its key and name for the round title
-      ...(r.category && { category: r.category, categoryName: (t.breakCategories as { key: string; name: string }[]).find(c => c.key === r.category)?.name }),
+      ...(r.category && { category: r.category, categoryName: [...(t.breakCategories as { key: string; name: string }[]), ...leaguesOf(t)].find(c => c.key === r.category)?.name }),
     }),
   }))
   const silent = manager ? new Set<string>() : silentIn(t)

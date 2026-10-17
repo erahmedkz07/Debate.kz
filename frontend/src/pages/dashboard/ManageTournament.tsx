@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { toast } from 'sonner'
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Copy, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, Link2, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, Users, X } from 'lucide-react'
 import {
@@ -1143,18 +1144,31 @@ function Draw({ data, reload }: SectionProps) {
   // null = the default for the round (clubmates kept apart in the first rounds); a choice made by hand is kept
   const [protectClubs, setProtectClubs] = useState<boolean | null>(last.protectClubs ?? null)
   // leagues: one league's rooms at a time, or all of them with a header per league
-  const [leagueTab, setLeagueTab] = useState('')
+  const leagues = data.leagues ?? []
+  // a playoff round of a league (its bracket): the draw shows only that league
+  const leagueOfRound = (r?: Round) => (r?.category && leagues.some(l => l.key === r.category) ? r.category : '')
+  const [leagueTab, setLeagueTab] = useState(() => leagueOfRound(defaultRound))
   const round = data.rounds.find(r => r.id === roundId)
   if (!round) return <EmptyState title={t('common.empty')} />
+  const chooseRound = (id: string) => { setRoundId(id); const l = leagueOfRound(data.rounds.find(r => r.id === id)); if (l) setLeagueTab(l) }
+  const chooseLeague = (key: string) => {
+    setLeagueTab(key)
+    // on a league playoff round, another league switches to that league's playoff round at the same stage (else its current one)
+    if (!leagueOfRound(round) || !key) return
+    const own = data.rounds.filter(r => r.category === key)
+    const next = own.find(r => r.teamsInRound === round.teamsInRound) ?? own.find(r => r.status === 'released') ?? own.find(r => r.status === 'draft') ?? own.at(-1)
+    if (next) setRoundId(next.id)
+  }
+  // the round list: with a league chosen, its playoff rounds only (named by their stage)
+  const roundChoices = data.rounds.filter(r => !leagueTab || !leagueOfRound(r) || r.category === leagueTab)
+  const roundLabel = (r: Round) => (leagueOfRound(r) && leagueTab ? roundName({ ...r, categoryName: undefined, name: r.name.split(' · ')[0] }) : roundName(r))
 
   const team = (id: string) => data.teams.find(x => x.id === id)
   // leagues: each league's rooms together, in the order of the leagues
   const leagueOrder = (d: Debate) => (data.leagues ?? []).findIndex(l => l.key === team(d.propositionTeamId)?.league)
   const allRooms = data.debates.filter(d => d.roundId === round.id).sort((a, b) => leagueOrder(a) - leagueOrder(b))
-  // the room of this round a judge already sits in (other than d): choosing them moves them here
-  const roomOf = (d: Debate, judgeId: string) => allRooms.find(x => x.id !== d.id && x.judgeIds.includes(judgeId))?.room
   const current = allRooms.filter(d => !leagueTab || team(d.propositionTeamId)?.league === leagueTab)
-  const leagues = data.leagues ?? []
+  const status = judgeStatusOf(data, round, roundName, t)
   // a header row before each league's first room (when all leagues are shown)
   const headerBefore = (d: Debate, i: number) => !leagueTab && leagues.length > 0 && (i === 0 || team(current[i - 1].propositionTeamId)?.league !== team(d.propositionTeamId)?.league)
   const judge = (id: string) => data.judges.find(j => j.id === id)
@@ -1197,8 +1211,8 @@ function Draw({ data, reload }: SectionProps) {
       <SectionTitle title={t('dashboard.nav.draw')}
         action={
           <div className="flex flex-wrap gap-2">
-            <Select value={round.id} onValueChange={setRoundId} className="w-44" aria-label={t('dashboard.draw.round')}
-              options={data.rounds.map(r => ({ value: r.id, label: roundName(r), hint: t(`tournament.roundStatus.${r.status}`) }))} />
+            <Select value={round.id} onValueChange={chooseRound} className="w-56" aria-label={t('dashboard.draw.round')}
+              options={roundChoices.map(r => ({ value: r.id, label: roundLabel(r), hint: t(`tournament.roundStatus.${r.status}`) }))} />
             {editable && (
               <Button variant="outline" disabled={!!busy} onClick={generate}>
                 {busy === 'generate' ? <Loader2 className="size-4 animate-spin" /> : <Shuffle className="size-4" />}
@@ -1252,13 +1266,13 @@ function Draw({ data, reload }: SectionProps) {
           <Button asChild size="sm" variant="outline"><Link to={`/dashboard/tournaments/${data.id}/rounds`}><Pencil className="size-4" />{t('dashboard.draw.setMotion')}</Link></Button>
         </div>
       )}
+      {leagues.length > 0 && <LeagueTabs className="mb-3 w-fit" leagues={leagues} value={leagueTab} onChange={chooseLeague} all={!leagueOfRound(round)} />}
       {current.length === 0 ? (
         <EmptyState icon={<Shuffle className="size-7" />} title={t('dashboard.draw.empty')} text={t('dashboard.draw.emptyText')}
           action={editable && <Button disabled={!!busy} onClick={generate}><Shuffle className="size-4" />{t('dashboard.draw.generate')}</Button>} />
       ) : (
         <>
           {editable && <p className="mb-3 text-sm text-muted-foreground">{t('dashboard.draw.hint')}</p>}
-          {leagues.length > 0 && <LeagueTabs className="mb-3 w-fit" leagues={leagues} value={leagueTab} onChange={setLeagueTab} all />}
           <Card className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -1299,7 +1313,7 @@ function Draw({ data, reload }: SectionProps) {
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
                         onValueChange={v => patch(d, { chairJudgeId: v })}
-                        options={data.judges.filter(j => !j.left || d.judgeIds.includes(j.id)).map(j => ({ value: j.id, label: j.name, hint: roomOf(d, j.id) ? t('dashboard.draw.nowIn', { room: roomOf(d, j.id) }) : j.institution || undefined }))} />
+                        options={status.sorted(d, data.judges.filter(j => !j.left || d.judgeIds.includes(j.id))).map(j => ({ value: j.id, label: j.name, hint: status.label(d, j) }))} />
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                         {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
                         {d.judgeIds.some(id => { const j = judge(id); return j && sideList.some(side => conflictReason(j, team(teamIdOn(d, side) ?? ''))) }) && (
@@ -1326,21 +1340,53 @@ function Draw({ data, reload }: SectionProps) {
           </Card>
         </>
       )}
-      <WingsDialog debate={wingsFor} data={data} saving={!!wingsFor && busy === wingsFor.id} onClose={() => setWingsFor(null)}
+      <WingsDialog debate={wingsFor} data={data} status={status} saving={!!wingsFor && busy === wingsFor.id} onClose={() => setWingsFor(null)}
         onSave={async ids => { if (await run(wingsFor!.id, () => updateDebate(wingsFor!.id, { wingJudgeIds: ids }), t('dashboard.draw.wingsSaved'))) { setWingsFor(null); reload() } }} />
     </>
   )
 }
 
+// Where a judge is now, for choosing judges of a room: free; in another room of this round (moves here); in a playoff
+// round of another league running at the same time (busy there); or of another league. The list puts the room's
+// league first and free judges before busy ones.
+type JudgeState = { kind: 'free' | 'move' | 'busy' | 'other' | 'here'; where?: string }
+type JudgeStatus = ReturnType<typeof judgeStatusOf>
+function judgeStatusOf(data: TournamentDetails, round: Round, roundName: (r: Round) => string, t: TFunction) {
+  const leagues = data.leagues ?? []
+  const leagueOfDebate = (d: Debate) => data.teams.find(x => x.id === d.propositionTeamId)?.league
+  // the other playoff rounds still on (another league's bracket plays at the same time)
+  const parallel = round.kind === 'elimination' ? data.rounds.filter(r => r.kind === 'elimination' && r.id !== round.id && r.status !== 'completed' && r.category !== round.category) : []
+  const of = (d: Debate, j: Judge): JudgeState => {
+    if (d.judgeIds.includes(j.id)) return { kind: 'here' }
+    const same = data.debates.find(x => x.roundId === round.id && x.id !== d.id && x.judgeIds.includes(j.id))
+    if (same) return { kind: 'move', where: same.room }
+    for (const r of parallel) {
+      const there = data.debates.find(x => x.roundId === r.id && x.judgeIds.includes(j.id))
+      if (there) return { kind: 'busy', where: `${roundName(r)}, ${there.room}` }
+    }
+    const league = leagueOfDebate(d)
+    if (leagues.length && j.league && league && j.league !== league) return { kind: 'other' }
+    return { kind: 'free' }
+  }
+  const label = (d: Debate, j: Judge) => {
+    const st = of(d, j)
+    const league = leagues.length ? (j.league ? leagueName(leagues, j.league) : t('leagues.any')) : ''
+    const text = st.kind === 'here' ? t('dashboard.draw.judgeHere') : st.kind === 'move' ? t('dashboard.draw.nowIn', { room: st.where })
+      : st.kind === 'busy' ? t('dashboard.draw.busyIn', { where: st.where }) : st.kind === 'other' ? t('dashboard.draw.otherLeague') : t('dashboard.draw.judgeFree')
+    return league ? `${league} · ${text}` : text
+  }
+  const rank: Record<JudgeState['kind'], number> = { here: 0, free: 1, move: 2, busy: 3, other: 4 }
+  const sorted = (d: Debate, list: Judge[]) => [...list].sort((a, b) => rank[of(d, a).kind] - rank[of(d, b).kind] || a.name.localeCompare(b.name, 'ru'))
+  return { of, label, sorted }
+}
+
 // wing judges of one debate; judges already sitting in another room of this round are unavailable
-function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate | null; data: TournamentDetails; saving: boolean; onClose: () => void; onSave: (ids: string[]) => void }) {
+function WingsDialog({ debate, data, status, saving, onClose, onSave }: { debate: Debate | null; data: TournamentDetails; status: JudgeStatus; saving: boolean; onClose: () => void; onSave: (ids: string[]) => void }) {
   const { t } = useTranslation()
   const [sel, setSel] = useState<string[]>([])
   useEffect(() => { if (debate) setSel(debate.judgeIds.slice(1)) }, [debate])
   if (!debate) return null
   const chair = debate.judgeIds[0]
-  // a judge from another room of this round moves here
-  const elsewhere = new Map(data.debates.filter(x => x.roundId === debate.roundId && x.id !== debate.id).flatMap(x => x.judgeIds.map(id => [id, x.room] as const)))
   const toggle = (id: string) => setSel(s => (s.includes(id) ? s.filter(x => x !== id) : s.length < 4 ? [...s, id] : s))
   const team = (id: string) => data.teams.find(x => x.id === id)?.name
   return (
@@ -1348,8 +1394,8 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
       <DialogContent heading={t('dashboard.draw.wingsTitle')} description={`${debate.room} · ${sidesOf(data.format).map(side => team(teamIdOn(debate, side)!)).join(debate.closingPropositionTeamId ? ' · ' : ' vs ')}`}>
         <p className="text-sm text-muted-foreground">{t('dashboard.draw.wingsText')}</p>
         <ul className="mt-4 max-h-80 space-y-1.5 overflow-y-auto">
-          {data.judges.filter(j => j.id !== chair && (!j.left || debate.judgeIds.includes(j.id))).map(j => {
-            const busyThere = elsewhere.get(j.id)
+          {status.sorted(debate, data.judges.filter(j => j.id !== chair && (!j.left || debate.judgeIds.includes(j.id)))).map(j => {
+            const st = status.of(debate, j)
             const on = sel.includes(j.id)
             return (
               <li key={j.id}>
@@ -1361,7 +1407,7 @@ function WingsDialog({ debate, data, saving, onClose, onSave }: { debate: Debate
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{j.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{busyThere ? t('dashboard.draw.nowIn', { room: busyThere }) : j.institution || '—'}</span>
+                    <span className={cn('block truncate text-xs', st.kind === 'free' ? 'text-success' : st.kind === 'other' || st.kind === 'busy' ? 'text-danger' : 'text-accent-foreground dark:text-accent')}>{status.label(debate, j)}</span>
                   </span>
                 </button>
               </li>
