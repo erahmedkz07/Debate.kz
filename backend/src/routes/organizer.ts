@@ -147,6 +147,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     registrationDeadline: day.nullable().optional(),
     maxTeams: z.number().int().min(4).max(128).optional(),
     rooms: z.array(z.string().trim().min(1).max(60)).max(64).optional(),
+    // with leagues: the league each room is for (a room left out is for any league)
+    roomLeagues: z.record(z.string().max(60), z.string().max(24)).optional(),
     // extra brackets for groups of teams (novices, juniors…), set before the break
     selectionMode: z.enum(['manual', 'first_come', 'lottery']).optional(),
     clubQuota: z.number().int().min(1).max(32).nullable().optional(),
@@ -185,6 +187,13 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     data.maxTeams = maxTeams
   }
   if (rooms) data.rooms = [...new Set(rooms)]
+  if (rest.roomLeagues) {
+    const keys = leaguesOf(cur).map(l => l.key)
+    if (Object.values(rest.roomLeagues).some(k => !keys.includes(k))) throw badRequest('invalid_league')
+    // only rooms of the tournament keep a league
+    const names = new Set((data.rooms as string[] | undefined) ?? cur.rooms)
+    data.roomLeagues = Object.fromEntries(Object.entries(rest.roomLeagues).filter(([r]) => names.has(r)))
+  }
   // a new city without a region: take the city's region
   if (rest.city && !rest.region) data.region = regionOfCity(rest.city) ?? cur.region
   if (rest.district !== undefined) data.district = rest.district || null

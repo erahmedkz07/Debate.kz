@@ -6,10 +6,23 @@ import { assignPositions, BRACKET_METHODS, groupRooms, pairTeams, roundRobinPair
 import { eliminationRooms } from './playoffs.js'
 import { conflictChecker, type ConflictCheck } from './conflicts.js'
 
-const ROOMS = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
-export const DEFAULT_ROOMS = ROOMS
-// the organizer's own rooms first; when they run out, numbered rooms continue
-export const roomName = (i: number, rooms: string[] = ROOMS) => rooms[i] ?? `Ауд. ${601 + i - rooms.length}`
+// the organizer's own rooms first; when they run out (or there are none) the rooms are simply numbered
+export const roomName = (i: number, rooms: string[] = []) => rooms[i] ?? `Комната ${i + 1 - rooms.length}`
+
+// Leagues with rooms of their own: each room of the draw takes a room of its league, then a room for any league, then
+// a numbered one. Without leagues (or rooms set per league) the rooms go in order.
+function roomsFor(pairs: string[][], rooms: string[], roomLeagues: Record<string, string>, leagueOfTeam: Map<string, string | null> | null) {
+  if (!leagueOfTeam || !Object.keys(roomLeagues).length) return pairs.map((_, i) => roomName(i, rooms))
+  const free = [...rooms]
+  let extra = 0
+  return pairs.map(room => {
+    const league = leagueOfTeam.get(room[0]) ?? null
+    const own = free.findIndex(r => league && roomLeagues[r] === league)
+    const any = own === -1 ? free.findIndex(r => !roomLeagues[r]) : own
+    if (any === -1) return `Комната ${++extra}`
+    return free.splice(any, 1)[0]
+  })
+}
 
 // WSDC draw:
 // 1) teams ordered by wins, then speaker points (round 1 and the random method: random order)
@@ -107,7 +120,8 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
 
   const leagueOfTeam = new Map(groups.flatMap(g => g.teams.map(t => [t.id, g.league] as const)))
   const clash = withLeagues(await conflictChecker(tId), judges, pairs, leagues.length ? leagueOfTeam : null, leagues)
-  const judgeConflicts = await seatJudgesAndSave(round, pairs, await rankJudges(tId, judges), null, clash, await seenBy(tId, roundId))
+  const roomNames = roomsFor(pairs, round.tournament.rooms, (round.tournament.roomLeagues ?? {}) as Record<string, string>, leagues.length ? leagueOfTeam : null)
+  const judgeConflicts = await seatJudgesAndSave(round, pairs, await rankJudges(tId, judges), null, clash, await seenBy(tId, roundId), roomNames)
   return { method, protectClubs, ...report, judgeConflicts }
 }
 
@@ -214,7 +228,7 @@ async function seenBy(tournamentId: string, roundId: string): Promise<Seen> {
 // have already judged. Rooms go in order, the top room first. A conflict that cannot be avoided is counted in the report.
 // bracket: elimination debates remember their place in the bracket (the room order)
 // bracket: the place of each room in the playoff bracket (null for preliminary rounds)
-async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], judges: JudgeRow[], bracket: number[] | null, clash: ConflictCheck, seen: Seen) {
+async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], judges: JudgeRow[], bracket: number[] | null, clash: ConflictCheck, seen: Seen, roomNames?: string[]) {
   const roundId = round.id
   // chairs for all rooms at once (a choice in one room can block another): a small search with a step limit; the
   // first answer found is the greedy one. Cost: a conflict outweighs everything, then a chair from outside the
@@ -253,10 +267,10 @@ async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], 
     for (let i = 0; i < pairs.length; i++) {
       await tx.debate.create({
         data: {
-          roundId, room: roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS), propositionTeamId: pairs[i][0], oppositionTeamId: pairs[i][1],
+          roundId, room: roomNames?.[i] ?? roomName(i, round.tournament.rooms), propositionTeamId: pairs[i][0], oppositionTeamId: pairs[i][1],
           closingPropositionTeamId: pairs[i][2] ?? null, closingOppositionTeamId: pairs[i][3] ?? null,
           bracketSlot: bracket ? bracket[i] : null,
-          onlineUrl: links[roomName(i, round.tournament.rooms.length ? round.tournament.rooms : ROOMS)] ?? null,
+          onlineUrl: links[roomNames?.[i] ?? roomName(i, round.tournament.rooms)] ?? null,
           judges: { create: panels[i] },
         },
       })

@@ -151,6 +151,7 @@ export interface TournamentDetails extends Tournament {
   registrationDeadline?: string
   rooms?: string[]
   roomLinks?: Record<string, string> // room name -> video call link
+  roomLeagues?: Record<string, string> // with leagues: room name -> the league it is for
   awards?: { kind: 'best_speaker' | 'best_judge'; name: string }[] // best speaker / best judge (public after the finish)
   selectionMode?: 'manual' | 'first_come' | 'lottery' // how the places are filled
   clubQuota?: number // at most this many teams per club

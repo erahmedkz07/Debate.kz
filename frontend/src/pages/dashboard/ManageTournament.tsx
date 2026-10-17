@@ -63,7 +63,6 @@ const sections = [
 type Section = (typeof sections)[number]['key']
 
 // used when the organizer has not listed their own rooms
-const DEFAULT_ROOMS = ['Ауд. 101', 'Ауд. 102', 'Ауд. 203', 'Ауд. 204', 'Ауд. 305', 'Актовый зал', 'Ауд. 310', 'Ауд. 412', 'Ауд. 415', 'Библиотека', 'Ауд. 501', 'Ауд. 502']
 
 interface SectionProps {
   data: TournamentDetails
@@ -1121,7 +1120,13 @@ function Draw({ data, reload }: SectionProps) {
   const headerBefore = (d: Debate, i: number) => !leagueTab && leagues.length > 0 && (i === 0 || team(current[i - 1].propositionTeamId)?.league !== team(d.propositionTeamId)?.league)
   const judge = (id: string) => data.judges.find(j => j.id === id)
   const editable = round.status !== 'completed'
-  const rooms = [...new Set([...(data.rooms?.length ? data.rooms : DEFAULT_ROOMS), ...current.map(d => d.room)])]
+  const rooms = [...new Set([...(data.rooms ?? []), ...allRooms.map(d => d.room)])]
+  // leagues with their own rooms: a room's list offers its league's rooms and the rooms for any league
+  const roomOptions = (d: Debate) => {
+    const league = team(d.propositionTeamId)?.league
+    const ok = (r: string) => !league || !data.roomLeagues?.[r] || data.roomLeagues[r] === league || r === d.room
+    return rooms.filter(ok).map(r => ({ value: r, label: r }))
+  }
 
   const present = data.teams.filter(x => x.checkedIn && !x.swing).length
   const protect = protectClubs ?? round.number <= CLUB_PROTECTED_ROUNDS
@@ -1239,7 +1244,7 @@ function Draw({ data, reload }: SectionProps) {
                   <tr key={d.id} className={cn(busy === d.id && 'opacity-50')}>
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-36" value={d.room} disabled={!editable} aria-label={t('tournament.room')}
-                        onValueChange={v => patch(d, { room: v })} options={rooms.map(r => ({ value: r, label: r }))} />
+                        onValueChange={v => patch(d, { room: v })} options={roomOptions(d)} />
                       <OnlineLink url={d.onlineUrl} className="mt-1 text-xs" label={t('online.link')} />
                     </td>
                     <td className="px-4 py-3 font-bold">{team(d.propositionTeamId)?.name}
@@ -1496,6 +1501,12 @@ function RoomsCard({ data, reload }: SectionProps) {
   const saved = data.rooms ?? []
   const savedLinks = data.roomLinks ?? {}
   const [rooms, setRooms] = useState(saved)
+  // with leagues: which league each room is for (none = any league)
+  const leagues = data.leagues ?? []
+  const savedLeagues = data.roomLeagues ?? {}
+  const [roomLeague, setRoomLeague] = useState<Record<string, string>>(savedLeagues)
+  useEffect(() => setRoomLeague(data.roomLeagues ?? {}), [data.roomLeagues])
+  const cleanLeagues = Object.fromEntries(rooms.filter(r => roomLeague[r]).map(r => [r, roomLeague[r]]))
   // online tournaments: a video call link per room (optional, https)
   const [links, setLinks] = useState<Record<string, string>>(savedLinks)
   const [draft, setDraft] = useState('')
@@ -1503,14 +1514,14 @@ function RoomsCard({ data, reload }: SectionProps) {
   useEffect(() => setLinks(data.roomLinks ?? {}), [data.roomLinks])
   const cleanLinks: Record<string, string> = Object.fromEntries(rooms.map(r => [r, (links[r] ?? '').trim()] as const).filter(([, v]) => v))
   const badLink = Object.values(cleanLinks).some(v => !/^https:\/\/\S+\.\S+/.test(v))
-  const dirty = JSON.stringify(rooms) !== JSON.stringify(saved) || JSON.stringify(cleanLinks) !== JSON.stringify(savedLinks)
+  const dirty = JSON.stringify(rooms) !== JSON.stringify(saved) || JSON.stringify(cleanLinks) !== JSON.stringify(savedLinks) || JSON.stringify(cleanLeagues) !== JSON.stringify(savedLeagues)
   const needed = Math.ceil(data.maxTeams / 2)
   const add = () => {
     const v = draft.trim()
     if (v && !rooms.includes(v) && rooms.length < 64) setRooms([...rooms, v])
     setDraft('')
   }
-  const save = async () => { if (await run('rooms', () => updateTournament(data.id, { rooms, roomLinks: cleanLinks }), t('dashboard.rooms.saved'))) reload() }
+  const save = async () => { if (await run('rooms', () => updateTournament(data.id, { rooms, roomLinks: cleanLinks, ...(leagues.length && { roomLeagues: cleanLeagues }) }), t('dashboard.rooms.saved'))) reload() }
   return (
     <Card className="space-y-4 p-6">
       <div>
@@ -1525,6 +1536,11 @@ function RoomsCard({ data, reload }: SectionProps) {
               <li key={r} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 p-2 text-sm sm:flex-nowrap">
                 <span className="w-6 shrink-0 text-center text-xs text-muted-foreground">{i + 1}.</span>
                 <span className="min-w-0 flex-1 truncate font-medium sm:w-40 sm:flex-none">{r}</span>
+                {leagues.length > 0 && (
+                  <Select size="sm" className="w-40 shrink-0" value={roomLeague[r] ?? 'any'} aria-label={t('leagues.roomLeague', { room: r })}
+                    onValueChange={v => setRoomLeague(v === 'any' ? Object.fromEntries(Object.entries(roomLeague).filter(([k]) => k !== r)) : { ...roomLeague, [r]: v })}
+                    options={[...leagues.map(l => ({ value: l.key, label: l.name })), { value: 'any', label: t('leagues.any') }]} />
+                )}
                 <Input className="h-9 min-w-0 flex-[2] basis-full text-sm sm:basis-auto" inputMode="url" value={links[r] ?? ''} maxLength={300}
                   placeholder={t('dashboard.rooms.linkPlaceholder')} aria-label={`${r}: ${t('dashboard.rooms.linkPlaceholder')}`}
                   aria-invalid={!!links[r]?.trim() && !/^https:\/\/\S+\.\S+/.test(links[r].trim())}
@@ -1543,9 +1559,12 @@ function RoomsCard({ data, reload }: SectionProps) {
         <Button variant="outline" disabled={!draft.trim()} onClick={add}><Plus className="size-4" />{t('dashboard.rooms.add')}</Button>
       </div>
       {rooms.length > 0 && rooms.length < needed && <p className="text-xs text-muted-foreground">{t('dashboard.rooms.need', { count: needed })}</p>}
+      {leagues.length > 0 && rooms.length > 0 && (
+        <p className="text-xs text-muted-foreground">{leagues.map(l => `${l.name}: ${rooms.filter(r => roomLeague[r] === l.key).length}`).join(' · ')} · {t('leagues.any')}: {rooms.filter(r => !roomLeague[r]).length} — {t('leagues.roomsHint')}</p>
+      )}
       <p className={cn('text-xs', badLink ? 'text-danger' : 'text-muted-foreground')}>{t(badLink ? 'dashboard.rooms.linkInvalid' : 'dashboard.rooms.linkHint')}</p>
       <div className="flex justify-end gap-2">
-        {dirty && <Button variant="ghost" onClick={() => { setRooms(saved); setLinks(savedLinks) }}>{t('common.cancel')}</Button>}
+        {dirty && <Button variant="ghost" onClick={() => { setRooms(saved); setLinks(savedLinks); setRoomLeague(savedLeagues) }}>{t('common.cancel')}</Button>}
         <Button disabled={!dirty || badLink || busy === 'rooms'} onClick={save}>{t('common.save')}</Button>
       </div>
     </Card>

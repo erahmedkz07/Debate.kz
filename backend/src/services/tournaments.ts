@@ -158,7 +158,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       visible: t.visible, plan: t.plan, paid: t.paid, moderation: t.moderation, moderationNote: t.moderationNote ?? undefined,
       registrationOpen: t.registrationOpen,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
-      rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, pendingRegistrations: t.registrations.length,
+      rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, roomLeagues: (t.roomLeagues ?? {}) as Record<string, string>, pendingRegistrations: t.registrations.length,
       selectionMode: t.selectionMode, clubQuota: t.clubQuota ?? undefined,
       ...(t.drawOptions && { drawOptions: t.drawOptions as Record<string, unknown> }),
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),

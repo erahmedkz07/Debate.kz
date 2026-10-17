@@ -278,6 +278,7 @@ export const updateTournament = (id: string, data: Partial<{
   name: string; description: string; visible: boolean; registrationOpen: boolean; status: TournamentStatus
   city: string; region: string; district: string | null; venue: string | null; startDate: string; endDate: string; registrationDeadline: string | null; maxTeams: number; rooms: string[]
   roomLinks: Record<string, string>
+  roomLeagues: Record<string, string>
   breakCategories: { key: string; name: string; size: number }[]
   leagues: { key: string; name: string }[]
   preliminaryRounds: number
