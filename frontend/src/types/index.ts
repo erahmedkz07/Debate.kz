@@ -67,8 +67,10 @@ export interface Judge {
   institution: string
   rating: number // 1..10
   isChair?: boolean
-  hasAccount?: boolean // only judges with an account send ballots; others are invited by email to link one
+  hasAccount?: boolean // a judge without an account judges by their personal link
   userId?: string // links to the judge's public page
+  league?: string // with leagues: the league this judge judges (none = any)
+  accessKey?: string // organizers only: the personal link of a judge without an account
   // organizers only: what the draw keeps this judge away from
   conflictTeamIds?: string[] // personal conflicts (relative, former coach…)
   clubId?: string // the judge's own club

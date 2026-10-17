@@ -2496,5 +2496,62 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await host.c('PATCH', `/tournaments/${t.id}`, { breakSize: 1 })).status === 400, 'a break below two is refused')
 }
 
+// ---------- 66. judges by league; judges without accounts judge by their personal link ----------
+{
+  const keyed = key => async (method, path, body) => {
+    const r = await fetch(A + path, { method, headers: { 'Content-Type': 'application/json', 'X-Judge-Key': key }, body: body ? JSON.stringify(body) : undefined })
+    return { status: r.status, data: await r.json().catch(() => null) }
+  }
+  const host = await newAccount('Судьи Лиг Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(470), name: `Судьи лиг ${jtag}`, maxTeams: 16, preliminaryRounds: 2, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'ru', name: 'Русская лига' }, { key: 'kz', name: 'Қазақ лигасы' }] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'ru', names: ['Р1', 'Р2', 'Р3', 'Р4'] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'kz', names: ['Қ1', 'Қ2'] })
+  ok((await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Орыс Судья'], league: 'xx' })).data?.error === 'invalid_league', 'a judge needs a real league')
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Орыс Бір', 'Орыс Екі'], league: 'ru' })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Қазақ Бір'], league: 'kz' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const byName = n => d.judges.find(j => j.name === n)
+  ok(byName('Орыс Бір').league === 'ru' && byName('Қазақ Бір').league === 'kz' && !!byName('Орыс Бір').accessKey, 'judges added by name get their league and a personal link')
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.judges.every(j => !j.accessKey), 'the links are never public')
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const r1 = d.rounds[0]
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: 'ЭП судит по ссылке' })
+  // two Russian rooms, one Kazakh room: the Kazakh judge cannot fill a Russian room
+  ok((await host.c('PATCH', `/judges/${byName('Орыс Екі').id}`, { league: 'kz' })).status === 200, 'the organizer changes a judge league')
+  ok((await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })).data?.error === 'league_not_enough_judges', 'a league without enough judges is named')
+  await host.c('PATCH', `/judges/${byName('Орыс Екі').id}`, { league: null })
+  ok((await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })).status === 201, 'with a judge of any league the draw goes')
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const leagueOf = id => d.teams.find(x => x.id === id).league
+  const debates = d.debates.filter(x => x.roundId === r1.id)
+  const judgeLeague = id => d.judges.find(j => j.id === id).league
+  ok(debates.every(x => x.judgeIds.every(j => !judgeLeague(j) || judgeLeague(j) === leagueOf(x.propositionTeamId))), 'every judge sits in their own league')
+  // the personal link
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'released' })
+  const kzRoom = debates.find(x => leagueOf(x.propositionTeamId) === 'kz')
+  const kzJudge = d.judges.find(j => j.id === kzRoom.judgeIds[0])
+  const jk = keyed(kzJudge.accessKey)
+  const page = await jk('GET', '/judge-link')
+  ok(page.status === 200 && page.data.judge.name === kzJudge.name && page.data.assignments.some(a => a.debateId === kzRoom.id && !a.sent), "the link opens the judge's debates")
+  const sheet = (await jk('GET', `/ballots/${kzRoom.id}`)).data
+  ok(sheet.canSubmit === true, 'by the link the judge opens the ballot form')
+  const other = debates.find(x => !x.judgeIds.includes(kzJudge.id))
+  ok((await jk('GET', `/ballots/${other.id}`)).data?.error === 'not_on_panel', "the link opens no one else's room")
+  const scores = {}
+  sheet.proposition.speakers.forEach(s => (scores[s.id] = 73)); sheet.opposition.speakers.forEach(s => (scores[s.id] = 70))
+  const sent = await jk('POST', `/ballots/${kzRoom.id}`, { winner: 'proposition', scores, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } })
+  ok(sent.status === 201, 'the judge sends the ballot by the link, without an account')
+  ok((await jk('GET', '/judge-link')).data.assignments.find(a => a.debateId === kzRoom.id).sent === true, 'the page shows the ballot as sent')
+  ok((await jk('POST', `/ballots/${kzRoom.id}`, { winner: 'proposition', scores, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id }, asJudgeId: other.judgeIds[0] })).status === 201
+    && (await host.c('GET', `/ballots/${other.id}`)).data.panel.every(p => !p.submittedAt), 'the link cannot send for another judge')
+  // a new link stops the old one
+  const fresh = await host.c('POST', `/judges/${kzJudge.id}/link`)
+  ok(fresh.status === 200 && fresh.data.accessKey !== kzJudge.accessKey, 'the organizer makes a new link')
+  ok((await jk('GET', '/judge-link')).data?.error === 'judge_link_invalid', 'the old link stops working')
+  ok((await keyed('nonsense')('GET', `/ballots/${kzRoom.id}`)).status === 403, 'a made-up key opens nothing')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

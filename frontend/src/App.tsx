@@ -24,6 +24,7 @@ const Privacy = lazy(() => import('@/pages/Legal').then(m => ({ default: m.Priva
 const Terms = lazy(() => import('@/pages/Legal').then(m => ({ default: m.TermsPage })))
 const Pricing = lazy(() => import('@/pages/Pricing'))
 const Ballot = lazy(() => import('@/pages/Ballot'))
+const JudgeLink = lazy(() => import('@/pages/JudgeLink'))
 const DashboardLayout = lazy(() => import('@/pages/dashboard/DashboardLayout'))
 const MyTournaments = lazy(() => import('@/pages/dashboard/MyTournaments'))
 const CreateTournament = lazy(() => import('@/pages/dashboard/CreateTournament'))
@@ -103,6 +104,9 @@ export default function App() {
                 <Route path="terms" element={<Terms />} />
                 <Route path="pricing" element={<Pricing />} />
                 <Route path="ballot/:debateId" element={<RequireAuth><Ballot /></RequireAuth>} />
+                {/* a judge without an account: the personal link opens their debates and ballots */}
+                <Route path="j/:key" element={<JudgeLink />} />
+                <Route path="j/:key/ballot/:debateId" element={<Ballot />} />
                 <Route path="verify-email" element={<VerifyEmail />} />
                 <Route path="invite/:token" element={<InvitePage />} />
                 <Route path="*" element={<NotFound />} />

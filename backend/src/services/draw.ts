@@ -105,7 +105,9 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     report.rematches += r.rematches
   }
 
-  const judgeConflicts = await seatJudgesAndSave(round, pairs, await rankJudges(tId, judges), null, await conflictChecker(tId), await seenBy(tId, roundId))
+  const leagueOfTeam = new Map(groups.flatMap(g => g.teams.map(t => [t.id, g.league] as const)))
+  const clash = withLeagues(await conflictChecker(tId), judges, pairs, leagues.length ? leagueOfTeam : null, leagues)
+  const judgeConflicts = await seatJudgesAndSave(round, pairs, await rankJudges(tId, judges), null, clash, await seenBy(tId, roundId))
   return { method, protectClubs, ...report, judgeConflicts }
 }
 
@@ -154,6 +156,26 @@ function drawGroup(teams: DrawTeam[], o: { method: DrawMethod; standings: Awaite
   return {
     pairs: result.pairs.map(([a, b]) => ((propCount.get(a) ?? 0) <= (propCount.get(b) ?? 0) ? [a, b] : [b, a])),
     sameClub: result.sameClub, rematches: result.rematches,
+  }
+}
+
+// Leagues: a judge with a league sits only in that league's rooms (a judge without one sits anywhere). Before the draw
+// each league must have enough judges of its own or of any league; the seating then treats a league mismatch as a
+// conflict it never chooses while there is a choice.
+function withLeagues(clash: ConflictCheck, judges: { id: string; league: string | null }[], pairs: string[][], leagueOfTeam: Map<string, string | null> | null, leagues: { key: string; name: string }[] = []): ConflictCheck {
+  if (!leagueOfTeam) return clash
+  const judgeLeague = new Map(judges.map(j => [j.id, j.league]))
+  const roomLeague = (room: string[]) => leagueOfTeam.get(room[0]) ?? null
+  const rooms = new Map<string, number>()
+  for (const room of pairs) { const l = roomLeague(room); if (l) rooms.set(l, (rooms.get(l) ?? 0) + 1) }
+  const any = judges.filter(j => !j.league).length
+  for (const [league, need] of rooms) {
+    const have = judges.filter(j => j.league === league).length + any
+    if (have < need) throw badRequest('league_not_enough_judges', { league: leagues.find(l => l.key === league)?.name ?? league, need, have })
+  }
+  return (judgeId, room) => {
+    const jl = judgeLeague.get(judgeId)
+    return clash(judgeId, room) || (!!jl && jl !== roomLeague(room))
   }
 }
 

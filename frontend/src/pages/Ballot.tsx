@@ -31,9 +31,9 @@ import { quoted } from '@/lib/motion'
 type Range = { min: number; max: number; step: number }
 
 // the sheet comes from the API; without a network the copy saved on the last visit is used
-async function loadSheet(debateId: string, userId: string, asJudgeId?: string) {
+async function loadSheet(debateId: string, userId: string, asJudgeId?: string, judgeKey?: string) {
   try {
-    const sheet = await getBallot(debateId, asJudgeId)
+    const sheet = await getBallot(debateId, asJudgeId, judgeKey)
     saveBallotSheet(debateId, userId, sheet)
     return { sheet, cached: false }
   } catch (e) {
@@ -81,16 +81,16 @@ function ScoreInput({ label, value, onChange, range, invalid }: { label: string;
 }
 
 export default function Ballot() {
-  const { debateId = '' } = useParams()
+  const { debateId = '', key: judgeKey } = useParams()
   // ?as=<judgeId>: an organizer enters or corrects that judge's ballot
   const { t, i18n } = useTranslation()
   const lang = i18n.language === 'kz' ? 'kz' : 'ru'
   const { user } = useAuth()
   const [params] = useSearchParams()
   const asJudge = params.get('as') ?? undefined
-  // the page is behind RequireAuth, so there is always a user here; an organizer's copy of each judge's ballot is kept apart
-  const uid = asJudge ? `${user?.id ?? ''}:${asJudge}` : user?.id ?? ''
-  const { data: loaded, loading, error, reload } = useAsync(() => loadSheet(debateId, uid, asJudge), [debateId, uid])
+  // a signed-in judge or organizer (an organizer's copy of each judge's ballot is kept apart), or a judge by their link
+  const uid = judgeKey ? `link:${judgeKey}` : asJudge ? `${user?.id ?? ''}:${asJudge}` : user?.id ?? ''
+  const { data: loaded, loading, error, reload } = useAsync(() => loadSheet(debateId, uid, judgeKey ? undefined : asJudge, judgeKey), [debateId, uid])
   const data = loaded?.sheet
   // everything typed is kept on the device until the ballot is accepted: a reload or a dropped connection loses nothing
   const [draft] = useState(() => loadBallotDraft(debateId, uid))
@@ -126,7 +126,7 @@ export default function Ballot() {
   const goBack = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0
     if (idx > 0) navigate(-1)
-    else navigate('/judge')
+    else navigate(judgeKey ? `/j/${judgeKey}` : '/judge')
   }
 
   useEffect(() => {
@@ -209,7 +209,7 @@ export default function Ballot() {
       ...(asJudge && { asJudgeId: asJudge }),
     }
     try {
-      await submitBallot(debateId, payload)
+      await submitBallot(debateId, payload, judgeKey)
       // an older copy waiting in the queue must not overwrite this one later
       dropBallot(debateId, uid)
       clearBallotDraft(debateId, uid)
@@ -217,7 +217,7 @@ export default function Ballot() {
       setDone('sent')
       toast.success(t('ballot.success'))
     } catch (e) {
-      if (isRetryable(e) && user && !asJudge) {
+      if (isRetryable(e) && user && !asJudge && !judgeKey) {
         // no connection: keep it on the device, OfflineSync sends it when the network is back
         queueBallot({ debateId, userId: user.id, label: `${data.tournament.name} · ${t('ballot.round', { n: data.round.number })} · ${data.debate.room}`, payload })
         setConfirm(false)
@@ -305,7 +305,7 @@ export default function Ballot() {
   return (
     <div className="container-page max-w-3xl py-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <BackButton fallback="/judge" label={data.tournament.name} className="-ml-1" />
+        <BackButton fallback={judgeKey ? `/j/${judgeKey}` : '/judge'} label={data.tournament.name} className="-ml-1" />
         <button type="button" onClick={() => setTimer(v => (v === 'open' ? 'hidden' : 'open'))} aria-pressed={timer === 'open'}
           className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-primary hover:bg-primary-soft">
           <Timer className="size-4" />{t('timer.title')}

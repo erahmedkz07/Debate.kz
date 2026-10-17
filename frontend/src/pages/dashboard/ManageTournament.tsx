@@ -2,10 +2,10 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, UserX, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Copy, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, Link2, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, Users, X } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
-  updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, type TeamInput,
+  updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
 } from '@/api'
 import type { Debate, Judge, League, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
@@ -433,15 +433,16 @@ function Teams({ data, reload }: SectionProps) {
 }
 
 // Judges by name, one per line, without accounts: the owner enters their ballots for them
-function JudgesBulkDialog({ tournamentId, open, onOpenChange, onDone }: { tournamentId: string; open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+function JudgesBulkDialog({ tournamentId, leagues, open, onOpenChange, onDone }: { tournamentId: string; leagues: League[]; open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
   const { t } = useTranslation()
   const { busy, run } = useAction()
   const [text, setText] = useState('')
-  useEffect(() => { if (open) setText('') }, [open])
+  const [league, setLeague] = useState('any')
+  useEffect(() => { if (open) { setText(''); setLeague(leagues[0]?.key ?? 'any') } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const names = [...new Set(text.split('\n').map(l => l.replace(/^\s*(?:\d+[.)]|[-•*–])\s*/, '').trim()).filter(n => n.length >= 3))]
   const submit = async () => {
     let r: Awaited<ReturnType<typeof addJudgesBulk>> | undefined
-    if (await run('judges', async () => { r = await addJudgesBulk(tournamentId, names) }) && r) {
+    if (await run('judges', async () => { r = await addJudgesBulk(tournamentId, names, league === 'any' ? undefined : league) }) && r) {
       toast.success(t('dashboard.judges.bulkDone', { count: r.created }), r.skipped ? { description: t('dashboard.teams.bulkSkipped', { count: r.skipped }) } : undefined)
       onOpenChange(false); onDone()
     }
@@ -450,6 +451,10 @@ function JudgesBulkDialog({ tournamentId, open, onOpenChange, onDone }: { tourna
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent heading={t('dashboard.judges.bulkTitle')} description={t('dashboard.judges.bulkText')}>
         <div className="space-y-4">
+          {leagues.length > 0 && (
+            <div><Label htmlFor="bjl">{t('leagues.league')}</Label>
+              <Select id="bjl" value={league} onValueChange={setLeague} options={[...leagues.map(l => ({ value: l.key, label: l.name })), { value: 'any', label: t('leagues.any') }]} /></div>
+          )}
           <div>
             <Label htmlFor="bj">{t('dashboard.judges.bulkNames')}</Label>
             <Textarea id="bj" rows={8} value={text} onChange={e => setText(e.target.value)} placeholder={'Айгерим Сапарова\nДаурен Ахметов'} />
@@ -514,6 +519,46 @@ function RoundsBreakCard({ data, reload }: SectionProps) {
         </div>
       )}
     </Card>
+  )
+}
+
+// A judge's personal link: no account needed. The organizer sends it (WhatsApp, Telegram) or shows the QR; the judge
+// opens their debates and fills the ballots. A new link stops the old one (a lost phone, a link sent to the wrong person).
+function JudgeShareDialog({ judge, onClose, onEmail, onChanged }: { judge: Judge | null; onClose: () => void; onEmail: (j: Judge) => void; onChanged: () => void }) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const [key, setKey] = useState<string | undefined>(undefined)
+  useEffect(() => { setKey(judge?.accessKey) }, [judge])
+  const url = key ? `${window.location.origin}/j/${key}` : ''
+  const create = async () => {
+    let k: string | undefined
+    if (await run('jlink', async () => { k = (await newJudgeLink(judge!.id)).accessKey })) { setKey(k); onChanged() }
+  }
+  const copy = async () => { try { await navigator.clipboard.writeText(url); toast.success(t('dashboard.judges.linkCopied')) } catch { toast.error(t('common.copyFailed')) } }
+  const message = judge ? t('dashboard.judges.shareMessage', { name: judge.name, url }) : ''
+  return (
+    <Dialog open={!!judge} onOpenChange={o => !o && onClose()}>
+      <DialogContent heading={t('dashboard.judges.shareTitle', { name: judge?.name })} description={t('dashboard.judges.shareText')}>
+        {!key ? (
+          <div className="flex justify-center py-4"><Button disabled={busy === 'jlink'} onClick={create}>{busy === 'jlink' ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}{t('dashboard.judges.makeLink')}</Button></div>
+        ) : (
+          <div className="flex flex-col items-center gap-3">
+            <QrCodeImage value={url} size={220} className="rounded-xl border border-border" />
+            <p className="w-full break-all rounded-xl bg-muted px-3 py-2 text-center font-mono text-xs">{url}</p>
+            <div className="flex w-full flex-wrap justify-center gap-2">
+              <Button onClick={copy}><Copy className="size-4" />{t('dashboard.judges.copyLink')}</Button>
+              <Button asChild variant="outline"><a href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a></Button>
+              <Button asChild variant="outline"><a href={`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(t('dashboard.judges.shareShort', { name: judge?.name }))}`} target="_blank" rel="noopener noreferrer">Telegram</a></Button>
+            </div>
+          </div>
+        )}
+        <div className="mt-5 flex flex-wrap justify-between gap-2 border-t border-border pt-4">
+          {judge && <Button variant="ghost" size="sm" onClick={() => onEmail(judge)}><Mail className="size-4" />{t('dashboard.judges.linkByEmail')}</Button>}
+          {key && <Button variant="ghost" size="sm" disabled={busy === 'jlink'} onClick={create} title={t('dashboard.judges.newLinkHint')}><RefreshCw className="size-4" />{t('dashboard.judges.newLink')}</Button>}
+        </div>
+        {key && <p className="mt-2 text-xs text-muted-foreground">{t('dashboard.judges.newLinkHint')}</p>}
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -634,6 +679,11 @@ function Judges({ data, reload }: SectionProps) {
   }
   const withoutAccount = data.judges.filter(j => j.hasAccount === false).length
   const [bulk, setBulk] = useState(false)
+  const [shareFor, setShareFor] = useState<Judge | null>(null)
+  const leagues = data.leagues ?? []
+  const [league, setLeague] = useState('')
+  // "" = all; "any" = judges of any league
+  const shown = data.judges.filter(j => !league || (league === 'any' ? !j.league : j.league === league))
   return (
     <>
       <SectionTitle title={`${t('dashboard.nav.judges')} · ${data.judges.length}`}
@@ -643,42 +693,61 @@ function Judges({ data, reload }: SectionProps) {
             <InviteButton tournamentId={data.id} kind="judge" variant="primary" />
           </div>
         } />
-      <JudgesBulkDialog tournamentId={data.id} open={bulk} onOpenChange={setBulk} onDone={reload} />
+      <JudgesBulkDialog tournamentId={data.id} leagues={leagues} open={bulk} onOpenChange={setBulk} onDone={reload} />
       <p className="-mt-3 mb-5 text-sm text-muted-foreground">{t('dashboard.judges.inviteHint')}</p>
       {withoutAccount > 0 && (
         <p className="mb-5 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">
-          <UserX className="mt-0.5 size-4 shrink-0" />{t('dashboard.judges.withoutAccount', { count: withoutAccount })}
+          <Link2 className="mt-0.5 size-4 shrink-0" />{t('dashboard.judges.byLink', { count: withoutAccount })}
         </p>
+      )}
+      {leagues.length > 0 && data.judges.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <LeagueTabs leagues={[...leagues, { key: 'any', name: t('leagues.any') }]} value={league} onChange={setLeague} all />
+          <span className="text-sm text-muted-foreground">{leagues.map(l => `${l.name}: ${data.judges.filter(j => j.league === l.key).length}`).join(' · ')} · {t('leagues.any')}: {data.judges.filter(j => !j.league).length}</span>
+        </div>
       )}
       {data.status !== 'finished' && <div className="mb-5"><EmailInvites tournamentId={data.id} kind="judge" /></div>}
       {data.judges.length === 0 && <EmptyState icon={<Gavel className="size-7" />} title={t('dashboard.judges.empty')} text={t('dashboard.judges.emptyText')} />}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {data.judges.map(j => (
-          <Card key={j.id} className="flex items-center gap-3 p-4">
-            <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-bold">{j.name}</p>
-              {j.hasAccount === false
-                ? <button type="button" onClick={() => setLinkFor(j)} className="inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-danger hover:underline"><UserX className="size-3.5" />{t('dashboard.judges.noAccount')}</button>
-                : <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>}
-              {feedbackOf(j.id) && (
-                <button type="button" onClick={() => setReadFeedback(j)} className="mt-0.5 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold hover:underline">
-                  <Stars value={Math.round(feedbackOf(j.id)!.average)} size="size-3.5" />{feedbackOf(j.id)!.average} · {t('feedback.count', { count: feedbackOf(j.id)!.count })}
-                </button>
-              )}
+        {shown.map(j => (
+          <Card key={j.id} className="space-y-3 p-4">
+            {/* the judge on one row, the small actions at its end; the link and the league under it (phones too) */}
+            <div className="flex items-center gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-bold">{j.name}</p>
+                {j.hasAccount === false
+                  ? <p className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground"><Link2 className="size-3.5" />{t('dashboard.judges.byLinkShort')}</p>
+                  : <p className="truncate text-xs text-muted-foreground">{j.institution || '—'}</p>}
+                {feedbackOf(j.id) && (
+                  <button type="button" onClick={() => setReadFeedback(j)} className="mt-0.5 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold hover:underline">
+                    <Stars value={Math.round(feedbackOf(j.id)!.average)} size="size-3.5" />{feedbackOf(j.id)!.average} · {t('feedback.count', { count: feedbackOf(j.id)!.count })}
+                  </button>
+                )}
+              </div>
+              <Button variant="ghost" size="sm" className="shrink-0 px-2" onClick={() => setConflictsOf(j)} title={t('dashboard.conflicts.title', { name: j.name })} aria-label={t('dashboard.conflicts.title', { name: j.name })}>
+                <ShieldAlert className="size-4" />{j.conflictTeamIds?.length ? j.conflictTeamIds.length : ''}
+              </Button>
+              <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="shrink-0 hover:text-danger" onClick={() => setToDelete(j)}>
+                <Trash2 className="size-4" />
+              </Button>
             </div>
-            {j.hasAccount === false && (
-              <Button variant="outline" size="sm" className="shrink-0" onClick={() => setLinkFor(j)}><Mail className="size-4" />{t('dashboard.judges.linkInvite')}</Button>
+            {(j.hasAccount === false || leagues.length > 0) && (
+              <div className="flex flex-wrap gap-2">
+                {j.hasAccount === false && (
+                  <Button variant="outline" size="sm" className="flex-1" onClick={() => setShareFor(j)}><QrCode className="size-4" />{t('dashboard.judges.shareLink')}</Button>
+                )}
+                {leagues.length > 0 && (
+                  <Select size="sm" className="min-w-36 flex-1" value={j.league ?? 'any'} disabled={busy === `league-${j.id}`} aria-label={t('leagues.judgeLeague', { name: j.name })}
+                    onValueChange={async v => { if (await run(`league-${j.id}`, () => setJudgeLeague(j.id, v === 'any' ? null : v))) reload() }}
+                    options={[...leagues.map(l => ({ value: l.key, label: l.name })), { value: 'any', label: t('leagues.any') }]} />
+                )}
+              </div>
             )}
-            <Button variant="ghost" size="sm" className="shrink-0 px-2" onClick={() => setConflictsOf(j)} title={t('dashboard.conflicts.title', { name: j.name })}>
-              <ShieldAlert className="size-4" />{j.conflictTeamIds?.length ? j.conflictTeamIds.length : ''}
-            </Button>
-            <Button variant="ghost" size="icon" aria-label={t('common.delete')} title={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(j)}>
-              <Trash2 className="size-4" />
-            </Button>
           </Card>
         ))}
       </div>
+      <JudgeShareDialog judge={shareFor} onClose={() => setShareFor(null)} onEmail={j => { setShareFor(null); setLinkFor(j) }} onChanged={reload} />
       <Dialog open={!!linkFor} onOpenChange={o => !o && setLinkFor(null)}>
         <DialogContent heading={t('dashboard.judges.linkTitle', { name: linkFor?.name })} description={t('dashboard.judges.linkText')}>
           <form className="space-y-4" onSubmit={e => { e.preventDefault(); void sendLink() }}>

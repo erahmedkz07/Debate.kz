@@ -380,11 +380,14 @@ organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
 // and a judge can still be linked to an account later by email. Names already in the tournament are skipped.
 organizerRouter.post('/tournaments/:id/judges/bulk', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  const d = body(req, z.object({ names: z.array(z.string().trim().min(3).max(100)).min(1).max(100) }))
+  const d = body(req, z.object({ names: z.array(z.string().trim().min(3).max(100)).min(1).max(100), league: z.string().max(24).nullable().optional() }))
   const id = param(req, 'id')
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id }, select: { leagues: true } })
+  if (d.league && !leaguesOf(t).some(l => l.key === d.league)) throw badRequest('invalid_league')
   const have = new Set((await prisma.judge.findMany({ where: { tournamentId: id }, select: { name: true } })).map(j => j.name.toLowerCase()))
   const names = [...new Map(d.names.map(n => [n.toLowerCase(), n])).values()].filter(n => !have.has(n.toLowerCase()))
-  await prisma.judge.createMany({ data: names.map(name => ({ tournamentId: id, name })) })
+  // each judge gets a personal link at once: no account is needed to judge
+  await prisma.judge.createMany({ data: names.map(name => ({ tournamentId: id, name, league: d.league ?? null, accessKey: randomBytes(18).toString('base64url') })) })
   res.status(201).json({ created: names.length, skipped: d.names.length - names.length })
 })
 
@@ -504,6 +507,27 @@ organizerRouter.put('/judges/:judgeId/conflicts', org, async (req, res) => {
     prisma.judgeConflict.createMany({ data: ids.map(teamId => ({ judgeId: judge.id, teamId })) }),
   ])
   res.json({ judgeId: judge.id, teamIds: ids })
+})
+
+// a judge's league (with leagues: the judge only sits in that league's rooms; null = any league)
+organizerRouter.patch('/judges/:judgeId', org, async (req, res) => {
+  const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') }, include: { tournament: { select: { leagues: true } } } })
+  if (!judge) throw notFound('judge_not_found')
+  await assertCanManage(req.user, judge.tournamentId)
+  const { league } = body(req, z.object({ league: z.string().max(24).nullable() }))
+  if (league && !leaguesOf(judge.tournament).some(l => l.key === league)) throw badRequest('invalid_league')
+  await prisma.judge.update({ where: { id: judge.id }, data: { league } })
+  res.json({ id: judge.id, league })
+})
+
+// a judge's personal link (no account needed): a new one each time, the old one stops working
+organizerRouter.post('/judges/:judgeId/link', org, async (req, res) => {
+  const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
+  if (!judge) throw notFound('judge_not_found')
+  await assertCanManage(req.user, judge.tournamentId)
+  const accessKey = randomBytes(18).toString('base64url')
+  await prisma.judge.update({ where: { id: judge.id }, data: { accessKey } })
+  res.json({ accessKey })
 })
 
 organizerRouter.delete('/judges/:judgeId', org, async (req, res) => {
