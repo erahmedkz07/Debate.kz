@@ -12,7 +12,7 @@ import { getSelection, getStandings, getTournamentById, NotFoundError, registerT
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
-import { leagueMotion, type Debate, type League, type Round, type Side, type TournamentDetails } from '@/types'
+import { leagueMotion, leaguesOfRound, type Debate, type League, type Round, type Side, type TournamentDetails } from '@/types'
 import type { TFunction } from 'i18next'
 import { useAsync } from '@/lib/hooks'
 import { breakForecast } from '@/lib/breakForecast'
@@ -418,8 +418,10 @@ async function exportXlsx(id: string, t: TFunction, sides: Record<Side, string>,
 function RoundBanner({ round, leagues = [], league }: { round: Round; leagues?: League[]; league?: string }) {
   const { t } = useTranslation()
   // leagues: the shown league's motion, or every league's motion under its name
-  const blocks = leagues.length && !league
-    ? leagues.map(l => ({ name: l.name, ...leagueMotion(round, l.key) })).filter(x => x.motion)
+  // a league's playoff round is that league's only
+  const own = leaguesOfRound(round, leagues)
+  const blocks = own.length && !league
+    ? own.map(l => ({ name: l.name, ...leagueMotion(round, l.key) })).filter(x => x.motion)
     : [{ name: '', ...leagueMotion(round, league) }]
   return (
     <div className="relative overflow-hidden rounded-2xl bg-navy p-5 text-white sm:p-6">

@@ -12,7 +12,7 @@ import { useRoundName } from '@/lib/rounds'
 import { Logo } from '@/components/brand'
 import { Select } from '@/components/ui/select'
 import { quoted } from '@/lib/motion'
-import { leagueMotion } from '@/types'
+import { leagueMotion, leaguesOfRound } from '@/types'
 
 // Projector mode for the venue screen: the motion appears for everyone at the same moment,
 // then the preparation countdown runs; the draw can be shown in large type.
@@ -87,8 +87,9 @@ export default function Projector() {
   if (error) return <div className="grid min-h-dvh place-items-center bg-navy text-white">{t('projector.notFound')}</div>
   if (!data || !round) return <div className="min-h-dvh bg-navy" />
   // the motion of a draft round is visible only to organizers
-  // with leagues each league shows its own motion (a Kazakh and a Russian one), one under the other
-  const byLeague = (data.leagues ?? []).map(l => ({ name: l.name, ...leagueMotion(round, l.key) })).filter(x => x.motion)
+  // with leagues each league shows its own motion (a Kazakh and a Russian one), one under the other; a league's playoff
+  // round shows that league only
+  const byLeague = leaguesOfRound(round, data.leagues).map(l => ({ name: l.name, ...leagueMotion(round, l.key) })).filter(x => x.motion)
   const motionKnown = (!!round.motion || byLeague.length > 0) && (round.status !== 'draft' || manager)
 
   return (
