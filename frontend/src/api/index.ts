@@ -304,7 +304,7 @@ export const deleteTeam = (teamId: string) => http<void>('DELETE', `/teams/${tea
 export const deleteJudge = (judgeId: string) => http<void>('DELETE', `/judges/${judgeId}`)
 export const setJudgeConflicts = (judgeId: string, teamIds: string[]) => http<{ judgeId: string; teamIds: string[] }>('PUT', `/judges/${judgeId}/conflicts`, { teamIds })
 
-export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; status: 'released' | 'completed'; silent: boolean }>) =>
+export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; leagueMotions: Record<string, { motion: string; infoSlide?: string }>; status: 'released' | 'completed'; silent: boolean }>) =>
   http<Round>('PATCH', `/rounds/${roundId}`, data)
 export type DrawMethod = 'power' | 'high_low' | 'random' | 'slide' | 'fold' | 'round_robin'
 export interface DrawReport { method: DrawMethod | 'bracket'; protectClubs: boolean; sameClub: number; rematches: number; judgeConflicts?: number }

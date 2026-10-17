@@ -1,7 +1,7 @@
 import { notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
-import { getStandings, publicWhere } from './tournaments.js'
+import { getStandings, motionFor, publicWhere } from './tournaments.js'
 import { resultOf, sidesInDebate } from './formats.js'
 import { finalPlaces } from './playoffs.js'
 import { hiddenRoundIds } from './silent.js'
@@ -140,7 +140,7 @@ export async function speakerInTournament(tournamentId: string, speakerId: strin
     const speech = avg(d.ballots.flatMap(b => b.scores.filter(s => s.position <= 3).map(s => Number(s.score))))
     const reply = avg(d.ballots.flatMap(b => b.scores.filter(s => s.position === 4).map(s => Number(s.score))))
     return {
-      round: d.round.name, number: d.round.number, kind: d.round.kind, motion: d.round.motion, side, opponents,
+      round: d.round.name, number: d.round.number, kind: d.round.kind, motion: motionFor(d.round, d.proposition.league), side, opponents,
       result: resultOf(d, side), ...(speech !== null && { score: speech }), ...(reply !== null && { reply }),
     }
   })

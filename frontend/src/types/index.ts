@@ -78,6 +78,7 @@ export interface Judge {
 }
 
 export interface Round {
+  leagueMotions?: Record<string, { motion?: string; infoSlide?: string }> // with leagues: each league's own motion
   id: string
   tournamentId: string
   number: number
@@ -476,3 +477,7 @@ export interface ClubJoinRequest {
   createdAt: string
   user: { id: string; name: string; avatarUrl?: string; institution?: string; city?: string }
 }
+
+// the motion and info slide a league plays (its own, else the round's)
+export const leagueMotion = (r: Pick<Round, 'motion' | 'infoSlide' | 'leagueMotions'>, league?: string) =>
+  ({ motion: (league && r.leagueMotions?.[league]?.motion) || r.motion, infoSlide: (league && r.leagueMotions?.[league]?.infoSlide) || r.infoSlide })

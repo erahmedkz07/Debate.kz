@@ -5,7 +5,7 @@ import { fromDay, isRealDay, toDay, todayKz } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { assertCanManage, assertOwner, leaguesOf, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
+import { assertCanManage, assertOwner, leaguesOf, motionFor, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { announceBreak, cancelBreak, categoriesOf, MAX_BREAK, validBreak } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
@@ -550,15 +550,22 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
   const d = body(req, z.object({
     motion: z.string().trim().max(500).transform(bareMotion).optional(),
     infoSlide: z.string().trim().max(2000).optional(),
+    // with leagues: each league's own motion and info slide
+    leagueMotions: z.record(z.string().max(24), z.object({ motion: z.string().trim().max(500).transform(bareMotion), infoSlide: z.string().trim().max(2000).optional() })).optional(),
     status: z.enum(['released', 'completed']).optional(),
     silent: z.boolean().optional(), // closed round: results hidden from the public until the break
   }))
   if (d.silent !== undefined && round.kind !== 'preliminary') throw badRequest('playoff_round_not_silent')
-  if (round.status === 'completed' && (d.motion !== undefined || d.infoSlide !== undefined)) throw forbidden('round_completed')
+  if (round.status === 'completed' && (d.motion !== undefined || d.infoSlide !== undefined || d.leagueMotions !== undefined)) throw forbidden('round_completed')
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: round.tournamentId }, select: { leagues: true } })
+  const leagueKeys = leaguesOf(t).map(l => l.key)
+  if (d.leagueMotions && Object.keys(d.leagueMotions).some(k => !leagueKeys.includes(k))) throw badRequest('invalid_league')
   if (d.status) {
     if (nextStatus[round.status as keyof typeof nextStatus] !== d.status) throw badRequest('invalid_status_transition')
-    const motion = d.motion ?? round.motion
-    if (d.status === 'released' && (!motion.trim() || round.debates.length === 0)) throw badRequest('need_motion_and_draw')
+    // every league needs a motion (its own, or the round's)
+    const next = { motion: d.motion ?? round.motion, leagueMotions: d.leagueMotions ?? round.leagueMotions }
+    const missing = leagueKeys.length ? leagueKeys.some(k => !motionFor(next, k).trim()) : !next.motion.trim()
+    if (d.status === 'released' && (missing || round.debates.length === 0)) throw badRequest('need_motion_and_draw')
     if (d.status === 'completed' && round.debates.some(x => !x.winner)) throw badRequest('ballots_missing')
   }
   const updated = await prisma.$transaction(async tx => {

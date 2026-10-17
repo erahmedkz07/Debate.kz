@@ -2553,5 +2553,32 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await keyed('nonsense')('GET', `/ballots/${kzRoom.id}`)).status === 403, 'a made-up key opens nothing')
 }
 
+// ---------- 67. each league its own motion ----------
+{
+  const host = await newAccount('Темы Лиг Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(480), name: `Темы лиг ${jtag}`, maxTeams: 16, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'ru', name: 'Русская лига' }, { key: 'kz', name: 'Қазақ лигасы' }] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'ru', names: ['ТР1', 'ТР2'] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'kz', names: ['ТҚ1', 'ТҚ2'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Тема Судья Бір', 'Тема Судья Екі'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const r1 = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  ok((await host.c('PATCH', `/rounds/${r1.id}`, { leagueMotions: { ru: { motion: `ЭП запретит ИИ ${jtag}` } }, status: 'released' })).data?.error === 'need_motion_and_draw', 'a round waits for every league motion')
+  const r = await host.c('PATCH', `/rounds/${r1.id}`, { leagueMotions: { ru: { motion: `ЭП запретит ИИ ${jtag}` }, kz: { motion: `БП жасанды интеллектіге тыйым салады ${jtag}`, infoSlide: 'Ақпарат' } }, status: 'released' })
+  ok(r.status === 200, 'with both league motions the round is released')
+  const d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const kzRoom = d.debates.find(x => d.teams.find(tm => tm.id === x.propositionTeamId).league === 'kz')
+  const key = d.judges.find(j => j.id === kzRoom.judgeIds[0]).accessKey
+  const sheet = await fetch(`${A}/ballots/${kzRoom.id}`, { headers: { 'X-Judge-Key': key } }).then(x => x.json())
+  ok(sheet.round.motion.startsWith('БП жасанды'), "the judge's ballot shows the motion of their league")
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.rounds[0].leagueMotions?.kz?.infoSlide === 'Ақпарат', 'the public page gets every league motion')
+  // the bank is paged: look for each league's motion by its own words
+  const find = async q => (await client()('GET', `/motions?search=${encodeURIComponent(q)}`)).data.items.filter(m => m.tournament.id === t.id)
+  const ru = await find(`запретит ${jtag}`), kz = await find(`интеллектіге ${jtag}`)
+  ok(ru.length === 1 && ru[0].language === 'ru' && kz.length === 1 && kz[0].language === 'kz', 'the motion bank lists each league motion')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

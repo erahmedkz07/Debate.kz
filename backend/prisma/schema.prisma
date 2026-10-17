@@ -385,6 +385,7 @@ model Judge {
 }
 
 model Round {
+  leagueMotions Json @default("{}") @map("league_motions") // with leagues: { [league]: { motion, infoSlide } }, each league its own motion (Kazakh, Russian)
   id           String      @id @default(cuid())
   tournamentId String      @map("tournament_id")
   number       Int

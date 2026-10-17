@@ -12,7 +12,7 @@ import { getSelection, getStandings, getTournamentById, NotFoundError, registerT
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
-import type { Debate, Round, Side, TournamentDetails } from '@/types'
+import { leagueMotion, type Debate, type League, type Round, type Side, type TournamentDetails } from '@/types'
 import type { TFunction } from 'i18next'
 import { useAsync } from '@/lib/hooks'
 import { breakForecast } from '@/lib/breakForecast'
@@ -336,7 +336,7 @@ function DrawTab({ data }: { data: TournamentDetails }) {
         ))}
       </div>
       {leagues.length > 0 && <LeagueTabs className="mb-4 w-fit" leagues={leagues} value={league} onChange={setLeague} all />}
-      <RoundBanner round={round} />
+      <RoundBanner round={round} leagues={leagues} league={league} />
       {/* organizers see a closed round's results: a note says the others do not */}
       {silentRoundIds(data).has(round.id) && !!data.myRole && (
         <p className="mt-3 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm"><Lock className="mt-0.5 size-4 shrink-0" />{t('tournament.silentOrganizer')}</p>
@@ -415,21 +415,30 @@ async function exportXlsx(id: string, t: TFunction, sides: Record<Side, string>,
   }
 }
 
-function RoundBanner({ round }: { round: Round }) {
+function RoundBanner({ round, leagues = [], league }: { round: Round; leagues?: League[]; league?: string }) {
   const { t } = useTranslation()
+  // leagues: the shown league's motion, or every league's motion under its name
+  const blocks = leagues.length && !league
+    ? leagues.map(l => ({ name: l.name, ...leagueMotion(round, l.key) })).filter(x => x.motion)
+    : [{ name: '', ...leagueMotion(round, league) }]
   return (
     <div className="relative overflow-hidden rounded-2xl bg-navy p-5 text-white sm:p-6">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={round.status === 'completed' ? 'muted' : 'accent'}>{t(`tournament.roundStatus.${round.status}`)}</Badge>
         <span className="text-xs text-white/60">{formatDate(round.date, { day: 'numeric', month: 'long' })}</span>
       </div>
-      <p className="mt-3 text-lg font-bold leading-snug sm:text-xl">{quoted(round.motion)}</p>
-      {round.infoSlide && (
-        <details className="mt-3 rounded-xl bg-white/10 p-3 text-sm">
-          <summary className="cursor-pointer font-semibold">{t('dashboard.rounds.infoSlide')}</summary>
-          <p className="mt-2 whitespace-pre-line text-white/85">{round.infoSlide}</p>
-        </details>
-      )}
+      {blocks.map(x => (
+        <div key={x.name || 'one'} className="mt-3">
+          {x.name && <p className="text-xs font-bold uppercase tracking-wider text-accent">{x.name}</p>}
+          <p className="text-lg font-bold leading-snug sm:text-xl">{quoted(x.motion)}</p>
+          {x.infoSlide && (
+            <details className="mt-2 rounded-xl bg-white/10 p-3 text-sm">
+              <summary className="cursor-pointer font-semibold">{t('dashboard.rounds.infoSlide')}</summary>
+              <p className="mt-2 whitespace-pre-line text-white/85">{x.infoSlide}</p>
+            </details>
+          )}
+        </div>
+      ))}
     </div>
   )
 }

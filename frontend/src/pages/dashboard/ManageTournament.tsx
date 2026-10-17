@@ -7,7 +7,7 @@ import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
 } from '@/api'
-import type { Debate, Judge, League, Round, ScheduleItem, Team, TournamentDetails, TournamentStatus } from '@/types'
+import { leagueMotion, type Debate, type Judge, type League, type Round, type ScheduleItem, type Team, type TournamentDetails, type TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn, formatDate, formatDateRange, formatDateTime, initials, todayKz } from '@/lib/utils'
@@ -782,7 +782,9 @@ function MissingMotions({ data }: { data: TournamentDetails }) {
   const days = Math.round((Date.parse(data.startDate) - Date.parse(today)) / 86_400_000)
   // before the start: every preliminary round; during the tournament: only the next round (motions often come late)
   const drafts = data.rounds.filter(r => r.kind !== 'elimination' && r.status === 'draft')
-  const missing = (days > 0 ? drafts : drafts.slice(0, 1)).filter(r => !r.motion.trim())
+  const leagues = data.leagues ?? []
+  const noMotion = (r: Round) => (leagues.length ? leagues.some(l => !leagueMotion(r, l.key).motion.trim()) : !r.motion.trim())
+  const missing = (days > 0 ? drafts : drafts.slice(0, 1)).filter(noMotion)
   if (data.status === 'finished' || days > 3 || !missing.length) return null
   return (
     <Link to={`/dashboard/tournaments/${data.id}/rounds`}
@@ -797,21 +799,30 @@ function MissingMotions({ data }: { data: TournamentDetails }) {
 }
 
 /* ---------- Rounds ---------- */
-function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean; reload: () => void }) {
+function RoundCard({ round, hasDraw, reload, leagues = [] }: { round: Round; hasDraw: boolean; reload: () => void; leagues?: League[] }) {
   const { t } = useTranslation()
   const roundName = useRoundName()
   const { busy, run } = useAction()
   const [motion, setMotion] = useState(round.motion)
   const [slide, setSlide] = useState(round.infoSlide ?? '')
+  // with leagues: each league its own motion and info slide (in its language)
+  const savedLm = () => Object.fromEntries(leagues.map(l => [l.key, { motion: round.leagueMotions?.[l.key]?.motion ?? '', infoSlide: round.leagueMotions?.[l.key]?.infoSlide ?? '' }]))
+  const [lm, setLm] = useState(savedLm)
   useEffect(() => setMotion(round.motion), [round.motion])
   useEffect(() => setSlide(round.infoSlide ?? ''), [round.infoSlide])
-  const dirty = motion.trim() !== round.motion || slide.trim() !== (round.infoSlide ?? '')
+  useEffect(() => setLm(savedLm()), [round.leagueMotions, leagues.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  const byLeague = leagues.length > 0 && round.kind !== 'elimination'
+  const dirty = byLeague ? JSON.stringify(lm) !== JSON.stringify(savedLm()) : motion.trim() !== round.motion || slide.trim() !== (round.infoSlide ?? '')
+  const noMotion = byLeague ? leagues.some(l => !lm[l.key]?.motion.trim()) : !motion.trim()
   // why "publish" is not available yet, said next to the button instead of a silent grey button
-  const blocker = round.status !== 'draft' ? null : !hasDraw ? t('dashboard.rounds.needDraw') : !motion.trim() ? t('dashboard.rounds.needMotion') : null
+  const blocker = round.status !== 'draft' ? null : !hasDraw ? t('dashboard.rounds.needDraw') : noMotion ? t(byLeague ? 'leagues.needMotions' : 'dashboard.rounds.needMotion') : null
+  const fields = () => (byLeague
+    ? { leagueMotions: Object.fromEntries(Object.entries(lm).map(([k, v]) => [k, { motion: v.motion.trim(), infoSlide: v.infoSlide.trim() || undefined }])) }
+    : { motion, infoSlide: slide })
 
-  const save = async () => { if (await run('save', () => updateRound(round.id, { motion, infoSlide: slide }), t('dashboard.teams.saved'))) reload() }
+  const save = async () => { if (await run('save', () => updateRound(round.id, fields()), t('dashboard.teams.saved'))) reload() }
   const release = async () => {
-    if (await run('release', () => updateRound(round.id, { motion, infoSlide: slide, status: 'released' }), t('dashboard.rounds.released'))) reload()
+    if (await run('release', () => updateRound(round.id, { ...fields(), status: 'released' }), t('dashboard.rounds.released'))) reload()
   }
   const complete = async () => { if (await run('complete', () => updateRound(round.id, { status: 'completed' }), t('dashboard.rounds.completedToast'))) reload() }
   const setSilent = async (silent: boolean) => { if (await run('silent', () => updateRound(round.id, { silent }), t(silent ? 'dashboard.rounds.closedToast' : 'dashboard.rounds.openedToast'))) reload() }
@@ -845,6 +856,22 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
           )}
         </div>
       </div>
+      {byLeague ? (
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {leagues.map(l => (
+            <div key={l.key} className="rounded-2xl border border-border p-4">
+              <p className="mb-2 text-sm font-bold text-primary">{l.name}</p>
+              <Label htmlFor={`m-${round.id}-${l.key}`}>{t('dashboard.rounds.motion')}</Label>
+              <Textarea id={`m-${round.id}-${l.key}`} rows={2} value={lm[l.key]?.motion ?? ''} disabled={round.status === 'completed'} placeholder={t('dashboard.rounds.motionPlaceholder')}
+                onChange={e => setLm({ ...lm, [l.key]: { ...lm[l.key], motion: e.target.value } })} />
+              <Label htmlFor={`s-${round.id}-${l.key}`} className="mt-3">{t('dashboard.rounds.infoSlide')} <span className="font-normal text-muted-foreground">· {t('common.optional')}</span></Label>
+              <Textarea id={`s-${round.id}-${l.key}`} rows={2} maxLength={2000} value={lm[l.key]?.infoSlide ?? ''} disabled={round.status === 'completed'} placeholder={t('dashboard.rounds.infoSlidePlaceholder')}
+                onChange={e => setLm({ ...lm, [l.key]: { ...lm[l.key], infoSlide: e.target.value } })} />
+            </div>
+          ))}
+          {blocker && <p className="text-xs text-muted-foreground lg:col-span-2">{blocker}</p>}
+        </div>
+      ) : (
       <div className="mt-4">
         <Label htmlFor={`m-${round.id}`}>{t('dashboard.rounds.motion')}</Label>
         <Textarea id={`m-${round.id}`} rows={2} value={motion} disabled={round.status === 'completed'} onChange={e => setMotion(e.target.value)} placeholder={t('dashboard.rounds.motionPlaceholder')} />
@@ -853,6 +880,7 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
         <Label htmlFor={`s-${round.id}`} className="mt-3">{t('dashboard.rounds.infoSlide')} <span className="font-normal text-muted-foreground">· {t('common.optional')}</span></Label>
         <Textarea id={`s-${round.id}`} rows={2} maxLength={2000} value={slide} disabled={round.status === 'completed'} onChange={e => setSlide(e.target.value)} placeholder={t('dashboard.rounds.infoSlidePlaceholder')} />
       </div>
+      )}
       {round.kind !== 'elimination' && (
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
           <span className="text-sm font-semibold">{t('dashboard.rounds.visibility')}</span>
@@ -874,7 +902,7 @@ function RoundCard({ round, hasDraw, reload }: { round: Round; hasDraw: boolean;
 
 function Rounds({ data, reload }: SectionProps) {
   const { t } = useTranslation()
-  const card = (r: Round) => <RoundCard key={r.id} round={r} hasDraw={data.debates.some(d => d.roundId === r.id)} reload={reload} />
+  const card = (r: Round) => <RoundCard key={r.id} round={r} hasDraw={data.debates.some(d => d.roundId === r.id)} reload={reload} leagues={data.leagues} />
   return (
     <>
       <SectionTitle title={t('dashboard.nav.rounds')} />
@@ -1078,13 +1106,19 @@ function Draw({ data, reload }: SectionProps) {
   const [method, setMethod] = useState<DrawMethod>((last.method as DrawMethod) ?? 'power')
   // null = the default for the round (clubmates kept apart in the first rounds); a choice made by hand is kept
   const [protectClubs, setProtectClubs] = useState<boolean | null>(last.protectClubs ?? null)
+  // leagues: one league's rooms at a time, or all of them with a header per league
+  const [leagueTab, setLeagueTab] = useState('')
   const round = data.rounds.find(r => r.id === roundId)
   if (!round) return <EmptyState title={t('common.empty')} />
 
   const team = (id: string) => data.teams.find(x => x.id === id)
   // leagues: each league's rooms together, in the order of the leagues
   const leagueOrder = (d: Debate) => (data.leagues ?? []).findIndex(l => l.key === team(d.propositionTeamId)?.league)
-  const current = data.debates.filter(d => d.roundId === round.id).sort((a, b) => leagueOrder(a) - leagueOrder(b))
+  const allRooms = data.debates.filter(d => d.roundId === round.id).sort((a, b) => leagueOrder(a) - leagueOrder(b))
+  const current = allRooms.filter(d => !leagueTab || team(d.propositionTeamId)?.league === leagueTab)
+  const leagues = data.leagues ?? []
+  // a header row before each league's first room (when all leagues are shown)
+  const headerBefore = (d: Debate, i: number) => !leagueTab && leagues.length > 0 && (i === 0 || team(current[i - 1].propositionTeamId)?.league !== team(d.propositionTeamId)?.league)
   const judge = (id: string) => data.judges.find(j => j.id === id)
   const editable = round.status !== 'completed'
   const rooms = [...new Set([...(data.rooms?.length ? data.rooms : DEFAULT_ROOMS), ...current.map(d => d.room)])]
@@ -1180,6 +1214,7 @@ function Draw({ data, reload }: SectionProps) {
       ) : (
         <>
           {editable && <p className="mb-3 text-sm text-muted-foreground">{t('dashboard.draw.hint')}</p>}
+          {leagues.length > 0 && <LeagueTabs className="mb-3 w-fit" leagues={leagues} value={leagueTab} onChange={setLeagueTab} all />}
           <Card className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -1192,7 +1227,15 @@ function Draw({ data, reload }: SectionProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {current.map(d => (
+                {current.flatMap((d, i) => [
+                  ...(headerBefore(d, i) ? [(
+                    <tr key={`h-${d.id}`} className="bg-primary-soft/60">
+                      <td colSpan={sideList.length + 3} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-primary">
+                        {leagueName(leagues, team(d.propositionTeamId)?.league)} · {t('leagues.rooms', { count: allRooms.filter(x => team(x.propositionTeamId)?.league === team(d.propositionTeamId)?.league).length })}
+                      </td>
+                    </tr>
+                  )] : []),
+                  (
                   <tr key={d.id} className={cn(busy === d.id && 'opacity-50')}>
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-36" value={d.room} disabled={!editable} aria-label={t('tournament.room')}
@@ -1231,7 +1274,8 @@ function Draw({ data, reload }: SectionProps) {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ),
+                ])}
               </tbody>
             </table>
           </Card>

@@ -6,7 +6,7 @@ import { toDay } from '../lib/dates.js'
 import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { isOrganizerOf, organizerLink, teamInclude, toDebate, toTeam } from '../services/tournaments.js'
+import { isOrganizerOf, motionFor, organizerLink, teamInclude, toDebate, toTeam } from '../services/tournaments.js'
 import { BP_SIDES, rulesOf, sidesOf, type SideCode } from '../services/formats.js'
 import { background, notify } from '../services/notify.js'
 
@@ -47,7 +47,7 @@ judgeRouter.get('/judge-link', async (req, res) => {
     tournament: { id: t.id, name: t.name, city: t.city, format: t.format },
     assignments: links.map(({ debate: d, isChair }) => ({
       debateId: d.id, room: d.room, isChair, sent: d.ballots.length > 0,
-      round: { number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status },
+      round: { number: d.round.number, name: d.round.name, motion: motionFor(d.round, d.proposition.league), status: d.round.status },
       teams: [d.proposition, d.opposition, d.closingProposition, d.closingOpposition].filter(Boolean).map(x => x!.name),
     })),
   })
@@ -73,7 +73,7 @@ judgeRouter.get('/judge/assignments', requireAuth(), async (req, res) => {
   })
   res.json(links.map(({ debate: d, isChair }) => ({
     debate: toDebate(d, true),
-    round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
+    round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: motionFor(d.round, d.proposition.league), status: d.round.status, date: toDay(d.round.date) },
     tournament: { id: d.round.tournament.id, name: d.round.tournament.name, city: d.round.tournament.city, format: d.round.tournament.format },
     proposition: toTeam(d.proposition),
     opposition: toTeam(d.opposition),
@@ -165,7 +165,7 @@ judgeRouter.get('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
     },
     ...(panel && { panel }),
     tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
-    round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: d.round.motion, status: d.round.status, date: toDay(d.round.date) },
+    round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: motionFor(d.round, d.proposition.league), status: d.round.status, date: toDay(d.round.date) },
     debate: toDebate(d, true),
     proposition: toTeam(d.proposition),
     opposition: toTeam(d.opposition),
