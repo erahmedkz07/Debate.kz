@@ -241,6 +241,7 @@ export const getBallot = (debateId: string, asJudgeId?: string, judgeKey?: strin
 export interface JudgeLinkData {
   judge: { id: string; name: string }
   tournament: { id: string; name: string; city: string; format: string }
+  certificates: { code: string; kind: 'judge' | 'award'; award?: 'best_judge' }[] // after the finish
   assignments: { debateId: string; room: string; isChair: boolean; sent: boolean; round: { number: number; name: string; motion: string; status: string }; teams: string[] }[]
 }
 export const getJudgeLink = (key: string) => http<JudgeLinkData>('GET', '/judge-link', undefined, key)

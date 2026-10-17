@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Printer } from 'lucide-react'
 import { getTournamentCertificates, verifyCertificate } from '@/api'
@@ -13,8 +13,13 @@ import { CertificateSheet } from '@/components/certificate/CertificateSheet'
 export default function CertificatePrint() {
   const { t } = useTranslation()
   const { code, id } = useParams()
-  const { data, loading, error, reload } = useAsync<Certificate[]>(
+  // ?only=judges | speakers: one group of a tournament's certificates (award diplomas go with their group)
+  const [params] = useSearchParams()
+  const only = params.get('only')
+  const { data: all, loading, error, reload } = useAsync<Certificate[]>(
     () => (code ? verifyCertificate(code).then(c => [c]) : getTournamentCertificates(id!)), [code, id])
+  const isJudge = (c: Certificate) => c.kind === 'judge' || c.award === 'best_judge'
+  const data = all && (only === 'judges' ? all.filter(isJudge) : only === 'speakers' ? all.filter(c => !isJudge(c)) : all)
 
   return (
     <div className="min-h-dvh bg-muted/40 print:bg-white">
