@@ -28,13 +28,13 @@ function formatKz(d: Date, o: Intl.DateTimeFormatOptions) {
   return weekday + date + time
 }
 
-// one place for every date on the site, in the current language
-export function formatDateObj(d: Date, opts: Intl.DateTimeFormatOptions) {
-  return i18n.language === 'kz' ? formatKz(d, opts) : new Intl.DateTimeFormat('ru-RU', opts).format(d)
+// one place for every date on the site, in the current language (or a given one: a certificate in its own language)
+export function formatDateObj(d: Date, opts: Intl.DateTimeFormatOptions, lang: string = i18n.language) {
+  return lang === 'kz' ? formatKz(d, opts) : new Intl.DateTimeFormat('ru-RU', opts).format(d)
 }
 
-export function formatDate(iso: string, opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long' }) {
-  return formatDateObj(new Date(iso.slice(0, 10) + 'T00:00:00'), opts)
+export function formatDate(iso: string, opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long' }, lang?: string) {
+  return formatDateObj(new Date(iso.slice(0, 10) + 'T00:00:00'), opts, lang)
 }
 
 // full ISO timestamps (with time), e.g. the admin audit log
@@ -42,13 +42,13 @@ export function formatDateTime(iso: string) {
   return formatDateObj(new Date(iso), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export function formatDateRange(start: string, end: string) {
-  if (start === end) return formatDate(start, { day: 'numeric', month: 'long', year: 'numeric' })
+export function formatDateRange(start: string, end: string, lang?: string) {
+  if (start === end) return formatDate(start, { day: 'numeric', month: 'long', year: 'numeric' }, lang)
   const s = new Date(start), e = new Date(end)
   if (s.getMonth() === e.getMonth()) {
-    return `${s.getDate()}–${formatDate(end, { day: 'numeric', month: 'long', year: 'numeric' })}`
+    return `${s.getDate()}–${formatDate(end, { day: 'numeric', month: 'long', year: 'numeric' }, lang)}`
   }
-  return `${formatDate(start)} – ${formatDate(end, { day: 'numeric', month: 'long', year: 'numeric' })}`
+  return `${formatDate(start, undefined, lang)} – ${formatDate(end, { day: 'numeric', month: 'long', year: 'numeric' }, lang)}`
 }
 
 export function formatNumber(n: number) {

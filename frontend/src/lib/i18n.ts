@@ -36,6 +36,9 @@ async function loadLanguage(lng: string) {
   i18n.addResourceBundle('kz', 'translation', withRussianPluralForms(kz as Tree))
 }
 
+// the dictionaries of these languages, for texts printed in a language of their own (a Kazakh league certificate)
+export const loadLanguages = (langs: (string | undefined)[]) => Promise.all([...new Set(langs)].map(l => (l ? loadLanguage(l) : undefined)))
+
 // switch the site's language (the dictionary is fetched first, so no text flashes in the other language)
 export async function setLanguage(lng: 'ru' | 'kz') {
   await loadLanguage(lng)

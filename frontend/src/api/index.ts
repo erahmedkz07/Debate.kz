@@ -4,7 +4,7 @@ import type {
   Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentFormat, TournamentStatus, User, ScheduleItem, Side, PlayoffStage,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
-import i18n from '@/lib/i18n'
+import i18n, { loadLanguages } from '@/lib/i18n'
 
 export { ApiError }
 
@@ -406,9 +406,15 @@ export const adminDeleteClub = (id: string, reason: string) => http<void>('DELET
 export const resolveClubReport = (id: string) => http<{ ok: true }>('POST', `/admin/club-reports/${id}/resolve`)
 export const reportClub = (id: string, reason: string) => http<{ ok: true }>('POST', `/clubs/${encodeURIComponent(id)}/report`, { reason })
 // ---------- certificates & check-in ----------
-export const verifyCertificate = (code: string) => or404(http<Certificate>('GET', `/certificates/${encodeURIComponent(code)}`))
-export const getMyCertificates = () => http<Certificate[]>('GET', '/me/certificates')
-export const getTournamentCertificates = (id: string) => http<Certificate[]>('GET', `/tournaments/${id}/certificates`)
+// a certificate is printed in its holder's language: that dictionary is loaded before it is shown
+const withLanguages = async <T extends Certificate | Certificate[]>(p: Promise<T>) => {
+  const c = await p
+  await loadLanguages((Array.isArray(c) ? c : [c]).map(x => x.language))
+  return c
+}
+export const verifyCertificate = (code: string) => withLanguages(or404(http<Certificate>('GET', `/certificates/${encodeURIComponent(code)}`)))
+export const getMyCertificates = () => withLanguages(http<Certificate[]>('GET', '/me/certificates'))
+export const getTournamentCertificates = (id: string) => withLanguages(http<Certificate[]>('GET', `/tournaments/${id}/certificates`))
 type CheckinStatus = { code?: string; present: number; total: number }
 export const getCheckin = (id: string) => http<CheckinStatus>('GET', `/tournaments/${id}/checkin`)
 export const newCheckinCode = (id: string) => http<CheckinStatus>('POST', `/tournaments/${id}/checkin/code`)

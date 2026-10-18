@@ -47,7 +47,8 @@
 }
 
 @theme inline {
-  --font-sans: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  /* Onest: every Kazakh letter (Ә Ғ Қ Ң Ө Ұ Ү Һ І) drawn in the same style; Manrope lacked Ә Ғ Қ Ң Ұ */
+  --font-sans: 'Onest', ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
