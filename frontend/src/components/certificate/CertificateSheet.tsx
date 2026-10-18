@@ -26,8 +26,10 @@ const grouped = (code: string) => code.replace(/^(.{5})(.+)$/, '$1-$2')
 
 // the headline award of a certificate (used on the sheet and in lists)
 export function useAward() {
-  const { t } = useTranslation()
+  const { t: siteT, i18n } = useTranslation()
   return (c: Certificate) => {
+    // in the certificate's own language (its holder's league), else the site's
+    const t = c.language ? i18n.getFixedT(c.language) : siteT
     if (c.kind === 'judge') return { title: t('certificate.certificate'), lines: [t('certificate.judge')] }
     // best speaker / best judge of the tournament
     if (c.kind === 'award') return { title: t('certificate.diploma'), lines: [t(`certificate.awardTitle.${c.award}`), ...(c.teamName ? [t('certificate.ofTeam', { team: c.teamName })] : [])] }
@@ -46,7 +48,10 @@ export function useAward() {
 
 // One A4 landscape page. Printing (or "Save as PDF" in the print dialog) gives a real PDF with the site fonts.
 export function CertificateSheet({ c }: { c: Certificate }) {
-  const { t } = useTranslation()
+  const { t: siteT, i18n } = useTranslation()
+  // the sheet is printed in its holder's language (a Kazakh league certificate in Kazakh), dates included
+  const t = c.language ? i18n.getFixedT(c.language) : siteT
+  const lang = c.language ?? i18n.language
   const award = useAward()(c)
   const verifyUrl = `${window.location.origin}/verify/${c.code}`
   const tier = TIERS[tierOf(c)]
@@ -76,12 +81,12 @@ export function CertificateSheet({ c }: { c: Certificate }) {
           {award.lines.map(line => <p key={line}>{line}</p>)}
         </div>
         <p className="mt-[2%] text-[clamp(0.8rem,1.5vw,1.15rem)] text-navy/80">
-          «{c.tournament.name}» · {c.tournament.city} · {formatDateRange(c.tournament.startDate, c.tournament.endDate)}
+          «{c.tournament.name}» · {c.tournament.city} · {formatDateRange(c.tournament.startDate, c.tournament.endDate, lang)}
         </p>
         <div className="mt-auto flex w-full items-end justify-between gap-4 text-left">
           <div className="text-[clamp(0.6rem,1.1vw,0.85rem)] text-navy/70">
             <p>{t('certificate.organizer')}: <b className="text-navy">{c.tournament.organizer}</b></p>
-            <p>{t('certificate.issued')}: {formatDate(c.issuedAt, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            <p>{t('certificate.issued')}: {formatDate(c.issuedAt, { day: 'numeric', month: 'long', year: 'numeric' }, lang)}</p>
           </div>
           <div className="flex items-end gap-3 text-right">
             <div className="text-[clamp(0.55rem,1vw,0.8rem)] text-navy/70">

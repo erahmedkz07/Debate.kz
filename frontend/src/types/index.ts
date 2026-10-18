@@ -310,6 +310,7 @@ export interface Certificate {
   code: string
   kind: 'speaker' | 'judge' | 'award'
   award?: 'best_speaker' | 'best_judge' // an award diploma
+  language?: 'ru' | 'kz' // the language it is printed in (the holder's league); none = the reader's
   name: string
   teamName?: string
   institution?: string
