@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Logo } from '@/components/brand'
 import NotFound from './NotFound'
+import { LangSwitch } from '@/components/layout/Header'
 
 // A printable report of the tournament's results (the browser saves it as PDF), for the organizer's management:
 // the champions, then for each league its final places, table, speakers, playoffs and rounds, and the judges.
@@ -36,6 +37,7 @@ export default function TournamentReport() {
       <style>{'@page { size: A4; margin: 14mm 12mm; } @media print { html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }'}</style>
       <div className="mx-auto max-w-[210mm] p-4 sm:p-8 print:max-w-none print:p-0">
         <div className="mb-4 flex flex-wrap items-center justify-end gap-2 print:hidden">
+          <LangSwitch className="mr-auto" />
           <Button variant="outline" onClick={() => void downloadXlsx(data, report, t)}><FileSpreadsheet className="size-4" />{t('export.excel')}</Button>
           <Button onClick={() => window.print()}><Printer className="size-4" />{t('export.print')}</Button>
         </div>

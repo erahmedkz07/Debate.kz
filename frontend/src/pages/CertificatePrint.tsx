@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { CertificateSheet } from '@/components/certificate/CertificateSheet'
 import { useBack } from '@/components/layout/BackButton'
+import { LangSwitch } from '@/components/layout/Header'
 
 // /certificates/:code — one certificate; /tournaments/:id/certificates/print — every certificate of a tournament.
 // "Download PDF" opens the print dialog: choosing "Save as PDF" gives an A4 landscape PDF with the site fonts.
@@ -31,6 +32,7 @@ export default function CertificatePrint() {
             <ArrowLeft className="size-4" />{t('certificate.back')}
           </button>
           <div className="flex items-center gap-3">
+            <LangSwitch />
             <p className="hidden text-xs text-muted-foreground sm:block">{t('certificate.printHint')}</p>
             <Button onClick={() => window.print()} disabled={!data?.length}><Printer className="size-4" />{t('certificate.download')}</Button>
           </div>

@@ -204,6 +204,12 @@ export async function getStandings(tournamentId: string, hide: Set<string> = new
   const wins = new Map<string, number>(), losses = new Map<string, number>(), points = new Map<string, number>()
   const speakerSum = new Map<string, number>(), speakerRounds = new Map<string, number>()
   const add = (m: Map<string, number>, id: string, n = 1) => m.set(id, (m.get(id) ?? 0) + n)
+  // round by round (for the reports): a speaker's score; a team's result, score (the panel's average, replies
+  // included) and opponent; a team's total margin over its opponents
+  type TeamRound = { result: 'W' | 'L' | number; score: number; opponentId?: string }
+  const speakerByRound = new Map<string, Record<string, number>>(), teamByRound = new Map<string, Record<string, TeamRound>>()
+  const margins = new Map<string, number>()
+  const round1 = (n: number) => Math.round(n * 10) / 10
 
   for (const d of debates) {
     if (d.ranking.length) {
@@ -228,22 +234,34 @@ export async function getStandings(tournamentId: string, hide: Set<string> = new
       perSpeaker.set(s.speakerId, [...(perSpeaker.get(s.speakerId) ?? []), Number(s.score)])
     }
     for (const [speakerId, list] of perSpeaker) {
-      speakerSum.set(speakerId, (speakerSum.get(speakerId) ?? 0) + list.reduce((a, c) => a + c, 0) / list.length)
+      const avg = list.reduce((a, c) => a + c, 0) / list.length
+      speakerSum.set(speakerId, (speakerSum.get(speakerId) ?? 0) + avg)
       speakerRounds.set(speakerId, (speakerRounds.get(speakerId) ?? 0) + 1)
+      speakerByRound.set(speakerId, { ...speakerByRound.get(speakerId), [d.roundId]: round1(avg) })
+    }
+    // each side's score in this debate: the panel's average of its totals (a technical loss has no ballots)
+    const sides = (['proposition', 'opposition', 'closingProposition', 'closingOpposition'] as const).filter(side => teamOnSide(d, side))
+    const scoreOf = (side: string) => (d.ballots.length ? d.ballots.reduce((sum, b) => sum + b.scores.filter(x => x.side === side).reduce((a, x) => a + Number(x.score), 0), 0) / d.ballots.length : 0)
+    for (const side of sides) {
+      const id = teamOnSide(d, side)!
+      const place = d.ranking.indexOf(side)
+      const opponent = sides.length === 2 ? teamOnSide(d, sides.find(x => x !== side)!) ?? undefined : undefined
+      const result: TeamRound['result'] = d.ranking.length ? place + 1 : d.winner === side ? 'W' : 'L'
+      teamByRound.set(id, { ...teamByRound.get(id), [d.roundId]: { result, score: round1(scoreOf(side)), ...(opponent && { opponentId: opponent }) } })
+      if (sides.length === 2 && d.ballots.length) add(margins, id, scoreOf(side) - scoreOf(sides.find(x => x !== side)!))
     }
   }
 
-  const round1 = (n: number) => Math.round(n * 10) / 10
   const teamRows = teams.map(team => {
     const sp = team.speakers.reduce((s, x) => s + (speakerSum.get(x.id) ?? 0), 0)
     const w = wins.get(team.id) ?? 0, l = losses.get(team.id) ?? 0
     // points: wins in two-team formats, team points (3/2/1/0) in BP
-    return { team: toTeam(team), wins: w, losses: l, points: points.get(team.id) ?? 0, speakerPoints: round1(sp), margins: 0 }
+    return { team: toTeam(team), wins: w, losses: l, points: points.get(team.id) ?? 0, speakerPoints: round1(sp), margins: round1(margins.get(team.id) ?? 0), byRound: teamByRound.get(team.id) ?? {} }
   }).sort((a, b) => b.points - a.points || b.speakerPoints - a.speakerPoints)
 
   const speakerRows = teams.flatMap(team => team.speakers.map(s => {
     const total = speakerSum.get(s.id) ?? 0, n = speakerRounds.get(s.id) ?? 0
-    return { speaker: { id: s.id, name: s.name, teamId: team.id, ...(s.userId && { userId: s.userId }) }, team: toTeam(team), total: round1(total), average: n ? round1(total / n) : 0 }
+    return { speaker: { id: s.id, name: s.name, teamId: team.id, ...(s.userId && { userId: s.userId }) }, team: toTeam(team), total: round1(total), average: n ? round1(total / n) : 0, rounds: n, byRound: speakerByRound.get(s.id) ?? {} }
   })).sort((a, b) => b.total - a.total)
 
   return {

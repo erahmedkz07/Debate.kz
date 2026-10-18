@@ -174,6 +174,7 @@ function LotteryCard({ id }: { id: string }) {
 function Overview({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
   const formatName = useFormatName(data.format)
+  const roundName = useRoundName()
   const days = [...new Set(data.schedule.map(s => s.day))]
   const facts = [
     { icon: Trophy, label: t('tournament.format'), value: formatName.full },
@@ -211,14 +212,23 @@ function Overview({ data }: { data: TournamentDetails }) {
         <Card className="p-6">
           <h2 className="flex items-center gap-2 text-xl font-bold"><MessageSquareQuote className="size-5 text-primary" />{t('tournament.motions')}</h2>
           <ol className="mt-4 space-y-3">
-            {data.rounds.map(r => (
-              <li key={r.id} className="flex gap-4 rounded-xl bg-muted/60 p-4">
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">{r.number}</span>
-                <p className={cn('text-sm leading-relaxed', r.status === 'draft' && 'italic text-muted-foreground')}>
-                  {r.status === 'draft' ? t('tournament.motionHidden') : r.motion}
-                </p>
-              </li>
-            ))}
+            {data.rounds.map(r => {
+              // with leagues each league's own motion under its name; a league's playoff round, that league only.
+              // A closed (silent) round hides its results, never its motion.
+              const own = leaguesOfRound(r, data.leagues)
+              const motions = own.length ? own.map(l => ({ key: l.key, name: own.length > 1 ? l.name : '', motion: leagueMotion(r, l.key).motion })) : [{ key: '', name: '', motion: r.motion }]
+              return (
+                <li key={r.id} className="flex gap-4 rounded-xl bg-muted/60 p-4">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">{r.number}</span>
+                  <div className="min-w-0 space-y-2">
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{roundName(r)}</p>
+                    {r.status === 'draft' ? <p className="text-sm italic text-muted-foreground">{t('tournament.motionHidden')}</p> : motions.filter(m => m.motion).map(m => (
+                      <p key={m.key} className="text-sm leading-relaxed">{m.name && <span className="mr-1.5 font-semibold text-primary">{m.name}:</span>}{m.motion}</p>
+                    ))}
+                  </div>
+                </li>
+              )
+            })}
           </ol>
         </Card>
         <Card className="p-6">

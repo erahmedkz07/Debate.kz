@@ -11,7 +11,7 @@ import { finalPlaces, type FinalPlace } from '@/lib/places'
 // only fill the draw and are never listed. A column empty in every row (no schools, no clubs) is left out.
 
 export type Cell = string | number
-export type TableKey = 'places' | 'teams' | 'speakers' | 'playoffs' | 'rounds' | 'judges'
+export type TableKey = 'places' | 'teams' | 'teamRounds' | 'speakers' | 'playoffs' | 'rounds' | 'judges'
 export interface Table { key: TableKey; title: string; group?: string; header: string[]; rows: Cell[][] }
 export interface ReportGroup { key: string; name: string; champion?: string; tables: Table[] }
 export interface Report { groups: ReportGroup[]; judges: Table | null; summary: { teams: number; judges: number; rounds: number } }
@@ -49,6 +49,10 @@ export function buildReport({ details, teams, speakers, bracket }: ReportData, {
   const leagues = details.leagues ?? []
   const groups = leagues.length ? leagues : [{ key: '', name: '' }]
   const sideList = sidesOf(details.format)
+  // the preliminary rounds the reader may see results of, in order
+  const shownRounds = details.rounds.filter(r => r.kind !== 'elimination' && r.status === 'completed' && !silent.has(r.id))
+  const outcome = (x: { result: 'W' | 'L' | number; score: number }) =>
+    `${typeof x.result === 'number' ? t('ballot.placeN', { n: x.result }) : t(x.result === 'W' ? 'report.win' : 'report.loss')}${x.score ? ` · ${x.score.toFixed(1)}` : ''}`
   const result = (d: Debate) => {
     if (d.ranking?.length) return d.ranking.map((s, i) => `${i + 1}. ${teamName(teamIdOn(d, s))}`).join('  ')
     const win = d.winner ? teamName(teamIdOn(d, d.winner)) : ''
@@ -70,13 +74,30 @@ export function buildReport({ details, teams, speakers, bracket }: ReportData, {
     }
     tables.push({
       key: 'teams', title: places ? t('report.teamsPrelim') : t('export.teams'), group: g.name,
-      header: ['#', t('common.team'), t('export.institution'), t('export.club'), bp ? t('tournament.teamPoints') : t('tournament.wins'), ...(bp ? [] : [t('export.losses')]), t('tournament.speakerPoints'), t('export.seed')],
-      rows: table.map(r => [r.rank, r.team.name, r.team.institution, r.team.club?.name ?? '', bp ? r.points : r.wins, ...(bp ? [] : [r.losses]), r.speakerPoints, seedOf.get(r.team.id) ?? '']),
+      header: ['#', t('common.team'), t('export.institution'), t('export.club'), bp ? t('tournament.teamPoints') : t('tournament.wins'), ...(bp ? [] : [t('export.losses'), t('report.margin')]), t('tournament.speakerPoints'), t('report.avgTeam'), t('export.seed')],
+      rows: table.map(r => {
+        // the team's average score per round (replies included, as in the rounds table)
+        const scored = Object.values(r.byRound ?? {}).filter(x => x.score)
+        const avg = scored.length ? Math.round((scored.reduce((sum, x) => sum + x.score, 0) / scored.length) * 10) / 10 : ''
+        return [r.rank, r.team.name, r.team.institution, r.team.club?.name ?? '', bp ? r.points : r.wins, ...(bp ? [] : [r.losses, r.margins]), r.speakerPoints, avg, seedOf.get(r.team.id) ?? '']
+      }),
     })
+    // every team round by round: the result, its score and the opponent
+    if (shownRounds.length) {
+      tables.push({
+        key: 'teamRounds', title: t('report.teamRounds'), group: g.name,
+        header: ['#', t('common.team'), ...shownRounds.map(rd => roundName(rd))],
+        rows: table.map(r => [r.rank, r.team.name, ...shownRounds.map(rd => {
+          const x = r.byRound?.[rd.id]
+          if (!x) return '—'
+          return `${outcome(x)}${x.opponentId ? ` · ${t('report.vs', { team: teamName(x.opponentId) })}` : ''}`
+        })]),
+      })
+    }
     tables.push({
       key: 'speakers', title: t('export.speakers'), group: g.name,
-      header: ['#', t('export.speaker'), t('common.team'), t('export.total'), t('export.average')],
-      rows: speakers.filter(s => s.total > 0 && inGroup(s.team.id)).map((s, i) => [i + 1, s.speaker.name, s.team.name, s.total, s.average]),
+      header: ['#', t('export.speaker'), t('common.team'), ...shownRounds.map(rd => roundName(rd)), t('export.total'), t('export.average'), t('report.roundsSpoken')],
+      rows: speakers.filter(s => s.total > 0 && inGroup(s.team.id)).map((s, i) => [i + 1, s.speaker.name, s.team.name, ...shownRounds.map(rd => s.byRound?.[rd.id] ?? '—'), s.total, s.average, s.rounds ?? '']),
     })
     // the playoffs: this group's bracket (without leagues, the category brackets too)
     const parts = !bracket?.announced ? [] : g.key ? (part ? [{ ...part, name: '' }] : []) : [{ ...bracket, name: '' }, ...bracket.categories]
@@ -94,13 +115,17 @@ export function buildReport({ details, teams, speakers, bracket }: ReportData, {
     const rounds: Cell[][] = []
     for (const r of details.rounds.filter(x => x.status !== 'draft' && x.kind !== 'elimination')) {
       for (const d of details.debates.filter(x => x.roundId === r.id && inGroup(x.propositionTeamId))) {
-        rounds.push([roundName(r), d.room, ...sideList.map(s => teamName(teamIdOn(d, s))), silent.has(r.id) ? t('profile.result.silent') : result(d), d.judgeIds.map(judgeName).join(', ')])
+        // two-team formats: each side's score (the panel's average) and the margin
+        const score = (side: Side) => (silent.has(r.id) ? undefined : teams.find(x => x.team.id === teamIdOn(d, side))?.byRound?.[r.id]?.score)
+        const scores: Cell[] = bp ? [] : sideList.map(s => score(s) || '')
+        const margin = !bp && typeof scores[0] === 'number' && typeof scores[1] === 'number' ? Math.round(Math.abs(scores[0] - scores[1]) * 10) / 10 : ''
+        rounds.push([roundName(r), d.room, ...sideList.flatMap((s, i) => (bp ? [teamName(teamIdOn(d, s))] : [teamName(teamIdOn(d, s)), scores[i]])), silent.has(r.id) ? t('profile.result.silent') : result(d), margin, d.judgeIds.map(judgeName).join(', ')])
       }
     }
     if (rounds.length) {
       tables.push({
         key: 'rounds', title: t('report.roundsPrelim'), group: g.name,
-        header: [t('export.round'), t('tournament.room'), ...sideList.map(s => sides[s]), bp ? t('ballot.places') : t('tournament.winner'), t('tournament.judges')],
+        header: [t('export.round'), t('tournament.room'), ...sideList.flatMap(s => (bp ? [sides[s]] : [sides[s], t('report.points')])), bp ? t('ballot.places') : t('tournament.winner'), t('report.margin'), t('tournament.judges')],
         rows: rounds,
       })
     }
@@ -110,8 +135,12 @@ export function buildReport({ details, teams, speakers, bracket }: ReportData, {
 
   const judges = details.judges.length ? compact({
     key: 'judges', title: t('report.judges'),
-    header: ['#', t('report.judge'), t('export.institution'), ...(leagues.length ? [t('report.league')] : [])],
-    rows: [...details.judges].sort((a, b) => a.name.localeCompare(b.name, 'ru')).map((j, i) => [i + 1, j.name, j.institution ?? '', ...(leagues.length ? [j.league ? leagues.find(l => l.key === j.league)?.name ?? '' : t('leagues.any')] : [])]),
+    header: ['#', t('report.judge'), t('export.institution'), ...(leagues.length ? [t('report.league')] : []), t('report.judged'), t('report.chaired')],
+    rows: [...details.judges].sort((a, b) => a.name.localeCompare(b.name, 'ru')).map((j, i) => {
+      // the rooms a judge sat in (released rounds), and how many of them as the chair
+      const sat = details.debates.filter(d => d.judgeIds.includes(j.id) && details.rounds.some(r => r.id === d.roundId && r.status !== 'draft'))
+      return [i + 1, j.name, j.institution ?? '', ...(leagues.length ? [j.league ? leagues.find(l => l.key === j.league)?.name ?? '' : t('leagues.any')] : []), sat.length, sat.filter(d => d.judgeIds[0] === j.id).length]
+    }),
   }) : null
   return {
     groups: out, judges,
@@ -127,7 +156,7 @@ export async function downloadXlsx(data: ReportData, report: Report, t: TFunctio
   // loaded on demand: the library is needed only when someone downloads
   const { default: writeXlsxFile } = await import('write-excel-file/browser')
   const byLeague = report.groups.length > 1
-  const order: TableKey[] = ['places', 'teams', 'speakers', 'playoffs', 'rounds']
+  const order: TableKey[] = ['places', 'teams', 'teamRounds', 'speakers', 'playoffs', 'rounds']
   const sheets: { title: string; header: string[]; rows: Cell[][] }[] = []
   for (const key of order) {
     const parts = report.groups.flatMap(g => g.tables.filter(tb => tb.key === key).map(tb => ({ g, tb })))

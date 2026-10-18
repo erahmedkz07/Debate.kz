@@ -126,7 +126,9 @@ export interface TeamStanding {
   losses: number
   points: number // wins in two-team formats, team points (3/2/1/0 per round) in BP
   speakerPoints: number
-  margins: number
+  margins: number // the total margin over the opponents (two-team formats)
+  // round by round: the result (W / L, BP: the place), the team's score and the opponent (two-team formats)
+  byRound?: Record<string, { result: 'W' | 'L' | number; score: number; opponentId?: string }>
 }
 
 export interface SpeakerStanding {
@@ -135,6 +137,8 @@ export interface SpeakerStanding {
   team: Team
   total: number
   average: number
+  rounds?: number // rounds spoken
+  byRound?: Record<string, number> // the speaker's score in each round
 }
 
 export interface ScheduleItem {
