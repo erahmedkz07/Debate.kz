@@ -328,7 +328,8 @@ function Teams({ data, reload }: SectionProps) {
   const [toDelete, setToDelete] = useState<Team | null>(null)
   const leagues = data.leagues ?? []
   const [league, setLeague] = useState('')
-  const shown = data.teams.filter(x => !league || x.league === league)
+  // swing teams only fill the draw: never listed as teams
+  const shown = data.teams.filter(x => !x.swing && (!league || x.league === league))
   // teams of a tournament with leagues that are in none: the draw waits for them
   const noLeague = leagues.length ? data.teams.filter(x => !x.swing && !leagues.some(l => l.key === x.league)).length : 0
 
@@ -1766,7 +1767,7 @@ function SettingsSection({ data, reload }: SectionProps) {
   const [params, setParams] = useSearchParams()
   const parts = ['general', 'place', ...(data.status !== 'finished' ? ['conduct'] : []), 'access', ...(data.myRole === 'owner' || data.myRole === 'admin' ? ['danger'] : [])]
   const part = parts.includes(params.get('part') ?? '') ? params.get('part')! : 'general'
-  const setPart = (v: string) => setParams(prev => { const n = new URLSearchParams(prev); n.set('part', v); return n }, { replace: true })
+  const setPart = (v: string) => setParams(prev => { const n = new URLSearchParams(prev); n.set('part', v); return n })
   const [stageTo, setStageTo] = useState<TournamentStatus | null>(null)
   const changeStage = async () => {
     if (await run('stage', () => updateTournament(data.id, { status: stageTo! }), t('dashboard.stage.changed'))) { setStageTo(null); reload() }

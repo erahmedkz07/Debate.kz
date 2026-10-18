@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Crown, MapPin, Users } from 'lucide-react'
 import { getRating } from '@/api'
@@ -103,12 +103,15 @@ export default function Rating() {
       sub: t('rating.clubSub', { teams: r.teams, tournaments: r.tournaments, average: r.speakerAverage.toFixed(1) }), extra: `${r.winRate}%`,
     }))
 
+  // the open tab lives in the address: "back" returns to it
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') ?? 'teams'
   return (
     <>
       <PageHeader title={t('rating.title')} subtitle={t('rating.subtitle')} />
       <div className="container-page py-10">
         {error ? <ErrorState onRetry={reload} /> : (
-          <Tabs defaultValue="teams">
+          <Tabs value={tab} onValueChange={v => setParams(v === 'teams' ? {} : { tab: v }, { preventScrollReset: true })}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <TabsList>
                 <TabsTrigger value="teams">{t('rating.teams')}</TabsTrigger>

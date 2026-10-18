@@ -126,7 +126,9 @@ export interface TeamStanding {
   losses: number
   points: number // wins in two-team formats, team points (3/2/1/0 per round) in BP
   speakerPoints: number
-  margins: number
+  margins: number // the total margin over the opponents (two-team formats)
+  // round by round: the result (W / L, BP: the place), the team's score and the opponent (two-team formats)
+  byRound?: Record<string, { result: 'W' | 'L' | number; score: number; opponentId?: string }>
 }
 
 export interface SpeakerStanding {
@@ -135,6 +137,8 @@ export interface SpeakerStanding {
   team: Team
   total: number
   average: number
+  rounds?: number // rounds spoken
+  byRound?: Record<string, number> // the speaker's score in each round
 }
 
 export interface ScheduleItem {
@@ -485,3 +489,7 @@ export interface ClubJoinRequest {
 // the motion and info slide a league plays (its own, else the round's)
 export const leagueMotion = (r: Pick<Round, 'motion' | 'infoSlide' | 'leagueMotions'>, league?: string) =>
   ({ motion: (league && r.leagueMotions?.[league]?.motion) || r.motion, infoSlide: (league && r.leagueMotions?.[league]?.infoSlide) || r.infoSlide })
+
+// the leagues a round is for: a league's playoff round (its bracket) is that league's only; any other round, every league
+export const leaguesOfRound = (r: Pick<Round, 'category'>, leagues: League[] = []) =>
+  (r.category && leagues.some(l => l.key === r.category) ? leagues.filter(l => l.key === r.category) : leagues)

@@ -281,17 +281,19 @@ export default function Profile() {
   const [form, setForm] = useState({ name: user!.name, phone: user!.phone ?? '', institution: user!.institution ?? '', city: user!.city ?? '' })
   const [params, setParams] = useSearchParams()
   // ?tab=club etc. opens a section; a participant without a club lands on "My club" (the club is required to apply)
+  // the open section lives in the address (?tab=), so "back" returns to the section seen before
   const asked = params.get('tab') ?? (params.has('club') ? 'club' : null)
-  const [tab, setTab] = useState(isAdmin || params.has('welcome') || params.has('google') || params.has('google_error') ? 'settings'
-    : asked && ['club', 'registrations', 'debates', 'progress', 'certificates', 'settings'].includes(asked) ? asked : !user?.clubTeam ? 'club' : 'registrations')
+  const tab = params.has('welcome') || params.has('google') || params.has('google_error') ? 'settings'
+    : asked && ['club', 'registrations', 'debates', 'progress', 'certificates', 'settings'].includes(asked) ? asked : isAdmin ? 'settings' : !user?.clubTeam ? 'club' : 'registrations'
+  const setTab = (v: string) => setParams({ tab: v }, { preventScrollReset: true })
   // the server sends people back here after Google: ?welcome=1 (new account), ?google=linked, ?google_error=…
   useEffect(() => {
     const welcome = params.get('welcome'), linked = params.get('google'), failed = params.get('google_error')
-    if (!welcome && !linked && !failed) { if (params.has('club') || params.has('tab')) setParams({}, { replace: true }); return }
+    if (!welcome && !linked && !failed) { if (params.has('club')) setParams({ tab: 'club' }, { replace: true }); return }
     if (welcome) toast.success(t('google.welcome', { name: user?.name.split(' ')[0] }), { description: t('google.welcomeText'), duration: 8000 })
     if (linked) { toast.success(t('google.linked')); void getMe().then(me => me && signIn(me)) }
     if (failed) toast.error(t(`google.errors.${failed}`, { defaultValue: t('google.errors.google_failed') }))
-    setParams({}, { replace: true })
+    setParams({ tab: 'settings' }, { replace: true })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
   if (!user) return null
   // what a participant still has to add (a Google sign-up brings only the name, email and photo)
@@ -356,7 +358,7 @@ export default function Profile() {
         <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-accent bg-accent-soft p-4 text-sm">
           <AlertCircle className="size-5 shrink-0 text-navy dark:text-accent" />
           <p className="min-w-0 flex-1"><b>{t('google.completeTitle')}</b> {t('google.completeText', { fields: missing.map(k => t(`google.fields.${k}`)).join(', ') })}</p>
-          <Button size="sm" onClick={() => { setTab('settings'); if (missing[0] === 'club') return setTab('club'); setTimeout(() => document.getElementById(missing[0] === 'phone' ? 'p-phone' : missing[0] === 'city' ? 'p-city' : 'p-inst')?.focus(), 50) }}>{t('google.completeButton')}</Button>
+          <Button size="sm" onClick={() => { setTab(missing[0] === 'club' ? 'club' : 'settings'); if (missing[0] === 'club') return; setTimeout(() => document.getElementById(missing[0] === 'phone' ? 'p-phone' : missing[0] === 'city' ? 'p-city' : 'p-inst')?.focus(), 50) }}>{t('google.completeButton')}</Button>
         </div>
       )}
 
