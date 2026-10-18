@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import {
   Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award,
 } from 'lucide-react'
-import { getSelection, getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
+import { getBracket, getSelection, getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
@@ -33,7 +33,8 @@ import { useRoundName } from '@/lib/rounds'
 import { PlayoffTab } from '@/components/tournament/Bracket'
 import { ReviewsTab } from '@/components/tournament/Reviews'
 import { silentRoundIds } from '@/lib/silent'
-import { buildTables, downloadXlsx, loadReport } from '@/lib/report'
+import { finalPlaces } from '@/lib/places'
+import { buildReport, bracketOfLeague, downloadXlsx, loadReport, placeLabel } from '@/lib/report'
 import { cityName } from '@/content/geo'
 import { quoted } from '@/lib/motion'
 import { SpeakerInviteButton } from '@/components/tournament/SpeakerInviteButton'
@@ -268,7 +269,7 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
   const manager = !!data.myRole
   const leagues = data.leagues ?? []
   const [league, setLeague] = useState('')
-  const shown = data.teams.filter(x => !league || x.league === league)
+  const shown = data.teams.filter(x => !x.swing && (!league || x.league === league))
   return (
     <>
     {leagues.length > 0 && <LeagueTabs className="mb-5 w-fit" leagues={leagues} value={league} onChange={setLeague} all />}
@@ -409,7 +410,7 @@ function TeamCell({ name, logo, win, place, center }: { name: string; logo?: str
 async function exportXlsx(id: string, t: TFunction, sides: Record<Side, string>, roundName: ReturnType<typeof useRoundName>) {
   try {
     const data = await loadReport(id)
-    await downloadXlsx(data, buildTables(data, { t, sides, roundName }))
+    await downloadXlsx(data, buildReport(data, { t, sides, roundName }), t)
   } catch (e) {
     toast.error(errorMessage(e, t))
   }
@@ -465,6 +466,9 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
     </div>
   )
   const standings = useAsync(() => getStandings(id), [id])
+  // after the playoffs: the final places (the champion first), above the preliminary table
+  const hasPlayoffs = !!tournament?.rounds.some(r => r.kind === 'elimination')
+  const bracket = useAsync(() => (hasPlayoffs ? getBracket(id) : Promise.resolve(null)), [id, hasPlayoffs])
   const { error, loading, reload } = standings
   if (error) return <ErrorState onRetry={reload} />
   if (loading || !standings.data) return <div className="space-y-2">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>
@@ -491,11 +495,43 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
     const forecast = !silent && tournament && tournament.status === 'ongoing' && breakSize > 0 && done > 0 && remaining > 0
       ? breakForecast(data.teams, breakSize, remaining, bp ? 3 : 1) : null
     const look = { safe: 'success', live: 'accent', out: 'muted' } as const
+    const places = finalPlaces(bracketOfLeague(bracket.data ?? null, leagues.length ? league : ''), data.teams.map(r => r.team.id))
+    const teamOf = (teamId: string) => data.teams.find(r => r.team.id === teamId)?.team
     return (
       <>
       {exportBar}
       {leagueBar}
       {silentNote}
+      {places && (
+        <>
+          <h3 className="mb-3 flex items-center gap-2 text-lg font-extrabold"><Trophy className="size-5 text-accent-foreground dark:text-accent" />{t('report.places')}</h3>
+          <Card className="mb-8 overflow-x-auto">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr><th className="w-20 px-4 py-3">{t('report.place')}</th><th className="px-4 py-3">{t('common.team')}</th><th className="px-4 py-3 text-right">{t('report.result')}</th></tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {places.map(p => {
+                  const tm = teamOf(p.teamId)
+                  return (
+                    <tr key={p.teamId} className={cn('hover:bg-muted/40', p.stage === 'champion' && 'bg-accent-soft/60')}>
+                      <td className="px-4 py-3">{/^\d+$/.test(p.place) && Number(p.place) <= 3 ? medal(Number(p.place)) : <span className="px-1 text-sm font-bold text-muted-foreground">{p.place}</span>}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <EntityLogo src={tm?.logoUrl} name={tm?.name ?? ''} size="sm" />
+                          <div className="min-w-0"><p className="font-bold">{tm?.name}</p>{tm?.institution && <p className="text-xs text-muted-foreground">{tm.institution}</p>}</div>
+                        </div>
+                      </td>
+                      <td className={cn('px-4 py-3 text-right text-sm', p.stage === 'champion' ? 'font-extrabold text-success' : p.stage === 'prelims' ? 'text-muted-foreground' : 'font-semibold')}>{placeLabel(p, t)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </Card>
+          <h3 className="mb-3 text-lg font-extrabold">{t('report.teamsPrelim')}</h3>
+        </>
+      )}
       {forecast && (
         <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-border bg-card p-4 text-sm">
           <p><b>{t('tournament.break.title', { count: breakSize })}</b> · {t('tournament.break.remaining', { count: remaining })}</p>

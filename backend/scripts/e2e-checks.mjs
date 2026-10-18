@@ -2809,5 +2809,37 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await client()('GET', `/certificates/${page.certificates[0].code}`)).data?.name === d.judges.find(x => x.id === panel[2]).name, 'the certificate opens by its code')
 }
 
+// ---------- 72. a judge added by name is linked to an account after the finish: the certificate shows in the profile ----------
+{
+  const host = await newAccount('Привязка Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(530), name: `Привязка ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Прив А', 'Прив Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Привязка Судья', 'Привязка Второй'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const get = async () => (await host.c('GET', `/tournaments/${t.id}`)).data
+  let d = await get()
+  const r1 = d.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: `ЭП введёт форму ${jtag}`, status: 'released' })
+  d = await get()
+  await host.c('POST', `/debates/${d.debates[0].id}/forfeit`, { side: 'opposition' })
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })).status === 200, 'the tournament finishes')
+  const mine = d.judges.find(j => j.name === 'Привязка Судья')
+  const other = d.judges.find(j => j.name === 'Привязка Второй')
+  ok(!(await host.c('GET', '/me/certificates')).data.some(c => c.tournament?.id === t.id), 'before linking the profile has no certificate of the tournament')
+  const stranger = await newAccount('Привязка Чужой')
+  ok((await stranger.c('POST', `/judges/${mine.id}/claim`)).status === 403, 'only organizers link a judge to themselves')
+  ok((await host.c('POST', `/judges/${mine.id}/claim`)).status === 200, '"this is me": the organizer links the judge after the finish')
+  ok((await host.c('GET', '/me/certificates')).data.some(c => c.tournament?.id === t.id && c.kind === 'judge'), 'the judge certificate shows in the profile')
+  ok((await host.c('POST', `/judges/${other.id}/claim`)).data?.error === 'already_joined', 'one person is one judge of a tournament')
+  ok((await host.c('POST', `/judges/${mine.id}/claim`)).data?.error === 'judge_has_account', 'a linked judge cannot be claimed again')
+  // a judge can still be linked by email after the finish; a new judge cannot be invited
+  const byMail = await host.c('POST', `/tournaments/${t.id}/invites/email`, { email: `prv-${jtag.toLowerCase()}@example.com`, kind: 'judge', judgeId: other.id })
+  ok(byMail.status === 201 || byMail.status === 200, 'after the finish a judge is still linked by email')
+  ok((await host.c('POST', `/tournaments/${t.id}/invites/email`, { email: `new-${jtag.toLowerCase()}@example.com`, kind: 'judge' })).data?.error === 'tournament_finished', 'after the finish no new judge is invited')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

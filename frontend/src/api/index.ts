@@ -246,6 +246,8 @@ export interface JudgeLinkData {
 }
 export const getJudgeLink = (key: string) => http<JudgeLinkData>('GET', '/judge-link', undefined, key)
 export const setJudgeLeague = (judgeId: string, league: string | null) => http<{ id: string; league: string | null }>('PATCH', `/judges/${judgeId}`, { league })
+// "this is me": the organizer links a judge added by name to their own account
+export const claimJudge = (judgeId: string) => http<{ ok: true }>('POST', `/judges/${judgeId}/claim`, {})
 export const newJudgeLink = (judgeId: string) => http<{ accessKey: string }>('POST', `/judges/${judgeId}/link`, {})
 
 export interface BallotPayload {
