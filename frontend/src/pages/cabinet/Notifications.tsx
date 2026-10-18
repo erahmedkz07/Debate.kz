@@ -37,7 +37,7 @@ export default function Notifications() {
   const [params, setParams] = useSearchParams()
   const asked = params.get('tab') ?? 'all'
   const tab = asked === 'platform' ? (isAdmin ? asked : 'all') : (CATEGORIES as readonly string[]).includes(asked) ? asked : 'all'
-  const setTab = (v: string) => setParams(v === 'all' ? {} : { tab: v }, { replace: true })
+  const setTab = (v: string) => setParams(v === 'all' ? {} : { tab: v })
   const mode = tab === 'platform' ? 'platform' : 'mine'
   const [items, setItems] = useState<AppNotification[]>([])
   const [unread, setUnread] = useState(0)

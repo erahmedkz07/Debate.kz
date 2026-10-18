@@ -56,8 +56,7 @@ invitesRouter.post('/tournaments/:id/invites/email', requireAuth(), async (req, 
     if (j.userId) throw conflict('judge_has_account')
   }
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId } })
-  // after the finish only an existing judge can still be linked to an account (for their certificate and history)
-  if (t.status === 'finished' && !d.judgeId) throw badRequest('tournament_finished')
+  if (t.status === 'finished') throw badRequest('tournament_finished')
   const today = await prisma.tournamentInvite.count({ where: { tournamentId, email: { not: null }, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
   if (today >= EMAIL_INVITES_PER_DAY) throw new HttpError(429, 'too_many_invites')
   const open = await prisma.tournamentInvite.findFirst({ where: { tournamentId, kind: d.kind, email: d.email, usedAt: null, declinedAt: null, expiresAt: { gt: new Date() } } })

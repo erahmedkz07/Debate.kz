@@ -681,7 +681,7 @@ export default function TournamentPage() {
 
       <div className="container-page py-8 sm:py-10">
         <Tabs value={requestedTab && tabs.includes(requestedTab) ? requestedTab : data.status === 'registration' ? 'overview' : 'draw'}
-          onValueChange={v => setParams(p => { p.set('tab', v); return p }, { replace: true, preventScrollReset: true })}>
+          onValueChange={v => setParams(p => { p.set('tab', v); return p }, { preventScrollReset: true })}>
           <TabsList>
             <TabsTrigger value="overview">{t('tournament.tabs.overview')}</TabsTrigger>
             <TabsTrigger value="teams">{t('tournament.tabs.teams')} <span className="ml-1 text-xs opacity-60">{data.teams.filter(x => !x.swing).length}</span></TabsTrigger>

@@ -5,7 +5,7 @@ import { fromDay, isRealDay, toDay, todayKz } from '../lib/dates.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
-import { assertCanManage, assertOwner, leaguesOf, participationIn, motionFor, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
+import { assertCanManage, assertOwner, leaguesOf, motionFor, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
 import { generateDraw } from '../services/draw.js'
 import { announceBreak, cancelBreak, categoriesOf, MAX_BREAK, validBreak } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
@@ -570,24 +570,6 @@ organizerRouter.post('/judges/:judgeId/link', org, async (req, res) => {
   const accessKey = randomBytes(18).toString('base64url')
   await prisma.judge.update({ where: { id: judge.id }, data: { accessKey } })
   res.json({ accessKey })
-})
-
-// "This is me": an organizer who judged links a judge added by name to their own account (also after the finish),
-// so the certificate and the judging history show in their profile
-organizerRouter.post('/judges/:judgeId/claim', org, async (req, res) => {
-  const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') } })
-  if (!judge) throw notFound('judge_not_found')
-  await assertCanManage(req.user, judge.tournamentId)
-  if (judge.userId) throw conflict('judge_has_account')
-  const me = req.user!.id
-  const role = await participationIn(me, judge.tournamentId)
-  if (role.competitor) throw forbidden('conflict_of_interest')
-  if (role.judge) throw conflict('already_joined')
-  await prisma.$transaction([
-    prisma.judge.update({ where: { id: judge.id }, data: { userId: me } }),
-    prisma.certificate.updateMany({ where: { judgeId: judge.id }, data: { userId: me } }),
-  ])
-  res.json({ ok: true })
 })
 
 // A judge who left: with no ballot sent the judge is deleted; with ballots sent the judge is marked as left, so the

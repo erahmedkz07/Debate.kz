@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { ArrowLeft, Eye, LayoutList, Maximize, Megaphone, Pause, Play, Presentation } from 'lucide-react'
@@ -13,6 +13,7 @@ import { Logo } from '@/components/brand'
 import { Select } from '@/components/ui/select'
 import { quoted } from '@/lib/motion'
 import { leagueMotion, leaguesOfRound } from '@/types'
+import { useBack } from '@/components/layout/BackButton'
 
 // Projector mode for the venue screen: the motion appears for everyone at the same moment,
 // then the preparation countdown runs; the draw can be shown in large type.
@@ -84,6 +85,8 @@ export default function Projector() {
     return () => window.removeEventListener('keydown', onKey)
   })
 
+  // leaving the projector: back to where it was opened from (else the rounds or the tournament page)
+  const exit = useBack(manager ? `/dashboard/tournaments/${id}/rounds` : `/tournaments/${id}`)
   if (error) return <div className="grid min-h-dvh place-items-center bg-navy text-white">{t('projector.notFound')}</div>
   if (!data || !round) return <div className="min-h-dvh bg-navy" />
   // the motion of a draft round is visible only to organizers
@@ -171,7 +174,7 @@ export default function Projector() {
 
       {/* controls stay dim so the audience looks at the content */}
       <footer className="flex flex-wrap items-center justify-center gap-2 px-6 pb-6 opacity-40 transition-opacity hover:opacity-100 focus-within:opacity-100">
-        <Link to={manager ? `/dashboard/tournaments/${id}/rounds` : `/tournaments/${id}`} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm hover:bg-white/10"><ArrowLeft className="size-4" />{t('projector.exit')}</Link>
+        <button type="button" onClick={exit} className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-sm hover:bg-white/10"><ArrowLeft className="size-4" />{t('projector.exit')}</button>
         <Select size="sm" className="w-40 text-foreground" value={round.id} onValueChange={v => { setParams({ round: v }, { replace: true }); setView('cover'); setLeft(null); setRunning(false) }}
           aria-label={t('dashboard.draw.round')} options={rounds.map(r => ({ value: r.id, label: roundName(r), hint: t(`tournament.roundStatus.${r.status}`) }))} />
         <Ctl onClick={() => setView('cover')} active={view === 'cover'}><Presentation className="size-4" />{t('projector.cover')}</Ctl>

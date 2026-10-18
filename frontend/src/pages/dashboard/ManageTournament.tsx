@@ -3,10 +3,10 @@ import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-ro
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Copy, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, Link2, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserCheck, UserPlus, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Copy, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, Link2, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, Users, X } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, returnJudge, returnTeam, setForfeit, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
-  updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, claimJudge, type TeamInput,
+  updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
 } from '@/api'
 import { leagueMotion, type Debate, type Judge, type League, type Round, type ScheduleItem, type Team, type TournamentDetails, type TournamentStatus } from '@/types'
 import { useAsync } from '@/lib/hooks'
@@ -582,12 +582,6 @@ function JudgeShareDialog({ judge, onClose, onEmail, onChanged }: { judge: Judge
         )}
         <div className="mt-5 flex flex-wrap justify-between gap-2 border-t border-border pt-4">
           {judge && <Button variant="ghost" size="sm" onClick={() => onEmail(judge)}><Mail className="size-4" />{t('dashboard.judges.linkByEmail')}</Button>}
-          {judge && (
-            <Button variant="ghost" size="sm" disabled={busy === 'claim'} title={t('dashboard.judges.claimHint')}
-              onClick={async () => { if (await run('claim', () => claimJudge(judge.id), t('dashboard.judges.claimed'))) { onChanged(); onClose() } }}>
-              <UserCheck className="size-4" />{t('dashboard.judges.claim')}
-            </Button>
-          )}
           {key && <Button variant="ghost" size="sm" disabled={busy === 'jlink'} onClick={create} title={t('dashboard.judges.newLinkHint')}><RefreshCw className="size-4" />{t('dashboard.judges.newLink')}</Button>}
         </div>
         {key && <p className="mt-2 text-xs text-muted-foreground">{t('dashboard.judges.newLinkHint')}</p>}
@@ -1773,7 +1767,7 @@ function SettingsSection({ data, reload }: SectionProps) {
   const [params, setParams] = useSearchParams()
   const parts = ['general', 'place', ...(data.status !== 'finished' ? ['conduct'] : []), 'access', ...(data.myRole === 'owner' || data.myRole === 'admin' ? ['danger'] : [])]
   const part = parts.includes(params.get('part') ?? '') ? params.get('part')! : 'general'
-  const setPart = (v: string) => setParams(prev => { const n = new URLSearchParams(prev); n.set('part', v); return n }, { replace: true })
+  const setPart = (v: string) => setParams(prev => { const n = new URLSearchParams(prev); n.set('part', v); return n })
   const [stageTo, setStageTo] = useState<TournamentStatus | null>(null)
   const changeStage = async () => {
     if (await run('stage', () => updateTournament(data.id, { status: stageTo! }), t('dashboard.stage.changed'))) { setStageTo(null); reload() }

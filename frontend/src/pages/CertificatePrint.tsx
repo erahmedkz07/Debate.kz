@@ -1,4 +1,4 @@
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Printer } from 'lucide-react'
 import { getTournamentCertificates, verifyCertificate } from '@/api'
@@ -7,6 +7,7 @@ import { useAsync } from '@/lib/hooks'
 import { Button } from '@/components/ui/button'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { CertificateSheet } from '@/components/certificate/CertificateSheet'
+import { useBack } from '@/components/layout/BackButton'
 
 // /certificates/:code — one certificate; /tournaments/:id/certificates/print — every certificate of a tournament.
 // "Download PDF" opens the print dialog: choosing "Save as PDF" gives an A4 landscape PDF with the site fonts.
@@ -18,6 +19,7 @@ export default function CertificatePrint() {
   const only = params.get('only')
   const { data: all, loading, error, reload } = useAsync<Certificate[]>(
     () => (code ? verifyCertificate(code).then(c => [c]) : getTournamentCertificates(id!)), [code, id])
+  const back = useBack(code ? '/me?tab=certificates' : `/dashboard/tournaments/${id}/results`)
   const isJudge = (c: Certificate) => c.kind === 'judge' || c.award === 'best_judge'
   const data = all && (only === 'judges' ? all.filter(isJudge) : only === 'speakers' ? all.filter(c => !isJudge(c)) : all)
 
@@ -25,9 +27,9 @@ export default function CertificatePrint() {
     <div className="min-h-dvh bg-muted/40 print:bg-white">
       <div className="print-hidden sticky top-0 z-10 border-b border-border bg-card/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1123px] flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <Link to={code ? '/me' : `/dashboard/tournaments/${id}/results`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary">
+          <button type="button" onClick={back} className="inline-flex cursor-pointer items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary">
             <ArrowLeft className="size-4" />{t('certificate.back')}
-          </Link>
+          </button>
           <div className="flex items-center gap-3">
             <p className="hidden text-xs text-muted-foreground sm:block">{t('certificate.printHint')}</p>
             <Button onClick={() => window.print()} disabled={!data?.length}><Printer className="size-4" />{t('certificate.download')}</Button>
