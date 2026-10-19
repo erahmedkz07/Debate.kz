@@ -2811,5 +2811,51 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await client()('GET', `/certificates/${page.certificates[0].code}`)).data?.name === d.judges.find(x => x.id === panel[2]).name, 'the certificate opens by its code')
 }
 
+// ---------- 73. the judge's flow and the reason for the decision ----------
+{
+  const host = await newAccount('Флоу Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(540), name: `Флоу ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Флоу А', 'Флоу Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Флоу Судья'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const r1 = d.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const room = d.debates[0]
+  const key = d.judges[0].accessKey
+  const jk = async (method, path, body) => {
+    const r = await fetch(A + path, { method, headers: { 'X-Judge-Key': key, ...(body && { 'Content-Type': 'application/json' }) }, body: body && JSON.stringify(body) })
+    return { status: r.status, data: await r.json().catch(() => null) }
+  }
+  const flow = { 0: [{ tag: 'arg', text: 'Экономия бюджета школ' }, { tag: 'fact', text: '30% расходов — бумага' }], 1: [{ tag: 'rebut', text: 'Цифра не доказана' }] }
+  ok((await jk('PUT', `/ballots/${room.id}/flow`, { flow })).data?.error === 'round_not_released', 'no flow before the round is released')
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: `ЭП перейдёт на электронные учебники ${jtag}`, status: 'released' })
+  ok((await jk('PUT', `/ballots/${room.id}/flow`, { flow })).status === 200, 'the judge saves the flow by the personal link')
+  ok((await jk('PUT', `/ballots/${room.id}/flow`, { flow: { 0: [{ tag: 'nope', text: 'x' }] } })).status === 400, 'an unknown note tag is refused')
+  const sheet = (await jk('GET', `/ballots/${room.id}`)).data
+  ok(sheet.flow?.['0']?.length === 2 && sheet.flow['1'][0].tag === 'rebut', 'the ballot opens with the judge\'s flow')
+  const stranger = await newAccount('Флоу Чужой')
+  ok((await stranger.c('PUT', `/ballots/${room.id}/flow`, { flow })).status === 403, 'nobody else writes a judge\'s flow')
+  // the ballot with a reason
+  const scores = {}
+  sheet.proposition.speakers.forEach(s => (scores[s.id] = 74)); sheet.opposition.speakers.forEach(s => (scores[s.id] = 70))
+  const REASON = 'Правительство доказало экономию, оппозиция не ответила на цифры'
+  ok((await jk('POST', `/ballots/${room.id}`, { winner: 'proposition', scores, reply: { proposition: 37, opposition: 35 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id }, reason: REASON })).status === 201, 'the ballot is sent with a reason')
+  ok((await jk('GET', `/ballots/${room.id}`)).data.sent?.reason === REASON, 'the judge sees the reason they sent')
+  const review = (await host.c('GET', `/ballots/${room.id}`)).data
+  ok(review.panel?.[0]?.reason === REASON && review.panel[0].flow?.['0']?.length === 2, 'the organizer reads the reason and the judge\'s flow')
+  // a speaker of the room: the reason after the round, never the flow
+  const speaker = await newAccount('Флоу Спикер')
+  await db.query('update speakers set user_id = $1 where id = $2', [speaker.id, sheet.proposition.speakers[0].id])
+  const mine = async () => (await speaker.c('GET', '/me/debates')).data.find(x => x.debate.id === room.id)
+  ok(!(await mine()).reasons, 'the reason stays hidden while the round goes on')
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })
+  const after = await mine()
+  ok(after.reasons?.[0]?.text === REASON && !JSON.stringify(after).includes('Экономия бюджета'), 'after the round the team reads the reason, never the flow')
+  ok((await speaker.c('GET', `/ballots/${room.id}`)).status === 403, 'a speaker cannot open the ballot with the flow')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

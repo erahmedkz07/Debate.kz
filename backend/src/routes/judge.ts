@@ -133,12 +133,16 @@ judgeRouter.get('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
   // organizers (and BP wings) read every judge's ballot as it was sent; a judge who sends one sees the form
   const speakerName = new Map(sides.flatMap(side => teams[side]!.speakers).map(s => [s.id, s.name]))
   const sideOrder = (x: SideCode) => BP_SIDES.indexOf(x)
+  // flows: the judge's own (on the form); every judge's for the organizers and the panel reading the ballots
+  const notes = await prisma.judgeNote.findMany({ where: { debateId: d.id }, select: { judgeId: true, flow: true } })
   const panel = canSubmit ? undefined : d.judges.map(j => {
     const b = d.ballots.find(x => x.judgeId === j.judgeId)
     const total = (side: SideCode) => b ? b.scores.filter(s => s.side === side).reduce((sum, s) => sum + Number(s.score), 0) : 0
     return {
       judgeId: j.judgeId, name: j.judge.name, isChair: j.isChair, hasAccount: !!j.judge.userId,
       submittedAt: b?.submittedAt.toISOString(), winner: b?.winner, ...(b?.enteredBy && { enteredBy: b.enteredBy }),
+      ...(b?.reason && { reason: b.reason }),
+      ...(notes.find(n => n.judgeId === j.judgeId) && { flow: notes.find(n => n.judgeId === j.judgeId)!.flow }),
       ...(b?.ranking.length && { ranking: b.ranking }),
       totals: b ? Object.fromEntries(sides.map(side => [side, total(side)])) : undefined,
       scores: b?.scores.sort((x, y) => sideOrder(x.side) - sideOrder(y.side) || x.position - y.position)
@@ -151,12 +155,13 @@ judgeRouter.get('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
   const sent = canSubmit && myJudge ? d.ballots.find(b => b.judgeId === myJudge.id) : undefined
   res.json({
     canSubmit,
+    ...(myJudge && { flow: notes.find(n => n.judgeId === myJudge.id)?.flow ?? {} }),
     // organizers may correct the judges' ballots until the tournament is over
     canCorrect: corrector && d.round.tournament.status !== 'finished' && d.round.status !== 'draft',
     ...(onBehalf && myJudge && { onBehalfOf: { judgeId: myJudge.id, name: myJudge.name } }),
     ...(sent && {
       sent: {
-        winner: sent.winner, ...(sent.ranking.length && { ranking: sent.ranking }), ...(sent.enteredBy && { enteredBy: sent.enteredBy }),
+        winner: sent.winner, ...(sent.ranking.length && { ranking: sent.ranking }), ...(sent.enteredBy && { enteredBy: sent.enteredBy }), ...(sent.reason && { reason: sent.reason }),
         scores: Object.fromEntries(sent.scores.filter(s => s.position <= 3).map(s => [s.speakerId, Number(s.score)])),
         reply: Object.fromEntries(sent.scores.filter(s => s.position === 4).map(s => [s.side, Number(s.score)])),
         replySpeakers: Object.fromEntries(sent.scores.filter(s => s.position === 4).map(s => [s.side, s.speakerId])),
@@ -179,6 +184,30 @@ judgeRouter.get('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
   })
 })
 
+// ---- the judge's flow: notes speech by speech, saved as the judge writes ----
+const FLOW_TAGS = ['arg', 'fact', 'rebut', 'poi', 'weak', 'note'] as const
+const flowSchema = z.object({
+  flow: z.record(z.string().regex(/^\d{1,2}$/), z.array(z.object({ tag: z.enum(FLOW_TAGS), text: z.string().trim().min(1).max(300) })).max(60))
+    .refine(f => Object.keys(f).length <= 20, 'too_many_speeches'),
+})
+
+// any judge of the panel (the chair and the wings) keeps a flow, also by the personal link; the owner entering a
+// judge's ballot writes into that judge's flow
+judgeRouter.put('/ballots/:debateId/flow', userOrJudgeKey, async (req, res) => {
+  const { flow } = body(req, flowSchema)
+  const keyJudge = res.locals.keyJudge as KeyJudge | null
+  const { d, myJudge } = await loadBallotContext(param(req, 'debateId'), keyJudge ? null : req.user!, keyJudge ? undefined : asParam(req), keyJudge)
+  if (!myJudge) throw forbidden('judges_only')
+  if (d.round.status === 'draft') throw badRequest('round_not_released')
+  if (d.round.tournament.status === 'finished') throw forbidden('tournament_finished')
+  await prisma.judgeNote.upsert({
+    where: { debateId_judgeId: { debateId: d.id, judgeId: myJudge.id } },
+    create: { debateId: d.id, judgeId: myJudge.id, flow },
+    update: { flow },
+  })
+  res.json({ ok: true })
+})
+
 const sideEnum = z.enum(BP_SIDES)
 const ballotSchema = z.object({
   // two-team formats: the winner; BP: optionally the ranking 1st–4th the judge saw (checked against the scores)
@@ -191,6 +220,7 @@ const ballotSchema = z.object({
   // optional short written comments: speakerId -> text for substantive speeches, "reply:<side>" for replies
   feedback: z.record(z.string(), z.string().trim().max(400)).optional(),
   asJudgeId: z.string().optional(), // the owner or an admin enters or corrects this judge's ballot
+  reason: z.string().trim().max(1500).optional(), // why this side won (optional), for the teams after the round
 })
 
 judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
@@ -250,7 +280,7 @@ judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
   await prisma.$transaction(async tx => {
     // re-submitting replaces this judge's previous ballot
     await tx.ballot.deleteMany({ where: { debateId: d.id, judgeId } })
-    await tx.ballot.create({ data: { debateId: d.id, judgeId, winner, ranking: rules.teams === 4 ? ranking : [], enteredBy: onBehalf ? req.user!.name : null, scores: { create: rows } } })
+    await tx.ballot.create({ data: { debateId: d.id, judgeId, winner, ranking: rules.teams === 4 ? ranking : [], enteredBy: onBehalf ? req.user!.name : null, reason: data.reason || null, scores: { create: rows } } })
     // a completed round stays confirmed; its table follows the corrected ballot
     const ballotStatus = d.round.status === 'completed' ? 'confirmed' : 'submitted'
     if (rules.teams === 4) {

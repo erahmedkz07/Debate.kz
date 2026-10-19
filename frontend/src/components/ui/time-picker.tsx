@@ -74,32 +74,43 @@ export function TimePicker({ value, onChange, id, invalid, placeholder = '--:--'
   )
 }
 
-// One column of the wheel: it snaps to an item, the item in the middle is the chosen one (scroll or tap); the
-// chosen value is scrolled into the middle when the popup opens
+// One column of the wheel, endless like a revolver drum: after 23 come 00, 01… and before 00 come 23, 22… The list is
+// repeated several times and, when the wheel stops, quietly moved back to the middle copy, so there is never an end.
+// The item in the middle is the chosen one (scroll or tap); the chosen value is centred when the popup opens.
 const ROW = 36 // h-9
+const COPIES = 7
 function Column({ label, items, selected, onPick }: { label: string; items: string[]; selected: string; onPick: (v: string) => void }) {
   const list = useRef<HTMLDivElement>(null)
   const settle = useRef<number | undefined>(undefined)
+  const n = items.length
+  const middle = Math.floor(COPIES / 2) * n
+  const rows = Array.from({ length: COPIES * n }, (_, i) => items[i % n])
+  // the selected value in the middle copy
   useEffect(() => {
+    const el = list.current
     const i = items.indexOf(selected)
-    if (list.current && i >= 0 && Math.abs(list.current.scrollTop - i * ROW) > 2) list.current.scrollTop = i * ROW
-  }, [selected, items])
-  // when the wheel stops, the item in the middle is picked
+    if (!el || i < 0) return
+    const at = Math.round(el.scrollTop / ROW)
+    if (items[((at % n) + n) % n] !== selected || at < n || at >= (COPIES - 1) * n) el.scrollTop = (middle + i) * ROW
+  }, [selected, items, n, middle])
+  // when the wheel stops: the item in the middle is picked, and the wheel goes back to the middle copy unseen
   const onScroll = () => {
     window.clearTimeout(settle.current)
     settle.current = window.setTimeout(() => {
       const el = list.current
       if (!el) return
-      const v = items[Math.min(items.length - 1, Math.max(0, Math.round(el.scrollTop / ROW)))]
-      if (v && v !== selected) onPick(v)
+      const at = Math.round(el.scrollTop / ROW)
+      const i = ((at % n) + n) % n
+      if (at < n || at >= (COPIES - 1) * n) el.scrollTop = (middle + i) * ROW
+      if (items[i] !== selected) onPick(items[i])
     }, 120)
   }
   return (
     <div ref={list} role="listbox" aria-label={label} onScroll={onScroll}
       className="h-[180px] snap-y snap-mandatory overflow-y-auto overscroll-contain py-[72px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(to_bottom,transparent,black_35%,black_65%,transparent)]">
-      {items.map(v => (
-        <button key={v} type="button" role="option" aria-selected={v === selected}
-          onClick={() => { onPick(v); list.current?.scrollTo({ top: items.indexOf(v) * ROW, behavior: 'smooth' }) }}
+      {rows.map((v, k) => (
+        <button key={k} type="button" role="option" aria-selected={v === selected && Math.floor(k / n) === Math.floor(COPIES / 2)} tabIndex={Math.floor(k / n) === Math.floor(COPIES / 2) ? 0 : -1}
+          onClick={() => { onPick(v); list.current?.scrollTo({ top: k * ROW, behavior: 'smooth' }) }}
           className={cn('block h-9 w-full cursor-pointer snap-center text-base tabular-nums transition-colors',
             v === selected ? 'font-bold text-foreground' : 'text-muted-foreground hover:text-foreground')}>
           {v}

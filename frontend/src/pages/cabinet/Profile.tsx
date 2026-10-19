@@ -431,6 +431,15 @@ export default function Profile() {
                   </Badge>
                   <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </Link>
+                {/* why the judges decided so, after the round */}
+                {d.reasons && d.reasons.length > 0 && (
+                  <details className="ml-4 mt-2 text-sm">
+                    <summary className="cursor-pointer font-semibold text-primary">{t('flow.reasons', { count: d.reasons.length })}</summary>
+                    <ul className="mt-2 space-y-2">
+                      {d.reasons.map((r, i) => <li key={i} className="rounded-xl bg-muted/50 p-3"><p className="text-xs font-bold text-muted-foreground">{r.judge}</p><p className="mt-0.5 whitespace-pre-line">{r.text}</p></li>)}
+                    </ul>
+                  </details>
+                )}
                 <div className="ml-4 mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
                   {d.debate.onlineUrl && d.round.status !== 'completed' && <OnlineLink url={d.debate.onlineUrl} />}
                   {d.judges.length > 0 && (
