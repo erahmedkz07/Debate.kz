@@ -611,7 +611,7 @@ function LeaguesCard({ data, reload }: SectionProps) {
         <p className="mt-1 text-sm text-muted-foreground">{t('leagues.text')}</p>
       </div>
       {list.length === 0 ? (
-        <Button variant="outline" onClick={() => setList([{ key: 'l1', name: t('leagues.defaultRu') }, { key: 'l2', name: t('leagues.defaultKz') }])}>
+        <Button variant="outline" onClick={() => setList([{ key: 'l1', name: t('leagues.defaultKz') }, { key: 'l2', name: t('leagues.defaultRu') }])}>
           <Plus className="size-4" />{t('leagues.enable')}
         </Button>
       ) : (

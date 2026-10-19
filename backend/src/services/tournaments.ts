@@ -31,8 +31,12 @@ const lm = (r: { leagueMotions?: unknown }) => (r.leagueMotions && typeof r.leag
 export const motionFor = (r: { motion: string; leagueMotions?: unknown }, league?: string | null) => (league && lm(r)[league]?.motion) || r.motion
 export const infoSlideFor = (r: { infoSlide: string | null; leagueMotions?: unknown }, league?: string | null) => (league && lm(r)[league]?.infoSlide) || r.infoSlide || undefined
 
-// the tournament's leagues ([] when it has none)
-export const leaguesOf = (t: { leagues: unknown }) => (Array.isArray(t.leagues) ? t.leagues : []) as { key: string; name: string; breakSize?: number }[]
+// the tournament's leagues ([] when it has none); a Kazakh league always comes first (tabs, tables, brackets, reports)
+const KAZAKH_LETTERS = /[әғқңөұүһі]/i
+export const leaguesOf = (t: { leagues: unknown }) => {
+  const list = (Array.isArray(t.leagues) ? t.leagues : []) as { key: string; name: string; breakSize?: number }[]
+  return [...list].sort((a, b) => Number(!KAZAKH_LETTERS.test(a.name)) - Number(!KAZAKH_LETTERS.test(b.name)))
+}
 
 export const teamInclude = {
   institution: true, speakers: { orderBy: { position: 'asc' } },

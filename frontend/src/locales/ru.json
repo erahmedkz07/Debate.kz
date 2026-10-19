@@ -291,7 +291,15 @@
       },
       "more": "Показать все ({{count}})",
       "less": "Свернуть"
-    }
+    },
+    "judgedRooms_one": "{{count}} раунд",
+    "judgedRooms_few": "{{count}} раунда",
+    "judgedRooms_many": "{{count}} раундов",
+    "judgedRooms_other": "{{count}} раунда",
+    "chairedRooms_one": "председатель: {{count}}",
+    "chairedRooms_few": "председатель: {{count}}",
+    "chairedRooms_many": "председатель: {{count}}",
+    "chairedRooms_other": "председатель: {{count}}"
   },
   "auth": {
     "loginTitle": "С возвращением!",
