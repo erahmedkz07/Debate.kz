@@ -111,6 +111,7 @@ export interface BallotDraft {
   reply: Record<'proposition' | 'opposition', string>
   replyBy: Partial<Record<'proposition' | 'opposition', string>>
   winner: 'proposition' | 'opposition' | 'closingProposition' | 'closingOpposition' | null
+  reason?: string // the reason for the decision
 }
 export const loadBallotDraft = (debateId: string, userId: string) => read<BallotDraft>(draftKey(debateId, userId))
 export const saveBallotDraft = (debateId: string, userId: string, draft: BallotDraft) => write(draftKey(debateId, userId), draft)

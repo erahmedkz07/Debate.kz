@@ -149,24 +149,40 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   )
 }
 
-// the selection lottery, public: who got a place and who waits, in the drawn order
-function LotteryCard({ id }: { id: string }) {
+// Applications, public: how many teams applied for how many places, and each one — got a place, in reserve or still
+// being decided (after a selection lottery, in the drawn order). Shows the interest in the tournament.
+function ApplicationsCard({ id }: { id: string }) {
   const { t } = useTranslation()
   const { data } = useAsync(() => getSelection(id), [id])
-  if (!data?.lottery) return null
+  const [all, setAll] = useState(false)
+  if (!data?.list?.length) return null
+  const shown = all ? data.list : data.list.slice(0, 12)
+  const look = { confirmed: 'success', waitlisted: 'accent', pending: 'outline', rejected: 'muted' } as const
   return (
     <Card className="p-6">
-      <h2 className="flex items-center gap-2 text-xl font-bold"><Shuffle className="size-5 text-primary" />{t('tournament.lotteryTitle')}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{t('tournament.lotteryText', { time: formatDateTime(data.lotteryAt!) })}</p>
+      <h2 className="flex items-center gap-2 text-xl font-bold"><Inbox className="size-5 text-primary" />{t('tournament.applicationsCard.title')}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{t('tournament.applicationsCard.summary', { applied: data.applications, places: data.places })}</p>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {([['confirmed', data.confirmed], ['waitlisted', data.waitlisted], ['pending', data.pending], ['rejected', data.rejected]] as const).map(([k, n]) => (
+          <div key={k} className="rounded-xl bg-muted/50 px-3 py-2 text-center">
+            <p className="text-xl font-extrabold tabular-nums">{n}</p>
+            <p className="text-xs text-muted-foreground">{t(`tournament.applicationsCard.${k}`)}</p>
+          </div>
+        ))}
+      </div>
+      {data.lotteryAt && <p className="mt-3 flex items-start gap-2 text-sm text-muted-foreground"><Shuffle className="mt-0.5 size-4 shrink-0 text-primary" />{t('tournament.lotteryText', { time: formatDateTime(data.lotteryAt) })}</p>}
       <ol className="mt-4 grid gap-2 sm:grid-cols-2">
-        {data.lottery.map(x => (
-          <li key={x.rank} className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2 text-sm">
-            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-extrabold text-primary-foreground">{x.rank}</span>
-            <span className="min-w-0 flex-1 truncate font-semibold">{x.team}</span>
-            <Badge variant={x.status === 'confirmed' ? 'success' : 'outline'}>{t(`profile.regStatus.${x.status}`)}</Badge>
+        {shown.map((x, i) => (
+          <li key={`${x.team}-${i}`} className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2 text-sm">
+            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-extrabold text-primary-foreground">{x.rank ?? i + 1}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate font-semibold">{x.team}</span>{x.institution && <span className="block truncate text-xs text-muted-foreground">{x.institution}</span>}</span>
+            <Badge variant={look[x.status]}>{t(`tournament.applicationsCard.one.${x.status}`)}</Badge>
           </li>
         ))}
       </ol>
+      {data.list.length > 12 && (
+        <Button variant="ghost" size="sm" className="mt-3" onClick={() => setAll(!all)}>{all ? t('tournament.applicationsCard.less') : t('tournament.applicationsCard.more', { count: data.list.length })}</Button>
+      )}
     </Card>
   )
 }
@@ -208,7 +224,7 @@ function Overview({ data }: { data: TournamentDetails }) {
             </ul>
           </Card>
         )}
-        {data.lotteryAt && <LotteryCard id={data.id} />}
+        <ApplicationsCard id={data.id} />
         <Card className="p-6">
           <h2 className="flex items-center gap-2 text-xl font-bold"><MessageSquareQuote className="size-5 text-primary" />{t('tournament.motions')}</h2>
           <ol className="mt-4 space-y-3">

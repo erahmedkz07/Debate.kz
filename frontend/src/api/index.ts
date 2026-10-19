@@ -127,6 +127,7 @@ export interface MyDebate {
   place?: number // BP: 1–4
   silent?: boolean // decided, but in a silent round: the result comes out with the break
   judges: { id: string; name: string; isChair: boolean; myScore?: number; myComment?: string }[] // the panel and my rating of each
+  reasons?: { judge: string; text: string }[] // why the judges decided so (after the round)
   tournament: { id: string; name: string }
   round: Pick<Round, 'id' | 'number' | 'name' | 'motion' | 'status' | 'date'>
   opponent: { id: string; name: string }
@@ -214,7 +215,13 @@ export interface PanelBallot {
   ranking?: Side[] // BP
   totals?: Partial<Record<Side, number>>
   scores?: { side: Side; position: number; speaker: string; score: number; feedback?: string }[]
+  reason?: string // the reason for the decision
+  flow?: FlowNotes // the judge's flow (organizers and the panel)
 }
+// the judge's flow: notes speech by speech (key = the speech's index in the format)
+export type FlowTag = 'arg' | 'fact' | 'rebut' | 'poi' | 'weak' | 'note'
+export interface FlowEntry { tag: FlowTag; text: string }
+export type FlowNotes = Record<string, FlowEntry[]>
 // the ballot sheet's rules come from the tournament's format (and its score ranges)
 export interface BallotRules { format: string; teams?: 2 | 4; speakers: number; step: number; speaker: [number, number]; reply?: { range: [number, number]; by: number[] } }
 export interface BallotData {
@@ -223,7 +230,8 @@ export interface BallotData {
   canCorrect?: boolean // organizers may enter or correct a judge's ballot until the tournament is over
   onBehalfOf?: { judgeId: string; name: string } // the organizer fills in this judge's ballot
   // the ballot already sent (to correct it): scores by speaker, replies by side, comments
-  sent?: { winner: Side; ranking?: Side[]; enteredBy?: string; scores: Record<string, number>; reply: Partial<Record<Side, number>>; replySpeakers: Partial<Record<Side, string>>; feedback: Record<string, string> }
+  sent?: { winner: Side; ranking?: Side[]; enteredBy?: string; reason?: string; scores: Record<string, number>; reply: Partial<Record<Side, number>>; replySpeakers: Partial<Record<Side, string>>; feedback: Record<string, string> }
+  flow?: FlowNotes // the judge's own flow of this debate
   panel?: PanelBallot[]
   tournament: { id: string; name: string }
   round: Round
@@ -257,9 +265,12 @@ export interface BallotPayload {
   replySpeakers?: Record<'proposition' | 'opposition', string>
   feedback?: Record<string, string> // speakerId or "reply:<side>" -> short comment to the speaker
   asJudgeId?: string // an organizer enters or corrects this judge's ballot
+  reason?: string // why this side won (optional)
 }
 export const submitBallot = (debateId: string, payload: BallotPayload, judgeKey?: string) =>
   http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload, judgeKey)
+export const saveFlow = (debateId: string, flow: FlowNotes, judgeKey?: string, asJudgeId?: string) =>
+  http<{ ok: true }>('PUT', `/ballots/${encodeURIComponent(debateId)}/flow${asJudgeId ? `?as=${encodeURIComponent(asJudgeId)}` : ''}`, { flow }, judgeKey)
 
 // ---------- organizer ----------
 
@@ -342,6 +353,9 @@ export type OrganizerRegistration = TeamRegistration & { contactPhone: string; u
 // selection: live numbers and, after a lottery, its public order
 export interface Selection {
   mode: 'manual' | 'first_come' | 'lottery'; clubQuota?: number; places: number; taken: number; applications: number; waitlisted: number
+  confirmed: number; pending: number; rejected: number
+  // every application (team and school): got a place, in reserve or still being decided
+  list: { team: string; institution: string; status: TeamRegistration['status']; rank?: number }[]
   lotteryAt?: string; lottery?: { rank: number; team: string; status: TeamRegistration['status'] }[]
 }
 export const getSelection = (tournamentId: string) => http<Selection>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/selection`)

@@ -114,6 +114,7 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
       round: { include: { tournament: true } }, proposition: true, opposition: true, closingProposition: true, closingOpposition: true,
       judges: { include: { judge: { select: { id: true, name: true } } }, orderBy: { isChair: 'desc' } },
       feedback: { where: { userId: req.user!.id }, select: { judgeId: true, score: true, comment: true } },
+      ballots: { where: { reason: { not: null } }, select: { reason: true, judge: { select: { name: true } } } },
     },
     orderBy: [{ round: { date: 'asc' } }, { round: { number: 'asc' } }],
   })
@@ -138,6 +139,8 @@ meRouter.get('/me/debates', requireAuth(), async (req, res) => {
       // 1st place in BP counts as a win, like in the standings
       result: d.winner && !silent ? (d.winner === side ? 'win' : 'loss') : null,
       ...(silent && d.winner && { silent: true }),
+      // why the judges decided as they did: after the round, like the results
+      ...(d.round.status === 'completed' && !silent && d.ballots.length && { reasons: d.ballots.map(b => ({ judge: b.judge.name, text: b.reason! })) }),
       // the panel, with the rating this speaker gave each judge (feedback goes to the organizers only)
       judges: d.judges.map(j => {
         const mine = d.feedback.find(f => f.judgeId === j.judgeId)

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Medal, Minus, Plus, Timer, Trophy, Users, X } from 'lucide-react'
-import { getBallot, NotFoundError, submitBallot } from '@/api'
+import { getBallot, NotFoundError, saveFlow, submitBallot } from '@/api'
 import type { Side, Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
@@ -18,7 +18,7 @@ import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Select } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/input'
+import { Label, Textarea } from '@/components/ui/input'
 import { BackButton } from '@/components/layout/BackButton'
 import { BallotReview } from '@/components/ballot/BallotReview'
 import { SpeechTimer } from '@/components/tools/SpeechTimer'
@@ -27,6 +27,7 @@ import { formatOfTournament } from '@/content/formats'
 import { BP_POINTS, BP_SIDES, TWO_SIDES } from '@/lib/formats'
 import NotFound from './NotFound'
 import { quoted } from '@/lib/motion'
+import { FlowSheet } from '@/components/ballot/FlowSheet'
 
 type Range = { min: number; max: number; step: number }
 
@@ -110,6 +111,8 @@ function BallotForm() {
   const [reply, setReply] = useState<Record<ReplySide, string>>(draft?.reply ?? { proposition: '', opposition: '' })
   const [replyBy, setReplyBy] = useState<Partial<Record<ReplySide, string>>>(draft?.replyBy ?? {})
   const [winner, setWinner] = useState<Side | null>(draft?.winner ?? null)
+  // why this side won: optional, for the teams after the round
+  const [reason, setReason] = useState(draft?.reason ?? '')
   const [tried, setTried] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [sending, setSending] = useState(false)
@@ -126,6 +129,7 @@ function BallotForm() {
     setReplyBy({ proposition: sent.replySpeakers.proposition, opposition: sent.replySpeakers.opposition })
     setFeedback(sent.feedback)
     setWinner(sent.winner)
+    setReason(sent.reason ?? '')
   }, [loaded, prefilled])
   // the speech timer opens as a side panel on the ballot: nothing typed is lost, and it keeps running when hidden
   const [timer, setTimer] = useState<'closed' | 'open' | 'hidden'>('closed')
@@ -139,8 +143,8 @@ function BallotForm() {
 
   useEffect(() => {
     const touched = Object.values(scores).some(Boolean) || Object.values(feedback).some(Boolean) || !!reply.proposition || !!reply.opposition || !!winner
-    if (touched && !done) saveBallotDraft(debateId, uid, { scores, feedback, reply, replyBy, winner })
-  }, [debateId, uid, scores, feedback, reply, replyBy, winner, done])
+    if (touched && !done) saveBallotDraft(debateId, uid, { scores, feedback, reply, replyBy, winner, reason })
+  }, [debateId, uid, scores, feedback, reply, replyBy, winner, reason, done])
   useEffect(() => {
     const sync = () => setQueued(queuedBallot(debateId, uid))
     sync()
@@ -215,6 +219,7 @@ function BallotForm() {
       ...(REPLY && { reply: { proposition: Number(reply.proposition), opposition: Number(reply.opposition) } }),
       feedback: Object.fromEntries(Object.entries(feedback).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v)),
       ...(asJudge && { asJudgeId: asJudge }),
+      ...(reason.trim() && { reason: reason.trim() }),
     }
     try {
       await submitBallot(debateId, payload, judgeKey)
@@ -347,6 +352,10 @@ function BallotForm() {
         <p className="mt-4 flex items-start gap-2 rounded-2xl bg-primary-soft p-4 text-sm"><Users className="mt-0.5 size-4 shrink-0 text-primary" />{t('ballot.bpChair')}</p>
       )}
 
+      {/* the flow: notes speech by speech while the debate goes on, saved by itself */}
+      <FlowSheet formatCode={rules.format} initial={data.flow} debateId={debateId} uid={uid}
+        onSave={flow => saveFlow(debateId, flow, judgeKey, judgeKey ? undefined : asJudge)} />
+
       <div className={cn('mt-6', bp ? 'grid gap-5 sm:grid-cols-2' : 'space-y-5')}>
         {sides.map(side => teamCard(side, teamOf(side)))}
       </div>
@@ -391,6 +400,12 @@ function BallotForm() {
         </div>
       </Card>
       )}
+
+      <Card className="mt-5 p-5">
+        <Label htmlFor="reason" className="font-bold">{t('flow.reason')} <span className="font-normal text-muted-foreground">· {t('common.optional')}</span></Label>
+        <p className="mb-2 text-sm text-muted-foreground">{t('flow.reasonHint')}</p>
+        <Textarea id="reason" rows={3} maxLength={1500} value={reason} onChange={e => setReason(e.target.value)} placeholder={t('flow.reasonPlaceholder')} />
+      </Card>
 
       {tried && errors.length > 0 && (
         <div role="alert" className="mt-5 space-y-1.5 rounded-2xl bg-danger-soft p-4 text-sm font-medium text-danger">

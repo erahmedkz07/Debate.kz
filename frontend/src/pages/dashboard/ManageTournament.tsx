@@ -1310,7 +1310,11 @@ function Draw({ data, reload }: SectionProps) {
                         <ArrowLeftRight className="size-4" />
                       </Button>
                     </td>
-                    {sideList.slice(1).map(side => <td key={side} className="px-4 py-3 font-bold">{team(teamIdOn(d, side)!)?.name}</td>)}
+                    {sideList.slice(1).map(side => (
+                      <td key={side} className="px-4 py-3 font-bold">{team(teamIdOn(d, side)!)?.name}
+                        {/* the league under every team, so a screenshot of one row still says which league it is */}
+                        {(data.leagues ?? []).length > 0 && <span className="block text-xs font-normal text-muted-foreground">{leagueName(data.leagues, team(teamIdOn(d, side)!)?.league)}</span>}</td>
+                    ))}
                     <td className="px-4 py-3">
                       <Select size="sm" className="w-56" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')}
                         onValueChange={v => patch(d, { chairJudgeId: v })}

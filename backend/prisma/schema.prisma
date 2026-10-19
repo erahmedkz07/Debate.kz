@@ -378,6 +378,7 @@ model Judge {
   user          User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   debates       DebateJudge[]
   ballots       Ballot[]
+  notes         JudgeNote[]
   invites       TournamentInvite[]
   conflicts     JudgeConflict[]
   feedback      JudgeFeedback[]
@@ -430,6 +431,7 @@ model Debate {
   closingOpposition        Team?           @relation("ClosingOppositionTeam", fields: [closingOppositionTeamId], references: [id], onDelete: Cascade)
   judges                   DebateJudge[]
   ballots                  Ballot[]
+  notes                    JudgeNote[]
   feedback                 JudgeFeedback[]
 
   @@index([roundId])
@@ -556,12 +558,28 @@ model Ballot {
   ranking     Side[] // BP: the panel's ranking of the four teams, 1st to 4th
   submittedAt DateTime       @default(now()) @map("submitted_at")
   enteredBy   String?        @map("entered_by") // an organizer who entered or corrected this judge's ballot (their name)
+  reason      String? // the reason for the decision (optional): shown to the room's teams once the round is completed
   debate      Debate         @relation(fields: [debateId], references: [id], onDelete: Cascade)
   judge       Judge          @relation(fields: [judgeId], references: [id], onDelete: Cascade)
   scores      SpeakerScore[]
 
   @@unique([debateId, judgeId])
   @@map("ballots")
+}
+
+// A judge's flow of one debate: notes speech by speech (argument, fact, rebuttal, POI, weak point), saved as the
+// judge writes. Seen by the judge, the panel and the organizers (for an appeal), never by the teams.
+model JudgeNote {
+  id        String   @id @default(cuid())
+  debateId  String   @map("debate_id")
+  judgeId   String   @map("judge_id")
+  flow      Json     @default("{}") // { [speech index]: [{ tag, text }] }
+  updatedAt DateTime @updatedAt @map("updated_at")
+  debate    Debate   @relation(fields: [debateId], references: [id], onDelete: Cascade)
+  judge     Judge    @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+
+  @@unique([debateId, judgeId])
+  @@map("judge_notes")
 }
 
 model SpeakerScore {
