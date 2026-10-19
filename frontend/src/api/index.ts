@@ -252,6 +252,23 @@ export interface JudgeLinkData {
   certificates: { code: string; kind: 'judge' | 'award'; award?: 'best_judge' }[] // after the finish
   assignments: { debateId: string; room: string; isChair: boolean; sent: boolean; round: { number: number; name: string; motion: string; status: string }; teams: string[] }[]
 }
+// a speaker without an account: their page by their personal link, and "this is me"
+export interface SpeakerLinkPage {
+  speaker: { id: string; name: string; position: number }
+  team: { id: string; name: string; league?: string }
+  tournament: { id: string; name: string; city: string; status: string; format: string }
+  claimed: boolean
+  certificate?: string
+  debates: {
+    id: string; room: string; side: Side; opponents: string[]; judges: { name: string; isChair: boolean }[]
+    round: { number: number; name: string; status: string; motion: string; date: string }
+    result?: { win?: boolean; place?: number }; score?: number; reasons?: { judge: string; text: string }[]
+  }[]
+}
+export const getSpeakerByLink = (key: string) => http<SpeakerLinkPage>('GET', `/speaker-link/${encodeURIComponent(key)}`)
+export const claimSpeaker = (key: string) => http<{ ok: true }>('POST', `/speaker-link/${encodeURIComponent(key)}/claim`, {})
+export interface SpeakerLinkTeam { teamId: string; teamName: string; institution: string; league?: string; speakers: { id: string; name: string; position: number; accessKey: string; linked: boolean }[] }
+export const getSpeakerLinks = (tournamentId: string) => http<SpeakerLinkTeam[]>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/speaker-links`, {})
 export const getJudgeLink = (key: string) => http<JudgeLinkData>('GET', '/judge-link', undefined, key)
 export const setJudgeLeague = (judgeId: string, league: string | null) => http<{ id: string; league: string | null }>('PATCH', `/judges/${judgeId}`, { league })
 export const newJudgeLink = (judgeId: string) => http<{ accessKey: string }>('POST', `/judges/${judgeId}/link`, {})

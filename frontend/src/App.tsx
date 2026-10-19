@@ -25,6 +25,8 @@ const Terms = lazy(() => import('@/pages/Legal').then(m => ({ default: m.TermsPa
 const Pricing = lazy(() => import('@/pages/Pricing'))
 const Ballot = lazy(() => import('@/pages/Ballot'))
 const JudgeLink = lazy(() => import('@/pages/JudgeLink'))
+const SpeakerLink = lazy(() => import('@/pages/SpeakerLink'))
+const SpeakerLinksPrint = lazy(() => import('@/pages/SpeakerLinksPrint'))
 const DashboardLayout = lazy(() => import('@/pages/dashboard/DashboardLayout'))
 const MyTournaments = lazy(() => import('@/pages/dashboard/MyTournaments'))
 const CreateTournament = lazy(() => import('@/pages/dashboard/CreateTournament'))
@@ -106,6 +108,7 @@ export default function App() {
                 <Route path="ballot/:debateId" element={<RequireAuth><Ballot /></RequireAuth>} />
                 {/* a judge without an account: the personal link opens their debates and ballots */}
                 <Route path="j/:key" element={<JudgeLink />} />
+                <Route path="s/:key" element={<SpeakerLink />} />
                 <Route path="j/:key/ballot/:debateId" element={<Ballot />} />
                 <Route path="verify-email" element={<VerifyEmail />} />
                 <Route path="invite/:token" element={<InvitePage />} />
@@ -117,6 +120,7 @@ export default function App() {
               {/* print views: one certificate, or all certificates of a tournament */}
               <Route path="certificates/:code" element={<CertificatePrint />} />
               <Route path="tournaments/:id/certificates/print" element={<RequireAuth><CertificatePrint /></RequireAuth>} />
+              <Route path="tournaments/:id/speaker-links/print" element={<RequireAuth><SpeakerLinksPrint /></RequireAuth>} />
               <Route path="login" element={<Login />} />
               <Route path="register" element={<Register />} />
               <Route path="forgot-password" element={<ForgotPassword />} />

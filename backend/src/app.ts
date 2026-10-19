@@ -31,11 +31,13 @@ import { reviewsRouter } from './routes/reviews.js'
 import { mailOutbox } from './lib/mail.js'
 import { UPLOADS_DIR } from './lib/uploads.js'
 import { speakerInvitesRouter } from './routes/speakerInvites.js'
+import { speakerLinksRouter } from './routes/speakerLinks.js'
 import rateLimit from 'express-rate-limit'
 
 export function redactUrl(url: string) {
   const [path, query] = url.split('?')
-  const safePath = path.replace(/^(\/api\/invites\/)[^/]+/, '$1***')
+  // personal keys and one-time tokens in the path (invites, speaker invites, speakers' links) never reach the log
+  const safePath = path.replace(/^(\/api\/(?:invites|speaker-invites|speaker-link)\/)[^/]+/, '$1***')
   if (!query) return safePath
   // the Google callback carries the authorization code and state: drop the whole query
   if (path === '/api/auth/google/callback') return `${safePath}?***`
@@ -73,7 +75,7 @@ export function createApp() {
   if (env.NODE_ENV === 'test') {
     app.get('/api/test/mail', (req, res) => { res.json(mailOutbox.filter(m => !req.query.to || m.to === req.query.to)) })
   }
-  app.use('/api', publicRouter, meRouter, avatarRouter, invitesRouter, judgeRouter, telegramRouter, notificationsRouter, motionsRouter, progressRouter, certificatesRouter, checkinRouter, teammatesRouter, safetyRouter, paymentsRouter, clubsRouter, newsRouter, reviewsRouter, speakerInvitesRouter, organizerRouter, adminRouter)
+  app.use('/api', publicRouter, meRouter, avatarRouter, invitesRouter, judgeRouter, telegramRouter, notificationsRouter, motionsRouter, progressRouter, certificatesRouter, checkinRouter, teammatesRouter, safetyRouter, paymentsRouter, clubsRouter, newsRouter, reviewsRouter, speakerInvitesRouter, speakerLinksRouter, organizerRouter, adminRouter)
 
   app.use('/api', notFoundHandler)
   app.use(errorHandler)

@@ -31,11 +31,14 @@ const lm = (r: { leagueMotions?: unknown }) => (r.leagueMotions && typeof r.leag
 export const motionFor = (r: { motion: string; leagueMotions?: unknown }, league?: string | null) => (league && lm(r)[league]?.motion) || r.motion
 export const infoSlideFor = (r: { infoSlide: string | null; leagueMotions?: unknown }, league?: string | null) => (league && lm(r)[league]?.infoSlide) || r.infoSlide || undefined
 
-// the tournament's leagues ([] when it has none); a Kazakh league always comes first (tabs, tables, brackets, reports)
+// a league's language: the one the organizer chose, else guessed from its name (Kazakh letters = Kazakh)
+type League = { key: string; name: string; breakSize?: number; language?: 'kz' | 'ru' }
 const KAZAKH_LETTERS = /[әғқңөұүһі]/i
+export const leagueLanguage = (l: Pick<League, 'name' | 'language'>): 'kz' | 'ru' => l.language ?? (KAZAKH_LETTERS.test(l.name) ? 'kz' : 'ru')
+// the tournament's leagues ([] when it has none); a Kazakh league always comes first (tabs, tables, brackets, reports)
 export const leaguesOf = (t: { leagues: unknown }) => {
-  const list = (Array.isArray(t.leagues) ? t.leagues : []) as { key: string; name: string; breakSize?: number }[]
-  return [...list].sort((a, b) => Number(!KAZAKH_LETTERS.test(a.name)) - Number(!KAZAKH_LETTERS.test(b.name)))
+  const list = (Array.isArray(t.leagues) ? t.leagues : []) as League[]
+  return [...list].sort((a, b) => Number(leagueLanguage(a) !== 'kz') - Number(leagueLanguage(b) !== 'kz'))
 }
 
 export const teamInclude = {

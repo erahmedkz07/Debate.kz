@@ -348,6 +348,10 @@ function Teams({ data, reload }: SectionProps) {
       <SectionTitle title={`${t('dashboard.nav.teams')} · ${data.teams.filter(x => !x.swing).length}/${data.maxTeams}`}
         action={
           <div className="flex flex-wrap gap-2">
+            {/* every speaker's personal link as a QR card, for the registration desk */}
+            {data.teams.some(x => !x.swing) && (
+              <Button asChild variant="outline"><a href={`/tournaments/${data.id}/speaker-links/print`} target="_blank" rel="noopener"><QrCode className="size-4" />{t('speakerLink.button')}</a></Button>
+            )}
             <Button variant="outline" disabled={data.teams.length >= data.maxTeams} onClick={() => setBulk(true)}><ListPlus className="size-4" />{t('dashboard.teams.bulk')}</Button>
             <Button disabled={data.teams.length >= data.maxTeams} onClick={() => { setEditing(null); setOpen(true) }}><Plus className="size-4" />{t('dashboard.teams.add')}</Button>
           </div>
@@ -611,7 +615,7 @@ function LeaguesCard({ data, reload }: SectionProps) {
         <p className="mt-1 text-sm text-muted-foreground">{t('leagues.text')}</p>
       </div>
       {list.length === 0 ? (
-        <Button variant="outline" onClick={() => setList([{ key: 'l1', name: t('leagues.defaultKz') }, { key: 'l2', name: t('leagues.defaultRu') }])}>
+        <Button variant="outline" onClick={() => setList([{ key: 'l1', name: t('leagues.defaultKz'), language: 'kz' }, { key: 'l2', name: t('leagues.defaultRu'), language: 'ru' }])}>
           <Plus className="size-4" />{t('leagues.enable')}
         </Button>
       ) : (
@@ -619,6 +623,10 @@ function LeaguesCard({ data, reload }: SectionProps) {
           {list.map((l, i) => (
             <li key={l.key} className="flex items-center gap-2">
               <Input value={l.name} maxLength={40} aria-label={t('leagues.name', { n: i + 1 })} onChange={e => setList(list.map(x => (x.key === l.key ? { ...x, name: e.target.value } : x)))} />
+              {/* the league's language: its certificates are printed in it; a Kazakh league comes first everywhere */}
+              <Select size="sm" className="w-32 shrink-0" aria-label={t('leagues.language', { n: i + 1 })} value={l.language ?? (/[әғқңөұүһі]/i.test(l.name) ? 'kz' : 'ru')}
+                onValueChange={v => setList(list.map(x => (x.key === l.key ? { ...x, language: v as 'kz' | 'ru' } : x)))}
+                options={[{ value: 'kz', label: t('leagues.langKz') }, { value: 'ru', label: t('leagues.langRu') }]} />
               {!drawn && (
                 <Button variant="ghost" size="icon" aria-label={t('common.delete')} onClick={() => setList(list.filter(x => x.key !== l.key))}><Trash2 className="size-4" /></Button>
               )}

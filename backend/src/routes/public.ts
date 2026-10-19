@@ -141,7 +141,12 @@ publicRouter.get('/testimonials', async (_req, res) => {
 })
 
 // Season rating: aggregates results of all tournaments by team name + institution
+// the rating is recomputed from every public tournament's tables: kept for a minute, so a busy page (a whole class
+// opening it at once) costs one computation instead of one per visitor
+let ratingCache: { at: number; data: unknown } | null = null
+const RATING_TTL_MS = process.env.NODE_ENV === 'test' ? 0 : 60_000 // the e2e checks read it right after a change
 publicRouter.get('/rating', async (_req, res) => {
+  if (ratingCache && Date.now() - ratingCache.at < RATING_TTL_MS) return void res.json(ratingCache.data)
   const tournaments = await prisma.tournament.findMany({ where: publicWhere, select: { id: true, level: true, city: true, startDate: true } })
   type Ref = { id: string; name: string } | undefined
   // teams: the same club team is one row across tournaments even if it entered under different names
@@ -167,8 +172,10 @@ publicRouter.get('/rating', async (_req, res) => {
       }
     }
     for (const row of s.speakers) {
-      if (!row.average) continue
-      const key = `${row.speaker.name}|${row.team.club?.id ?? row.team.institution}`
+      // the speaker rating is for people with an account (one row per person): names typed by an organizer
+      // ("Сабина", "Спикер 1") stay in their tournament's tables until the speaker saves them to a profile
+      if (!row.average || !row.speaker.userId) continue
+      const key = row.speaker.userId
       const date = t.startDate.toISOString()
       const a = speakerAgg.get(key) ?? { name: row.speaker.name, team: row.team.clubTeam?.name ?? row.team.name, club: row.team.club, city: row.team.city || t.city, level: rowLevel(row.team.institution, t.level), tournaments: new Set(), total: 0, n: 0, last: { tournamentId: t.id, speakerId: row.speaker.id, date } }
       a.tournaments.add(t.id); a.total += row.average; a.n += 1
@@ -195,5 +202,6 @@ publicRouter.get('/rating', async (_req, res) => {
       winRate: c.debates ? Math.round((c.wins / c.debates) * 100) : 0, points: Math.round(c.points),
       speakerAverage: c.speakerAvg.length ? r1(c.speakerAvg.reduce((x, y) => x + y, 0) / c.speakerAvg.length) : 0,
     }))
-  res.json({ teams, speakers, clubs })
+  ratingCache = { at: Date.now(), data: { teams, speakers, clubs } }
+  res.json(ratingCache.data)
 })
