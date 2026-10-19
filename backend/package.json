@@ -15,6 +15,7 @@
     "db:reset": "prisma migrate reset --force",
     "db:studio": "prisma studio",
     "test:e2e": "node --env-file=.env scripts/e2e.mjs",
+    "test:ui-api": "node --env-file=.env scripts/ui-api.mjs",
     "admin:grant": "tsx scripts/make-admin.ts"
   },
   "dependencies": {

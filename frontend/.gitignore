@@ -3,3 +3,7 @@ dist
 *.local
 .DS_Store
 *.tsbuildinfo
+
+# UI tests (Playwright)
+test-results/
+tests/ui-report/

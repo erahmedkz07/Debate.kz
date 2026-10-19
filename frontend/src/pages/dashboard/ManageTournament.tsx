@@ -9,7 +9,7 @@ import {
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
 } from '@/api'
 import { leagueMotion, type Debate, type Judge, type League, type Round, type ScheduleItem, type Team, type TournamentDetails, type TournamentStatus } from '@/types'
-import { useAsync } from '@/lib/hooks'
+import { useAsync, shownInUrl } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn, formatDate, formatDateRange, formatDateTime, initials, todayKz } from '@/lib/utils'
 import { Badge, StatusDot } from '@/components/ui/badge'
@@ -1779,7 +1779,7 @@ function SettingsSection({ data, reload }: SectionProps) {
   const [params, setParams] = useSearchParams()
   const parts = ['general', 'place', ...(data.status !== 'finished' ? ['conduct'] : []), 'access', ...(data.myRole === 'owner' || data.myRole === 'admin' ? ['danger'] : [])]
   const part = parts.includes(params.get('part') ?? '') ? params.get('part')! : 'general'
-  const setPart = (v: string) => setParams(prev => { const n = new URLSearchParams(prev); n.set('part', v); return n })
+  const setPart = (v: string) => { if (!shownInUrl('part', v, 'general')) setParams(prev => { const n = new URLSearchParams(prev); n.set('part', v); return n }) }
   const [stageTo, setStageTo] = useState<TournamentStatus | null>(null)
   const changeStage = async () => {
     if (await run('stage', () => updateTournament(data.id, { status: stageTo! }), t('dashboard.stage.changed'))) { setStageTo(null); reload() }

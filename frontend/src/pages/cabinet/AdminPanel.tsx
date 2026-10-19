@@ -7,7 +7,7 @@ import { adminDeleteTournament, getAdminActions, getAdminStats, getAdminTourname
 import { errorMessage } from '@/lib/errors'
 import type { AdminTournament, Role, User } from '@/types'
 import { useAuth } from '@/lib/auth'
-import { useAsync } from '@/lib/hooks'
+import { useAsync, shownInUrl } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange, formatDateTime } from '@/lib/utils'
 import { Avatar } from '@/components/auth/UserMenu'
 import { AdminPayments } from '@/components/payments/AdminPayments'
@@ -394,7 +394,7 @@ export default function AdminPanel() {
   // the open section lives in the address (?tab=), so a refresh or "back" keeps it
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') ?? 'overview'
-  const setTab = (v: string) => setParams(v === 'overview' ? {} : { tab: v })
+  const setTab = (v: string) => { if (!shownInUrl('tab', v, 'overview')) setParams(v === 'overview' ? {} : { tab: v }) }
   useEffect(() => { if (data) setList(data) }, [data])
   const pending = list.filter(x => x.moderation === 'pending').length
   // clubs waiting for a decision or reported

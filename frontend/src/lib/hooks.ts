@@ -32,3 +32,8 @@ export function useTheme() {
   }, [])
   return { dark, toggle }
 }
+
+// A tab change goes into the history once: a click on a tab fires twice (mouse down, then focus), and two entries
+// would make "back" stay on the same tab. True when the address already shows this value of the parameter.
+export const shownInUrl = (key: string, value: string, fallback: string) =>
+  (new URLSearchParams(window.location.search).get(key) ?? fallback) === value

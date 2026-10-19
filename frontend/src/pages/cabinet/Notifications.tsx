@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/card'
 import { SideTabsList, SideTabsTrigger, Tabs } from '@/components/ui/tabs'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { CabinetHeader } from '@/pages/dashboard/DashboardLayout'
+import { shownInUrl } from '@/lib/hooks'
 
 // a notification's category is the first part of its type: participant.*, judge.*, organizer.*, admin.*
 const CATEGORIES = ['participant', 'judge', 'organizer', 'admin'] as const
@@ -37,7 +38,7 @@ export default function Notifications() {
   const [params, setParams] = useSearchParams()
   const asked = params.get('tab') ?? 'all'
   const tab = asked === 'platform' ? (isAdmin ? asked : 'all') : (CATEGORIES as readonly string[]).includes(asked) ? asked : 'all'
-  const setTab = (v: string) => setParams(v === 'all' ? {} : { tab: v })
+  const setTab = (v: string) => { if (!shownInUrl('tab', v, 'all')) setParams(v === 'all' ? {} : { tab: v }) }
   const mode = tab === 'platform' ? 'platform' : 'mine'
   const [items, setItems] = useState<AppNotification[]>([])
   const [unread, setUnread] = useState(0)

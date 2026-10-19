@@ -14,7 +14,7 @@ import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
 import { leagueMotion, leaguesOfRound, type Debate, type League, type Round, type Side, type TournamentDetails } from '@/types'
 import type { TFunction } from 'i18next'
-import { useAsync } from '@/lib/hooks'
+import { useAsync, shownInUrl } from '@/lib/hooks'
 import { breakForecast } from '@/lib/breakForecast'
 import { cn, formatDate, formatDateRange, formatDateTime, initials } from '@/lib/utils'
 import { Badge, StatusDot, statusVariant } from '@/components/ui/badge'
@@ -715,7 +715,7 @@ export default function TournamentPage() {
 
       <div className="container-page py-8 sm:py-10">
         <Tabs value={requestedTab && tabs.includes(requestedTab) ? requestedTab : 'overview'}
-          onValueChange={v => setParams(p => { p.set('tab', v); return p }, { preventScrollReset: true })}>
+          onValueChange={v => { if (!shownInUrl('tab', v, 'overview')) setParams(p => { p.set('tab', v); return p }, { preventScrollReset: true }) }}>
           <TabsList>
             <TabsTrigger value="overview">{t('tournament.tabs.overview')}</TabsTrigger>
             <TabsTrigger value="teams">{t('tournament.tabs.teams')} <span className="ml-1 text-xs opacity-60">{data.teams.filter(x => !x.swing).length}</span></TabsTrigger>
