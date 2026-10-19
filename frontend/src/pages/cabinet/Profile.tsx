@@ -7,7 +7,7 @@ import { type MyDebate, changePassword, createTelegramLink, deleteAccount, getGo
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
-import { useAsync } from '@/lib/hooks'
+import { useAsync, shownInUrl } from '@/lib/hooks'
 import { cn, formatDate, formatDateRange } from '@/lib/utils'
 import { AvatarEditor } from '@/components/auth/AvatarEditor'
 import { GoogleButton, GoogleIcon } from '@/components/auth/GoogleButton'
@@ -285,7 +285,7 @@ export default function Profile() {
   const asked = params.get('tab') ?? (params.has('club') ? 'club' : null)
   const tab = params.has('welcome') || params.has('google') || params.has('google_error') ? 'settings'
     : asked && ['club', 'registrations', 'debates', 'progress', 'certificates', 'settings'].includes(asked) ? asked : isAdmin ? 'settings' : !user?.clubTeam ? 'club' : 'registrations'
-  const setTab = (v: string) => setParams({ tab: v }, { preventScrollReset: true })
+  const setTab = (v: string) => { if (!shownInUrl('tab', v, tab)) setParams({ tab: v }, { preventScrollReset: true }) }
   // the server sends people back here after Google: ?welcome=1 (new account), ?google=linked, ?google_error=…
   useEffect(() => {
     const welcome = params.get('welcome'), linked = params.get('google'), failed = params.get('google_error')

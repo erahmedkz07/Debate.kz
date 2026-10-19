@@ -28,10 +28,11 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   // same-origin API in dev: the session cookie just works, no CORS
+  // (the UI tests point it at their own test API with API_TARGET)
   server: {
     proxy: {
-      '/api': { target: 'http://localhost:4000', changeOrigin: true },
-      '/uploads': { target: 'http://localhost:4000', changeOrigin: true },
+      '/api': { target: process.env.API_TARGET ?? 'http://localhost:4000', changeOrigin: true },
+      '/uploads': { target: process.env.API_TARGET ?? 'http://localhost:4000', changeOrigin: true },
     },
   },
 })

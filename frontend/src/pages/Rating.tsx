@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Crown, MapPin, Users } from 'lucide-react'
 import { getRating } from '@/api'
 import type { Ref, TournamentLevel } from '@/types'
-import { useAsync } from '@/lib/hooks'
+import { useAsync, shownInUrl } from '@/lib/hooks'
 import { cn, formatNumber, initials } from '@/lib/utils'
 import { PageHeader } from '@/components/layout/Layout'
 import { Card } from '@/components/ui/card'
@@ -111,7 +111,7 @@ export default function Rating() {
       <PageHeader title={t('rating.title')} subtitle={t('rating.subtitle')} />
       <div className="container-page py-10">
         {error ? <ErrorState onRetry={reload} /> : (
-          <Tabs value={tab} onValueChange={v => setParams(v === 'teams' ? {} : { tab: v }, { preventScrollReset: true })}>
+          <Tabs value={tab} onValueChange={v => { if (!shownInUrl('tab', v, 'teams')) setParams(v === 'teams' ? {} : { tab: v }, { preventScrollReset: true }) }}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <TabsList>
                 <TabsTrigger value="teams">{t('rating.teams')}</TabsTrigger>
