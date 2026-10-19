@@ -348,6 +348,10 @@ function Teams({ data, reload }: SectionProps) {
       <SectionTitle title={`${t('dashboard.nav.teams')} · ${data.teams.filter(x => !x.swing).length}/${data.maxTeams}`}
         action={
           <div className="flex flex-wrap gap-2">
+            {/* every speaker's personal link as a QR card, for the registration desk */}
+            {data.teams.some(x => !x.swing) && (
+              <Button asChild variant="outline"><a href={`/tournaments/${data.id}/speaker-links/print`} target="_blank" rel="noopener"><QrCode className="size-4" />{t('speakerLink.button')}</a></Button>
+            )}
             <Button variant="outline" disabled={data.teams.length >= data.maxTeams} onClick={() => setBulk(true)}><ListPlus className="size-4" />{t('dashboard.teams.bulk')}</Button>
             <Button disabled={data.teams.length >= data.maxTeams} onClick={() => { setEditing(null); setOpen(true) }}><Plus className="size-4" />{t('dashboard.teams.add')}</Button>
           </div>

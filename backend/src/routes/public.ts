@@ -167,8 +167,10 @@ publicRouter.get('/rating', async (_req, res) => {
       }
     }
     for (const row of s.speakers) {
-      if (!row.average) continue
-      const key = `${row.speaker.name}|${row.team.club?.id ?? row.team.institution}`
+      // the speaker rating is for people with an account (one row per person): names typed by an organizer
+      // ("Сабина", "Спикер 1") stay in their tournament's tables until the speaker saves them to a profile
+      if (!row.average || !row.speaker.userId) continue
+      const key = row.speaker.userId
       const date = t.startDate.toISOString()
       const a = speakerAgg.get(key) ?? { name: row.speaker.name, team: row.team.clubTeam?.name ?? row.team.name, club: row.team.club, city: row.team.city || t.city, level: rowLevel(row.team.institution, t.level), tournaments: new Set(), total: 0, n: 0, last: { tournamentId: t.id, speakerId: row.speaker.id, date } }
       a.tournaments.add(t.id); a.total += row.average; a.n += 1

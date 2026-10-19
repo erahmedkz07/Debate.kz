@@ -2857,5 +2857,61 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await speaker.c('GET', `/ballots/${room.id}`)).status === 403, 'a speaker cannot open the ballot with the flow')
 }
 
+// ---------- 74. speakers' personal links: their draw and results without an account; "this is me" ----------
+{
+  const host = await newAccount('Ссылки Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(550), name: `Ссылки ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Ссыл А', 'Ссыл Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один ${jtag}`, `${n} Два ${jtag}`, `${n} Три ${jtag}`] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Ссылка Судья'] })
+  const stranger = await newAccount('Ссылки Чужой')
+  ok((await stranger.c('POST', `/tournaments/${t.id}/speaker-links`)).status === 403, 'only organizers get the speakers\' links')
+  const links = (await host.c('POST', `/tournaments/${t.id}/speaker-links`)).data
+  ok(links.length === 2 && links.every(x => x.speakers.length === 3 && x.speakers.every(s => s.accessKey && !s.linked)), 'every speaker gets a personal link')
+  const again = (await host.c('POST', `/tournaments/${t.id}/speaker-links`)).data
+  ok(again[0].speakers[0].accessKey === links[0].speakers[0].accessKey, 'the links stay the same when opened again')
+  const me = links.find(x => x.teamName === 'Ссыл А').speakers[0]
+  const page = async () => (await client()('GET', `/speaker-link/${me.accessKey}`)).data
+  ok((await page()).speaker.name === me.name && (await page()).debates.length === 0, 'the link opens the speaker\'s page without signing in')
+  ok((await client()('GET', '/speaker-link/nonsense')).data?.error === 'speaker_link_invalid', 'a made-up link opens nothing')
+  // a round: the room shows, the result only after the round
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const r1 = d.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: `ЭП отменит экзамены ${jtag}`, status: 'released' })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const room = d.debates[0]
+  let p = await page()
+  ok(p.debates.length === 1 && p.debates[0].opponents[0] === 'Ссыл Б' && !p.debates[0].result, 'the speaker sees their room; no result while the round goes on')
+  const key = d.judges[0].accessKey
+  const sheet = await fetch(`${A}/ballots/${room.id}`, { headers: { 'X-Judge-Key': key } }).then(x => x.json())
+  const scores = {}
+  sheet.proposition.speakers.forEach(s => (scores[s.id] = 75)); sheet.opposition.speakers.forEach(s => (scores[s.id] = 70))
+  const win = sheet.proposition.name === 'Ссыл А' ? 'proposition' : 'opposition'
+  if (win === 'opposition') { sheet.opposition.speakers.forEach(s => (scores[s.id] = 75)); sheet.proposition.speakers.forEach(s => (scores[s.id] = 70)) }
+  await fetch(`${A}/ballots/${room.id}`, { method: 'POST', headers: { 'X-Judge-Key': key, 'Content-Type': 'application/json' }, body: JSON.stringify({ winner: win, scores, reply: { [win]: 37, [win === 'proposition' ? 'opposition' : 'proposition']: 35 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id }, reason: 'Сильнее аргументы' }) })
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })
+  p = await page()
+  ok(p.debates[0].result?.win === true && p.debates[0].score === 75 && p.debates[0].reasons[0].text === 'Сильнее аргументы', 'after the round: the win, the speaker\'s score and the reason')
+  // the rating: names typed by the organizer stay out; a saved profile counts
+  const inRating = async () => (await client()('GET', '/rating')).data.speakers.some(s => s.name === me.name)
+  ok(!(await inRating()), 'a speaker without an account is not in the speaker rating')
+  ok((await client()('POST', `/speaker-link/${me.accessKey}/claim`)).status === 401, 'saving to a profile needs signing in')
+  ok((await host.c('POST', `/speaker-link/${me.accessKey}/claim`)).data?.error === 'conflict_of_interest', 'the organizer cannot take a speaker\'s place')
+  const student = await newAccount('Ссылки Спикер')
+  ok((await student.c('POST', `/speaker-link/${me.accessKey}/claim`)).status === 200, '"this is me": the speaker saves the results to their profile')
+  ok((await page()).claimed === true && (await inRating()), 'from then on the speaker is in the rating')
+  const other = links.find(x => x.teamName === 'Ссыл А').speakers[1]
+  ok((await student.c('POST', `/speaker-link/${other.accessKey}/claim`)).data?.error === 'already_joined', 'one person is one speaker of a tournament')
+  ok((await stranger.c('POST', `/speaker-link/${me.accessKey}/claim`)).data?.error === 'speaker_has_account', 'a saved place cannot be taken by someone else')
+  // the certificate follows the profile
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })
+  ok((await page()).certificate && (await student.c('GET', '/me/certificates')).data.some(c => c.tournament?.id === t.id), 'the certificate is on the link and in the profile')
+  // a new link stops the old one
+  const fresh = (await host.c('POST', `/speakers/${other.id}/link`)).data.accessKey
+  ok(fresh !== other.accessKey && (await client()('GET', `/speaker-link/${other.accessKey}`)).data?.error === 'speaker_link_invalid', 'a new link stops the old one')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')
