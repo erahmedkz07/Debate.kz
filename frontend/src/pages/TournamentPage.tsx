@@ -160,13 +160,13 @@ function ApplicationsCard({ id }: { id: string }) {
   const look = { confirmed: 'success', waitlisted: 'accent', pending: 'outline', rejected: 'muted' } as const
   return (
     <Card className="p-6">
-      <h2 className="flex items-center gap-2 text-xl font-bold"><Inbox className="size-5 text-primary" />{t('tournament.applications.title')}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{t('tournament.applications.summary', { applied: data.applications, places: data.places })}</p>
+      <h2 className="flex items-center gap-2 text-xl font-bold"><Inbox className="size-5 text-primary" />{t('tournament.applicationsCard.title')}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{t('tournament.applicationsCard.summary', { applied: data.applications, places: data.places })}</p>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {([['confirmed', data.confirmed], ['waitlisted', data.waitlisted], ['pending', data.pending], ['rejected', data.rejected]] as const).map(([k, n]) => (
           <div key={k} className="rounded-xl bg-muted/50 px-3 py-2 text-center">
             <p className="text-xl font-extrabold tabular-nums">{n}</p>
-            <p className="text-xs text-muted-foreground">{t(`tournament.applications.${k}`)}</p>
+            <p className="text-xs text-muted-foreground">{t(`tournament.applicationsCard.${k}`)}</p>
           </div>
         ))}
       </div>
@@ -176,12 +176,12 @@ function ApplicationsCard({ id }: { id: string }) {
           <li key={`${x.team}-${i}`} className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2 text-sm">
             <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-extrabold text-primary-foreground">{x.rank ?? i + 1}</span>
             <span className="min-w-0 flex-1"><span className="block truncate font-semibold">{x.team}</span>{x.institution && <span className="block truncate text-xs text-muted-foreground">{x.institution}</span>}</span>
-            <Badge variant={look[x.status]}>{t(`tournament.applications.one.${x.status}`)}</Badge>
+            <Badge variant={look[x.status]}>{t(`tournament.applicationsCard.one.${x.status}`)}</Badge>
           </li>
         ))}
       </ol>
       {data.list.length > 12 && (
-        <Button variant="ghost" size="sm" className="mt-3" onClick={() => setAll(!all)}>{all ? t('tournament.applications.less') : t('tournament.applications.more', { count: data.list.length })}</Button>
+        <Button variant="ghost" size="sm" className="mt-3" onClick={() => setAll(!all)}>{all ? t('tournament.applicationsCard.less') : t('tournament.applicationsCard.more', { count: data.list.length })}</Button>
       )}
     </Card>
   )
