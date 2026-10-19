@@ -5,10 +5,11 @@ import { animate, motion, useInView } from 'framer-motion'
 import {
   ArrowRight, Bell, CheckCircle2, ClipboardCheck, Gavel, Languages, Plus, Quote, Radio, Shuffle, Sparkles, Trophy, UserPlus, Users,
 } from 'lucide-react'
-import { getLive, getPlatformStats, getTestimonials, getUpcomingTournaments } from '@/api'
+import { getLive, getPlans, getPlatformStats, getTestimonials, getUpcomingTournaments } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { images } from '@/mocks/images'
 import { useAsync } from '@/lib/hooks'
+import { FREE_TEAM_LIMIT } from '@/lib/plans'
 import { formatNumber, initials } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ErrorState, Skeleton } from '@/components/ui/states'
@@ -250,6 +251,9 @@ function Audience() {
 
 function PricingTeaser() {
   const { t } = useTranslation()
+  // the free limit is the platform's setting (the same number as on the pricing page and when creating a tournament)
+  const { data } = useAsync(getPlans)
+  const limit = data?.freeTeamLimit ?? FREE_TEAM_LIMIT
   return (
     <section className="container-page py-20 sm:py-28">
       <SectionTitle title={t('home.pricing.title')} subtitle={t('home.pricing.subtitle')} />
@@ -257,14 +261,14 @@ function PricingTeaser() {
         <Reveal className="rounded-3xl border-2 border-primary bg-card p-8 shadow-lg shadow-primary/10">
           <p className="text-sm font-bold uppercase tracking-wider text-primary">{t('home.pricing.freeTitle')}</p>
           <p className="mt-3 text-5xl font-extrabold">0 ₸</p>
-          <p className="mt-4 text-muted-foreground">{t('home.pricing.freeText')}</p>
-          <p className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1.5 text-sm font-bold text-primary"><Users className="size-4" />≤ 12</p>
+          <p className="mt-4 text-muted-foreground">{t('home.pricing.freeText', { limit })}</p>
+          <p className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1.5 text-sm font-bold text-primary"><Users className="size-4" />≤ {limit}</p>
         </Reveal>
         <Reveal delay={0.1} className="relative overflow-hidden rounded-3xl bg-navy p-8 text-white shadow-lg">
           <Ornament className="absolute -right-8 -top-6 w-44 text-white/5" />
           <p className="text-sm font-bold uppercase tracking-wider text-accent">{t('home.pricing.proTitle')}</p>
-          <p className="mt-3 text-5xl font-extrabold">13+</p>
-          <p className="mt-4 text-white/70">{t('home.pricing.proText')}</p>
+          <p className="mt-3 text-5xl font-extrabold">{limit + 1}+</p>
+          <p className="mt-4 text-white/70">{t('home.pricing.proText', { limit })}</p>
           <p className="mt-6 inline-flex items-center gap-2 rounded-full bg-accent px-3 py-1.5 text-sm font-bold text-navy"><Trophy className="size-4" />Pro</p>
         </Reveal>
       </div>

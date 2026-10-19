@@ -342,6 +342,9 @@ export type OrganizerRegistration = TeamRegistration & { contactPhone: string; u
 // selection: live numbers and, after a lottery, its public order
 export interface Selection {
   mode: 'manual' | 'first_come' | 'lottery'; clubQuota?: number; places: number; taken: number; applications: number; waitlisted: number
+  confirmed: number; pending: number; rejected: number
+  // every application (team and school): got a place, in reserve or still being decided
+  list: { team: string; institution: string; status: TeamRegistration['status']; rank?: number }[]
   lotteryAt?: string; lottery?: { rank: number; team: string; status: TeamRegistration['status'] }[]
 }
 export const getSelection = (tournamentId: string) => http<Selection>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/selection`)

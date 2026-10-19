@@ -130,14 +130,23 @@ export async function fillFromWaitlist(tournamentId: string) {
 // the public view of the selection: how many applied for how many places and, after a lottery, its order
 export async function selectionOf(tournamentId: string) {
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, include: { _count: { select: { teams: { where: { swing: false } } } } } })
-  const regs = await prisma.teamRegistration.findMany({
-    where: { tournamentId, status: { not: 'rejected' } },
-    orderBy: [{ lotteryRank: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
-    select: { teamName: true, status: true, lotteryRank: true },
-  })
+  const [regs, rejected] = await Promise.all([
+    prisma.teamRegistration.findMany({
+      where: { tournamentId, status: { not: 'rejected' } },
+      orderBy: [{ lotteryRank: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
+      select: { teamName: true, institution: true, status: true, lotteryRank: true },
+    }),
+    prisma.teamRegistration.count({ where: { tournamentId, status: 'rejected' } }),
+  ])
+  // every application in public (the team and its school only — never the speakers or the phone): who got a place,
+  // who waits in reserve and who is still being decided; the turned-down ones only as a number
+  const order = { confirmed: 0, waitlisted: 1, pending: 2, rejected: 3 } as const
+  const list = [...regs].sort((a, b) => order[a.status] - order[b.status])
   return {
     mode: t.selectionMode, clubQuota: t.clubQuota ?? undefined, places: t.maxTeams, taken: t._count.teams,
-    applications: regs.length, waitlisted: regs.filter(r => r.status === 'waitlisted').length,
+    applications: regs.length + rejected, waitlisted: regs.filter(r => r.status === 'waitlisted').length,
+    confirmed: regs.filter(r => r.status === 'confirmed').length, pending: regs.filter(r => r.status === 'pending').length, rejected,
+    list: list.map(r => ({ team: r.teamName, institution: r.institution, status: r.status, ...(r.lotteryRank && { rank: r.lotteryRank }) })),
     lotteryAt: t.lotteryAt?.toISOString(),
     ...(t.lotteryAt && { lottery: regs.filter(r => r.lotteryRank).map(r => ({ rank: r.lotteryRank!, team: r.teamName, status: r.status })) }),
   }

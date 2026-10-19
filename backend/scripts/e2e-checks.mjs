@@ -1894,6 +1894,8 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(st.join() === 'confirmed,confirmed,waitlisted,confirmed,confirmed,waitlisted', 'first come: places while they last; the 3rd team of a club and the 6th team wait')
   let sel = (await client()('GET', `/tournaments/${fc.id}/selection`)).data
   ok(sel.applications === 6 && sel.places === 4 && sel.taken === 4 && sel.waitlisted === 2, 'the public sees 6 applications for 4 places')
+  ok(sel.list.length === 6 && sel.list.filter(x => x.status === 'confirmed').length === 4 && sel.list.slice(0, 4).every(x => x.status === 'confirmed') && sel.list.every(x => x.team && !('contactPhone' in x) && !('speakers' in x)),
+    'the public list shows every application: who got a place first, then the reserve; no phones or speakers')
   ok((await client()('GET', `/tournaments?limit=100`)).data.find(x => x.id === fc.id)?.applications === 6, 'the tournament card counts live applications')
   // a team leaves: the club-X team is skipped (quota), the next in line takes the place
   const teams = (await host.c('GET', `/tournaments/${fc.id}`)).data.teams

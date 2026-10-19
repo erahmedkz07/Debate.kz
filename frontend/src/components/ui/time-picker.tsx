@@ -49,13 +49,20 @@ export function TimePicker({ value, onChange, id, invalid, placeholder = '--:--'
       <P.Portal>
         <P.Content align="start" sideOffset={6} collisionPadding={12}
           className="z-[60] w-56 rounded-2xl border border-border bg-card p-3 text-foreground shadow-xl shadow-navy/10 data-[state=open]:animate-[dropdown-in_150ms_ease-out]">
-          <div className="grid grid-cols-2 gap-2">
-            <Column label={t('timePicker.hours')} items={HOURS} selected={hour}
-              onPick={h => set(h, minute || '00')} />
-            <Column label={t('timePicker.minutes')} items={minutes} selected={minute}
-              onPick={m => set(hour || '09', m)} />
+          {/* one wheel like on an iPhone: no boxes, a shared band marks the chosen time, the edges fade out */}
+          <div className="grid grid-cols-2 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span>{t('timePicker.hours')}</span><span>{t('timePicker.minutes')}</span>
           </div>
-          <div className="mt-3 flex justify-end border-t border-border pt-3">
+          <div className="relative mt-1">
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-1/2 h-9 -translate-y-1/2 rounded-xl bg-muted" />
+            <div className="relative grid grid-cols-2">
+              <Column label={t('timePicker.hours')} items={HOURS} selected={hour}
+                onPick={h => set(h, minute || '00')} />
+              <Column label={t('timePicker.minutes')} items={minutes} selected={minute}
+                onPick={m => set(hour || '09', m)} />
+            </div>
+          </div>
+          <div className="mt-2 flex justify-end">
             <button type="button" onClick={() => setOpen(false)}
               className="cursor-pointer rounded-lg px-3 py-1 text-xs font-semibold text-primary hover:bg-primary-soft">
               {t('timePicker.done')}
@@ -67,28 +74,37 @@ export function TimePicker({ value, onChange, id, invalid, placeholder = '--:--'
   )
 }
 
-// one scrolling column; the chosen value is scrolled into the middle when the popup opens
+// One column of the wheel: it snaps to an item, the item in the middle is the chosen one (scroll or tap); the
+// chosen value is scrolled into the middle when the popup opens
+const ROW = 36 // h-9
 function Column({ label, items, selected, onPick }: { label: string; items: string[]; selected: string; onPick: (v: string) => void }) {
   const list = useRef<HTMLDivElement>(null)
+  const settle = useRef<number | undefined>(undefined)
   useEffect(() => {
-    const el = list.current?.querySelector<HTMLElement>('[aria-pressed="true"]')
-    if (el && list.current) list.current.scrollTop = el.offsetTop - list.current.clientHeight / 2 + el.clientHeight / 2
-  }, [selected])
+    const i = items.indexOf(selected)
+    if (list.current && i >= 0 && Math.abs(list.current.scrollTop - i * ROW) > 2) list.current.scrollTop = i * ROW
+  }, [selected, items])
+  // when the wheel stops, the item in the middle is picked
+  const onScroll = () => {
+    window.clearTimeout(settle.current)
+    settle.current = window.setTimeout(() => {
+      const el = list.current
+      if (!el) return
+      const v = items[Math.min(items.length - 1, Math.max(0, Math.round(el.scrollTop / ROW)))]
+      if (v && v !== selected) onPick(v)
+    }, 120)
+  }
   return (
-    <div>
-      <p className="mb-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <div ref={list} role="listbox" aria-label={label}
-        className="relative h-52 space-y-1 overflow-y-auto overscroll-contain rounded-xl bg-muted/50 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {items.map(v => (
-          <button key={v} type="button" role="option" aria-selected={v === selected} onClick={() => onPick(v)}
-            className={cn(
-              'block h-9 w-full cursor-pointer rounded-lg text-sm tabular-nums transition-colors',
-              v === selected ? 'bg-primary font-bold text-primary-foreground shadow-md shadow-primary/25' : 'hover:bg-primary-soft hover:text-primary',
-            )}>
-            {v}
-          </button>
-        ))}
-      </div>
+    <div ref={list} role="listbox" aria-label={label} onScroll={onScroll}
+      className="h-[180px] snap-y snap-mandatory overflow-y-auto overscroll-contain py-[72px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(to_bottom,transparent,black_35%,black_65%,transparent)]">
+      {items.map(v => (
+        <button key={v} type="button" role="option" aria-selected={v === selected}
+          onClick={() => { onPick(v); list.current?.scrollTo({ top: items.indexOf(v) * ROW, behavior: 'smooth' }) }}
+          className={cn('block h-9 w-full cursor-pointer snap-center text-base tabular-nums transition-colors',
+            v === selected ? 'font-bold text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+          {v}
+        </button>
+      ))}
     </div>
   )
 }
