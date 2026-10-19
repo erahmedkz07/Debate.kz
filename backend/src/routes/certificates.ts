@@ -6,7 +6,7 @@ import { toDay } from '../lib/dates.js'
 import { notFound } from '../lib/errors.js'
 import { param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { assertCanManage, leaguesOf } from '../services/tournaments.js'
+import { assertCanManage, leagueLanguage, leaguesOf } from '../services/tournaments.js'
 import { certificateInclude, ensureCertificates } from '../services/certificates.js'
 
 export const certificatesRouter = Router()
@@ -15,10 +15,9 @@ type Row = Prisma.CertificateGetPayload<{ include: typeof certificateInclude }>
 type Lang = 'ru' | 'kz'
 
 // A certificate speaks its holder's language: a speaker of the Kazakh league gets it in Kazakh, of the Russian league
-// in Russian, and a judge of a league likewise. A league's language comes from its name (Kazakh letters = Kazakh).
+// in Russian, and a judge of a league likewise (the league's language: chosen by the organizer, else from its name).
 // Without a league: the tournament's only language; a tournament in both languages (or an award diploma) follows the
 // reader's site language.
-const KAZAKH_LETTERS = /[әғқңөұүһі]/i
 async function languagesOf(rows: Row[]): Promise<Map<string, Lang>> {
   const out = new Map<string, Lang>()
   const ids = (k: 'speakerId' | 'judgeId') => rows.flatMap(c => (c[k] ? [c[k]!] : []))
@@ -32,7 +31,7 @@ async function languagesOf(rows: Row[]): Promise<Map<string, Lang>> {
     const key = c.speakerId ? speakers.find(s => s.id === c.speakerId)?.team.league : c.judgeId ? judges.find(j => j.id === c.judgeId)?.league : null
     const league = t && key ? leaguesOf(t).find(l => l.key === key) : undefined
     const only = t?.languages.filter(l => l === 'ru' || l === 'kz') ?? []
-    const lang: Lang | undefined = league ? (KAZAKH_LETTERS.test(league.name) ? 'kz' : 'ru') : only.length === 1 ? (only[0] as Lang) : undefined
+    const lang: Lang | undefined = league ? leagueLanguage(league) : only.length === 1 ? (only[0] as Lang) : undefined
     if (lang && c.kind !== 'award') out.set(c.code, lang)
   }
   return out

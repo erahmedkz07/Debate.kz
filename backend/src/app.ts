@@ -36,7 +36,8 @@ import rateLimit from 'express-rate-limit'
 
 export function redactUrl(url: string) {
   const [path, query] = url.split('?')
-  const safePath = path.replace(/^(\/api\/invites\/)[^/]+/, '$1***')
+  // personal keys and one-time tokens in the path (invites, speaker invites, speakers' links) never reach the log
+  const safePath = path.replace(/^(\/api\/(?:invites|speaker-invites|speaker-link)\/)[^/]+/, '$1***')
   if (!query) return safePath
   // the Google callback carries the authorization code and state: drop the whole query
   if (path === '/api/auth/google/callback') return `${safePath}?***`
