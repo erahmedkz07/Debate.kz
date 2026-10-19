@@ -34,7 +34,7 @@ export function LangSwitch({ className, onDark }: { className?: string; onDark?:
   }
   return (
     <div className={cn('flex rounded-xl p-1 text-xs font-bold', onDark ? 'bg-white/15' : 'bg-muted', className)} role="group" aria-label={t('a11y.language')}>
-      {(['ru', 'kz'] as const).map(l => (
+      {(['kz', 'ru'] as const).map(l => (
         <button
           key={l}
           onClick={() => choose(l)}

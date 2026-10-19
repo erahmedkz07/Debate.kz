@@ -635,6 +635,9 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
 
 function JudgesTab({ data }: { data: TournamentDetails }) {
   const { t } = useTranslation()
+  // the rooms of released rounds a judge sat in, and how many of them as the chair
+  const released = new Set(data.rounds.filter(r => r.status !== 'draft').map(r => r.id))
+  const sat = (id: string) => data.debates.filter(d => released.has(d.roundId) && d.judgeIds.includes(id))
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {data.judges.map(j => (
@@ -644,7 +647,12 @@ function JudgesTab({ data }: { data: TournamentDetails }) {
             <p className="truncate font-bold">{j.userId ? <Link to={`/people/${j.userId}`} className="hover:text-primary hover:underline">{j.name}</Link> : j.name}</p>
             <p className="truncate text-xs text-muted-foreground">{j.institution}</p>
           </div>
-          {j.isChair && <Badge variant="accent">{t('tournament.chair')}</Badge>}
+          {sat(j.id).length > 0 && (
+            <span className="shrink-0 text-right text-xs text-muted-foreground">
+              <b className="block text-sm text-foreground">{t('tournament.judgedRooms', { count: sat(j.id).length })}</b>
+              {t('tournament.chairedRooms', { count: sat(j.id).filter(d => d.judgeIds[0] === j.id).length })}
+            </span>
+          )}
         </Card>
       ))}
     </div>
@@ -706,7 +714,7 @@ export default function TournamentPage() {
       </section>
 
       <div className="container-page py-8 sm:py-10">
-        <Tabs value={requestedTab && tabs.includes(requestedTab) ? requestedTab : data.status === 'registration' ? 'overview' : 'draw'}
+        <Tabs value={requestedTab && tabs.includes(requestedTab) ? requestedTab : 'overview'}
           onValueChange={v => setParams(p => { p.set('tab', v); return p }, { preventScrollReset: true })}>
           <TabsList>
             <TabsTrigger value="overview">{t('tournament.tabs.overview')}</TabsTrigger>

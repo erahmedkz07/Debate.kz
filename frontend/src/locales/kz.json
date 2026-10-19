@@ -277,7 +277,11 @@
       },
       "more": "Барлығын көрсету ({{count}})",
       "less": "Жию"
-    }
+    },
+    "judgedRooms_one": "{{count}} раунд",
+    "judgedRooms_other": "{{count}} раунд",
+    "chairedRooms_one": "төраға: {{count}}",
+    "chairedRooms_other": "төраға: {{count}}"
   },
   "auth": {
     "loginTitle": "Қайта оралуыңызбен!",
