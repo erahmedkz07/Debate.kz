@@ -15,9 +15,10 @@ export default function JudgeLink() {
   const { t } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getJudgeLink(key), [key])
   if (error) {
-    const invalid = (error as { code?: string }).code === 'judge_link_invalid'
+    const code = (error as { code?: string }).code
+    const invalid = code === 'judge_link_invalid' || code === 'link_expired'
     return <div className="container-page max-w-2xl py-16">{invalid
-      ? <EmptyState icon={<Gavel className="size-7" />} title={t('judgeLink.invalid')} text={t('judgeLink.invalidText')} />
+      ? <EmptyState icon={<Gavel className="size-7" />} title={t('judgeLink.invalid')} text={code === 'link_expired' ? t('apiErrors.link_expired') : t('judgeLink.invalidText')} />
       : <ErrorState onRetry={reload} />}</div>
   }
   if (loading || !data) return <div className="container-page max-w-2xl space-y-3 py-10"><Skeleton className="h-24" /><Skeleton className="h-32" /></div>

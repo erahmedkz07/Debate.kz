@@ -6,13 +6,14 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react'
-import { AuthError, login } from '@/api'
+import { AuthError, login, loginSecondStep } from '@/api'
 import { landingFor, useAuth } from '@/lib/auth'
 import { images } from '@/mocks/images'
 import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
 import { GoogleButton, OrDivider } from '@/components/auth/GoogleButton'
+import { SecondStepForm } from '@/components/auth/TwoFactor'
 
 
 // only allow in-app redirects (no open redirect to other sites)
@@ -29,6 +30,9 @@ export default function Login() {
   const googleError = params.get('google_error')
   const [formError, setFormError] = useState<string | null>(googleError ? t(`google.errors.${googleError}`, { defaultValue: t('google.errors.google_failed') }) : null)
   const [invalid, setInvalid] = useState(false)
+  // two-step sign-in: the ticket from the password step (or from Google, ?twofa=…), waiting for the code
+  const [ticket, setTicket] = useState<string | null>(params.get('twofa'))
+  const [codeBusy, setCodeBusy] = useState(false)
 
   const schema = z.object({
     email: z.string().trim().min(1, t('auth.errors.required')).email(t('auth.errors.email')),
@@ -44,16 +48,42 @@ export default function Login() {
     setFormError(null)
     setInvalid(false)
     try {
-      const u = await login(v.email, v.password)
-      signIn(u)
-      toast.success(t('auth.welcome', { name: u.name.split(' ')[0] }))
-      navigate(landingFor(u, next), { replace: true })
+      const r = await login(v.email, v.password)
+      if ('twoFactor' in r) return void setTicket(r.ticket)
+      signIn(r.user)
+      toast.success(t('auth.welcome', { name: r.user.name.split(' ')[0] }))
+      navigate(landingFor(r.user, next), { replace: true })
     } catch (e) {
       setFormError(e instanceof AuthError ? t(`auth.errors.${e.code}`) : t('common.error'))
       setInvalid(e instanceof AuthError && e.code === 'invalid')
     }
   }
 
+
+  const second = async (code: string) => {
+    setFormError(null)
+    setCodeBusy(true)
+    try {
+      const u = await loginSecondStep(ticket!, code)
+      signIn(u)
+      toast.success(t('auth.welcome', { name: u.name.split(' ')[0] }))
+      navigate(landingFor(u, next), { replace: true })
+    } catch (e) {
+      if (e instanceof AuthError && e.code === 'ticket_expired') setTicket(null)
+      setFormError(e instanceof AuthError ? t(`auth.errors.${e.code}`) : t('common.error'))
+    } finally {
+      setCodeBusy(false)
+    }
+  }
+
+  if (ticket) {
+    return (
+      <AuthLayout title={t('twoFactor.loginTitle')} subtitle={t('auth.loginSubtitle')} image={images.presentation}>
+        {formError && <div role="alert" className="mb-5 flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm font-medium text-danger"><AlertCircle className="mt-0.5 size-4 shrink-0" />{formError}</div>}
+        <SecondStepForm busy={codeBusy} onSubmit={second} onCancel={() => { setTicket(null); setFormError(null) }} />
+      </AuthLayout>
+    )
+  }
 
   return (
     <AuthLayout title={t('auth.loginTitle')} subtitle={next ? t('authGate.loginToContinue') : t('auth.loginSubtitle')} image={images.presentation}>

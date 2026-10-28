@@ -251,6 +251,7 @@ export interface User {
   googleLinked?: boolean // Sign in with Google is connected
   googleEmail?: string // the linked Google address (may differ from email)
   hasPassword?: boolean // false for accounts created with Google until a password is set
+  twoFactor?: boolean // two-step sign-in with an authenticator app is on
   telegramLinked?: boolean
   telegramUsername?: string
   telegramNotify?: boolean

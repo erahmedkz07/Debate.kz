@@ -13,6 +13,7 @@ import { badRequest, notFound } from '../lib/errors.js'
 import { AVATARS_DIR } from '../lib/uploads.js'
 import { query } from '../middleware/validate.js'
 import { requireAuth, sessionUser, setSession } from '../middleware/auth.js'
+import { secondStepTicket } from '../services/twoFactor.js'
 import { googleLinkedLetter, googleUnlinkedLetter, welcomeGoogleLetter } from '../services/letters.js'
 
 // "Sign in with Google" — OAuth 2.0 authorization code flow with OpenID Connect, done on the server:
@@ -194,6 +195,8 @@ googleRouter.get('/google/callback', limiter, async (req: Request, res: Response
     const avatarUrl = await importPicture(user, c.picture)
     if (avatarUrl) user = await prisma.user.update({ where: { id: user.id }, data: { avatarUrl } })
     if (created) await welcomeGoogleLetter(user)
+    // two-step sign-in: Google proved the email, the code from the app is still asked for
+    if (user.totpEnabledAt) return back(res, '/login', { twofa: secondStepTicket(user.id), next: flow.next })
     setSession(res, user.id)
     // a new account goes to the profile to add phone, school and city
     return created ? back(res, '/me', { welcome: '1' }) : back(res, '/login', { next: flow.next })

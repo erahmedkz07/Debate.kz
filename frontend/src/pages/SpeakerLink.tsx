@@ -25,9 +25,10 @@ export default function SpeakerLink() {
   const { data, loading, error, reload } = useAsync(() => getSpeakerByLink(key), [key])
   const [busy, setBusy] = useState(false)
   if (error) {
-    const invalid = (error as { code?: string }).code === 'speaker_link_invalid'
+    const code = (error as { code?: string }).code
+    const invalid = code === 'speaker_link_invalid' || code === 'link_expired'
     return <div className="container-page max-w-2xl py-16">{invalid
-      ? <EmptyState icon={<Users className="size-7" />} title={t('speakerLink.invalid')} text={t('speakerLink.invalidText')} />
+      ? <EmptyState icon={<Users className="size-7" />} title={t('speakerLink.invalid')} text={code === 'link_expired' ? t('apiErrors.link_expired') : t('speakerLink.invalidText')} />
       : <ErrorState onRetry={reload} />}</div>
   }
   if (loading || !data) return <div className="container-page max-w-2xl space-y-3 py-10"><Skeleton className="h-24" /><Skeleton className="h-32" /></div>

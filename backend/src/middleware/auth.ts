@@ -71,6 +71,7 @@ export const publicUser = (u: User) => ({
   googleLinked: !!u.googleId, googleEmail: u.googleEmail ?? undefined, hasPassword: !!u.passwordHash,
   telegramLinked: !!u.telegramChatId, telegramUsername: u.telegramUsername ?? undefined, telegramNotify: u.telegramNotify,
   language: u.language === 'kz' ? 'kz' as const : 'ru' as const,
+  twoFactor: !!u.totpEnabledAt,
 })
 
 // Current user + what they do on the platform, so the UI can show only relevant cabinet sections

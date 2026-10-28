@@ -6,7 +6,7 @@ import { toDay } from '../lib/dates.js'
 import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { isOrganizerOf, motionFor, organizerLink, teamInclude, toDebate, toTeam } from '../services/tournaments.js'
+import { isOrganizerOf, motionFor, organizerLink, teamInclude, toDebate, toTeam, linkExpired } from '../services/tournaments.js'
 import { BP_SIDES, rulesOf, sidesOf, type SideCode } from '../services/formats.js'
 import { background, notify } from '../services/notify.js'
 import { ensureCertificates } from '../services/certificates.js'
@@ -20,9 +20,10 @@ type KeyJudge = { id: string; name: string; tournamentId: string }
 async function judgeByKey(req: Request): Promise<KeyJudge | null> {
   const key = req.get('x-judge-key')
   if (!key) return null
-  const judge = await prisma.judge.findUnique({ where: { accessKey: key }, select: { id: true, name: true, tournamentId: true } })
+  const judge = await prisma.judge.findUnique({ where: { accessKey: key }, select: { id: true, name: true, tournamentId: true, tournament: { select: { endDate: true } } } })
   if (!judge) throw forbidden('judge_link_invalid')
-  return judge
+  if (linkExpired(judge.tournament)) throw forbidden('link_expired')
+  return { id: judge.id, name: judge.name, tournamentId: judge.tournamentId }
 }
 // the ballot routes: the judge's link, or else a signed-in person
 const userOrJudgeKey = async (req: Request, res: Response, next: NextFunction) => {

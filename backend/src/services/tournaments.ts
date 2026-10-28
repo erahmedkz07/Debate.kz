@@ -276,3 +276,9 @@ export async function getStandings(tournamentId: string, hide: Set<string> = new
     speakers: speakerRows.map((r, i) => ({ rank: i + 1, ...r })),
   }
 }
+
+// A personal link (a judge's, a speaker's) is a key: whoever has it acts as that person. It stops working
+// LINK_DAYS days after the tournament's last day: enough to send the last ballots, read the results, take the
+// certificate and save the results to a profile, while an old link forwarded to a chat stays harmless.
+export const LINK_DAYS = 90
+export const linkExpired = (t: { endDate: Date }) => Date.now() > t.endDate.getTime() + (LINK_DAYS + 1) * 864e5

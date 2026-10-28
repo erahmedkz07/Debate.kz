@@ -132,6 +132,11 @@ model User {
   telegramUsername    String?   @map("telegram_username")
   telegramNotify      Boolean   @default(true) @map("telegram_notify")
   language            String    @default("ru") // ru | kz: the bot speaks it (set on the site or with /lang)
+  // two-step sign-in: the authenticator app's secret (kept while being set up, used once enabled)
+  totpSecret          String?   @map("totp_secret")
+  totpEnabledAt       DateTime? @map("totp_enabled_at")
+  totpLastStep        Int?      @map("totp_last_step") // the last code's time step: the same code is not taken twice
+  totpRecovery        String[]  @default([]) @map("totp_recovery") // one-time recovery codes, as hashes
   verifiedPhone       String?   @unique @map("verified_phone") // shared via the bot's "share contact": one phone, one account
   phoneVerifiedAt     DateTime? @map("phone_verified_at")
   safeguardingOfficer Boolean   @default(false) @map("safeguarding_officer") // receives and handles behaviour reports (set by an admin)

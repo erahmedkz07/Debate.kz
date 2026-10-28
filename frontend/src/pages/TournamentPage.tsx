@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award,
+  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, Share2, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award,
 } from 'lucide-react'
 import { getBracket, getSelection, getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
@@ -43,6 +43,18 @@ import { LeagueTabs, leagueName } from '@/components/tournament/LeagueTabs'
 import { RichText } from '@/components/ui/rich-text'
 
 const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
+
+// Share a tournament: the phone's own share sheet, or the link copied. The link is the preview page, so WhatsApp and
+// Telegram show the tournament's title, dates and cover; a person opening it goes on to the tournament.
+function ShareButton({ id, name }: { id: string; name: string }) {
+  const { t } = useTranslation()
+  const share = async () => {
+    const url = `${window.location.origin}/api/share/t/${id}`
+    if (navigator.share) { try { await navigator.share({ title: name, url }); return } catch { /* closed: copy instead */ } }
+    try { await navigator.clipboard.writeText(url); toast.success(t('tournament.shareCopied')) } catch { toast.error(t('common.copyFailed')) }
+  }
+  return <Button size="lg" variant="white" onClick={() => void share()}><Share2 className="size-4" />{t('tournament.share')}</Button>
+}
 
 function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   const { t } = useTranslation()
@@ -675,6 +687,14 @@ export default function TournamentPage() {
   const { id = '' } = useParams()
   const { t, i18n } = useTranslation()
   const { data, loading, error, reload } = useAsync(() => getTournamentById(id), [id])
+  // a tournament under way refreshes itself every 30 seconds while the page is on screen: a draw or a motion
+  // published at the venue appears on every phone without reloading the page
+  const live = data?.status === 'ongoing'
+  useEffect(() => {
+    if (!live) return
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') reload() }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [live, reload])
   // deep links like /tournaments/:id?tab=draw (e.g. from "My debates"); the open tab stays in the address, so a
   // refresh or a shared link shows the same tab
   const [params, setParams] = useSearchParams()
@@ -683,7 +703,8 @@ export default function TournamentPage() {
 
   if (error instanceof NotFoundError) return <NotFound />
   if (error) return <div className="container-page py-20"><ErrorState onRetry={reload} /></div>
-  if (loading || !data) return <PageSkeleton />
+  // the skeleton only on the first load (or another tournament): a refresh keeps the page on screen
+  if (!data || (loading && data.id !== id)) return <PageSkeleton />
 
   return (
     <>
@@ -706,6 +727,7 @@ export default function TournamentPage() {
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
             <RegisterTeamDialog tournament={data} />
+            <ShareButton id={data.id} name={data.name} />
             {data.status === 'registration' && (
               <Link to={`/teammates?city=${encodeURIComponent(data.city)}&level=${data.level}`} className="text-sm font-semibold text-white/85 underline-offset-4 hover:text-accent hover:underline">{t('teammates.noTeam')}</Link>
             )}

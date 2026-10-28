@@ -5,7 +5,7 @@ import { toDay } from '../lib/dates.js'
 import { conflict, forbidden, notFound } from '../lib/errors.js'
 import { param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
-import { assertCanManage, leaguesOf, motionFor, participationIn } from '../services/tournaments.js'
+import { assertCanManage, leaguesOf, linkExpired, motionFor, participationIn } from '../services/tournaments.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { placeOf, sidesInDebate } from '../services/formats.js'
@@ -50,9 +50,10 @@ speakerLinksRouter.post('/speakers/:id/link', requireAuth(), async (req, res) =>
 async function speakerByKey(key: string) {
   const s = await prisma.speaker.findUnique({
     where: { accessKey: key },
-    include: { team: { include: { tournament: { select: { id: true, name: true, city: true, status: true, format: true, leagues: true } } } } },
+    include: { team: { include: { tournament: { select: { id: true, name: true, city: true, status: true, format: true, leagues: true, endDate: true } } } } },
   })
   if (!s) throw forbidden('speaker_link_invalid')
+  if (linkExpired(s.team.tournament)) throw forbidden('link_expired')
   return s
 }
 

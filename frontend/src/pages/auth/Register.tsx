@@ -43,7 +43,8 @@ export default function Register() {
     setFormError(null)
     try {
       const { confirm: _confirm, ...data } = v
-      const u = await registerUser(data)
+      const website = (document.getElementById('website') as HTMLInputElement | null)?.value ?? ''
+      const u = await registerUser({ ...data, website })
       signIn(u)
       toast.success(t('auth.registerSuccess'), { description: t('verify.checkInbox', { email: u.email }) })
       navigate(landingFor(u, next), { replace: true })
@@ -58,6 +59,11 @@ export default function Register() {
       <GoogleConsentNote />
       <OrDivider />
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        {/* a trap for bots: hidden from people and screen readers, filled in only by scripts that fill every field */}
+        <div aria-hidden className="absolute -left-[9999px] h-px w-px overflow-hidden">
+          <label htmlFor="website">Website</label>
+          <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
+        </div>
         {formError && (
           <p role="alert" className="flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm font-medium text-danger">
             <AlertCircle className="mt-0.5 size-4 shrink-0" />{formError}

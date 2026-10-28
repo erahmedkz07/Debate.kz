@@ -6,6 +6,9 @@ import { param, query } from '../middleware/validate.js'
 import { getStandings, getTournamentDetails, isOrganizerOf, isPublic, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 import { getBracket } from '../services/playoffs.js'
 import { notFound } from '../lib/errors.js'
+import { env } from '../lib/env.js'
+import { toDay } from '../lib/dates.js'
+import { coverOf } from '../services/covers.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { selectionOf } from '../services/selection.js'
 import { publicProfile, speakerInTournament } from '../services/people.js'
@@ -53,12 +56,49 @@ publicRouter.get('/tournaments/:id/speakers/:speakerId', async (req, res) => {
   res.json(await speakerInTournament(param(req, 'id'), param(req, 'speakerId')))
 })
 
+// The public table of a tournament is recomputed from the ballots: kept for a few seconds per tournament, so the
+// crowd opening it after a round (a whole hall at once) costs one computation. Organizers always get it fresh.
+const standingsCache = new Map<string, { at: number; data: unknown }>()
+const STANDINGS_TTL_MS = process.env.NODE_ENV === 'test' ? 0 : 5_000 // the e2e checks read it right after a ballot
 publicRouter.get('/tournaments/:id/standings', async (req, res) => {
   const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') }, select: { visible: true, moderation: true, abandonedAt: true } })
   if (!t || !isPublic(t)) throw notFound('tournament_not_found')
   // silent rounds stay out of the public table until the break; organizers see the real one
   const id = param(req, 'id')
-  res.json(await getStandings(id, (await isOrganizerOf(req.user, id)) ? new Set() : await hiddenRoundIds(id)))
+  if (await isOrganizerOf(req.user, id)) return void res.json(await getStandings(id, new Set()))
+  const hit = standingsCache.get(id)
+  if (hit && Date.now() - hit.at < STANDINGS_TTL_MS) return void res.json(hit.data)
+  const data = await getStandings(id, await hiddenRoundIds(id))
+  if (standingsCache.size > 500) standingsCache.clear() // a bounded memory: only the tournaments being watched now
+  standingsCache.set(id, { at: Date.now(), data })
+  res.json(data)
+})
+
+// Sharing a tournament in WhatsApp or Telegram: their link previews read the page's HTML, which the site builds with
+// scripts, so the share link points here: a tiny page with the tournament's title, dates, city and cover for the
+// preview, which sends a person straight on to the tournament page.
+const esc = (v: string) => v.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!)
+publicRouter.get('/share/t/:id', async (req, res) => {
+  const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') } })
+  const site = env.CLIENT_ORIGIN.replace(/\/$/, '')
+  if (!t || !isPublic(t)) return void res.redirect(302, `${site}/tournaments`)
+  const target = `${site}/tournaments/${t.id}`
+  const cover = coverOf(t)
+  const image = cover.startsWith('http') ? cover : `${site}${cover.startsWith('/') ? '' : '/'}${cover}`
+  const dmy = (d: Date) => toDay(d).split('-').reverse().join('.')
+  const dates = toDay(t.startDate) === toDay(t.endDate) ? dmy(t.startDate) : `${dmy(t.startDate)} – ${dmy(t.endDate)}`
+  // the description without its formatting, short
+  const about = (t.description ?? '').replace(/<[^>]*>/g, ' ').replace(/[#*_>`\[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180)
+  const desc = [`${t.city} · ${dates}`, about].filter(Boolean).join(' — ')
+  res.set('Cache-Control', 'public, max-age=300').type('html').send(`<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<title>${esc(t.name)} — Debate.kz</title>
+<meta name="description" content="${esc(desc)}">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Debate.kz">
+<meta property="og:title" content="${esc(t.name)}"><meta property="og:description" content="${esc(desc)}">
+<meta property="og:image" content="${esc(image)}"><meta property="og:url" content="${esc(target)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta http-equiv="refresh" content="0; url=${esc(target)}"><link rel="canonical" href="${esc(target)}">
+</head><body><a href="${esc(target)}">${esc(t.name)}</a><script>location.replace(${JSON.stringify(target)})</script></body></html>`)
 })
 
 // a person's public page: the career as a speaker and a judge, the awards (404 when the profile is hidden)
