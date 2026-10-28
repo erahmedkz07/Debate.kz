@@ -27,6 +27,7 @@ import { RateJudgesDialog } from '@/components/tournament/JudgeFeedback'
 import { quoted } from '@/lib/motion'
 import { CitySelect } from '@/components/ui/city-select'
 import { InstitutionSelect } from '@/components/ui/institution-select'
+import { TwoFactorRow } from '@/components/auth/TwoFactor'
 
 const regVariant: Record<TeamRegistration['status'], 'success' | 'accent' | 'danger' | 'outline'> = { confirmed: 'success', pending: 'accent', rejected: 'danger', waitlisted: 'outline' }
 
@@ -241,6 +242,7 @@ function SecurityCard({ canDelete }: { canDelete: boolean }) {
           ) : <GoogleButton mode="link" label={t('google.link')} className="h-9 w-auto rounded-lg px-3" />}
         </div>
       )}
+      <TwoFactorRow />
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold">{t('profile.security.password')}</p>

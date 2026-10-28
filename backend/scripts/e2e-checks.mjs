@@ -2913,5 +2913,82 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(fresh !== other.accessKey && (await client()('GET', `/speaker-link/${other.accessKey}`)).data?.error === 'speaker_link_invalid', 'a new link stops the old one')
 }
 
+// ---------- 75. security: an account locked against guessing, two-step sign-in, a bot trap, links that expire ----------
+{
+  const { createHmac } = await import('node:crypto')
+  // the same codes an authenticator app shows (RFC 6238)
+  const totp = (secret, step = Math.floor(Date.now() / 30_000)) => {
+    const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+    let bits = 0, value = 0
+    const bytes = []
+    for (const ch of secret) { value = (value << 5) | B32.indexOf(ch); bits += 5; if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 255); bits -= 8 } }
+    const counter = Buffer.alloc(8); counter.writeBigUInt64BE(BigInt(step))
+    const h = createHmac('sha1', Buffer.from(bytes)).update(counter).digest()
+    const o = h[h.length - 1] & 15
+    return String((((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]) % 1_000_000).padStart(6, '0')
+  }
+  const PASSWORD = 'Strong-pass-123'
+  const mk = async name => {
+    const email = `sec.${jtag.toLowerCase()}.${Math.random().toString(36).slice(2, 7)}@example.com`
+    const c = client()
+    const reg = await c('POST', '/auth/register', { name, email, phone: '+7 701 000 00 04', password: PASSWORD, consent: true })
+    if (reg.data?.devVerificationToken) await c('POST', '/auth/verify-email', { token: reg.data.devVerificationToken })
+    return { c, email }
+  }
+
+  // guessing one account: after 10 wrong passwords even the right one is refused for a while
+  const victim = await mk('Безопасность Жертва')
+  for (let i = 0; i < 10; i++) await client()('POST', '/auth/login', { email: victim.email, password: `wrong-${i}-password` })
+  ok((await client()('POST', '/auth/login', { email: victim.email, password: PASSWORD })).data?.error === 'account_locked', 'an account guessed 10 times is locked, even to the right password')
+
+  // two-step sign-in
+  const me = await mk('Безопасность Владелец')
+  const setup = (await me.c('POST', '/me/2fa/setup')).data
+  ok(/^[A-Z2-7]{32}$/.test(setup.secret) && setup.url.startsWith('otpauth://totp/Debate.kz'), 'setup gives a secret and an address for the app')
+  ok((await me.c('POST', '/me/2fa/enable', { code: '000000' })).data?.error === 'invalid_code', 'a wrong code does not turn it on')
+  const on = (await me.c('POST', '/me/2fa/enable', { code: totp(setup.secret) })).data
+  ok(on.user.twoFactor === true && on.recovery.length === 8, 'a code from the app turns it on and gives 8 recovery codes')
+  const first = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
+  ok(first.twoFactor === true && first.ticket && !first.user, 'the password alone gives no session, only a ticket for the code')
+  const fresh = client()
+  ok((await fresh('POST', '/auth/login/2fa', { ticket: first.ticket, code: '123456' })).data?.error === 'invalid_code', 'a wrong code is refused')
+  ok((await fresh('POST', '/auth/login/2fa', { ticket: first.ticket, code: totp(setup.secret, Math.floor(Date.now() / 30_000) + 1) })).status === 200
+    && (await fresh('GET', '/auth/me')).data?.user?.email === me.email, 'the next code from the app signs in (the one used to turn it on is spent)')
+  const again = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
+  ok((await client()('POST', '/auth/login/2fa', { ticket: again.ticket, code: totp(setup.secret, Math.floor(Date.now() / 30_000) + 1) })).data?.error === 'invalid_code', 'the same code is not taken twice')
+  const rec = client()
+  ok((await rec('POST', '/auth/login/2fa', { ticket: again.ticket, code: on.recovery[0] })).status === 200, 'a recovery code signs in')
+  const third = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
+  ok((await client()('POST', '/auth/login/2fa', { ticket: third.ticket, code: on.recovery[0] })).data?.error === 'invalid_code', 'a recovery code works once')
+  ok((await client()('POST', '/auth/login/2fa', { ticket: 'forged.ticket.value', code: totp(setup.secret) })).data?.error === 'ticket_expired', 'a forged ticket is refused')
+  ok((await me.c('POST', '/me/2fa/disable', { code: '000000' })).data?.error === 'invalid_code', 'turning it off needs a real code')
+  ok((await me.c('POST', '/me/2fa/disable', { code: on.recovery[1] })).data?.user?.twoFactor === false, 'a recovery code turns it off')
+  ok((await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data?.user?.email === me.email, 'then the password alone signs in again')
+
+  // a bot that fills every field (the hidden "website" one too) creates nothing
+  const botEmail = `bot.${jtag.toLowerCase()}@example.com`
+  ok((await client()('POST', '/auth/register', { name: 'Бот', email: botEmail, phone: '+7 701 000 00 05', password: PASSWORD, consent: true, website: 'http://spam.example' })).status === 201
+    && (await db.query('select 1 from users where email = $1', [botEmail])).rowCount === 0, 'the bot trap: answered like a success, no account made')
+
+  // personal links stop working 90 days after the tournament
+  const host = await newAccount('Ссылки Срок')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(560), name: `Срок ссылок ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await host.c('POST', `/tournaments/${t.id}/teams`, { name: 'Срок А', institution: 'Школа Срок', speakers: ['Срок Один', 'Срок Два', 'Срок Три'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Срок Судья'] })
+  const key = (await host.c('POST', `/tournaments/${t.id}/speaker-links`)).data[0].speakers[0].accessKey
+  const jkey = (await host.c('GET', `/tournaments/${t.id}`)).data.judges[0].accessKey
+  ok((await client()('GET', `/speaker-link/${key}`)).status === 200, 'a fresh speaker link works')
+  await db.query(`update tournaments set start_date = now() - interval '100 days', end_date = now() - interval '95 days' where id = $1`, [t.id])
+  ok((await client()('GET', `/speaker-link/${key}`)).data?.error === 'link_expired', 'a speaker link expires 90 days after the tournament')
+  ok((await fetch(`${A}/judge-link`, { headers: { 'X-Judge-Key': jkey } }).then(r => r.json())).error === 'link_expired', 'so does a judge link')
+
+  // the share link: a page with the tournament's preview (title, description, cover) that leads to the tournament
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { name: `Срок <ссылок> "${jtag}"` })
+  const html = await fetch(`${A}/share/t/${t.id}`).then(r => r.text())
+  ok(html.includes('og:title') && html.includes(`Срок &lt;ссылок&gt; &quot;${jtag}&quot;`) && html.includes(`/tournaments/${t.id}`) && html.includes('og:image'), 'the share link carries the preview (the name escaped) and leads to the tournament')
+  ok((await fetch(`${A}/share/t/nope`, { redirect: 'manual' })).status === 302, 'the share link of an unknown tournament goes to the list')
+}
+
 await db.end()
 console.log(process.exitCode ? '\nSOME CHECKS FAILED' : '\nALL CHECKS PASSED')

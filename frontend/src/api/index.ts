@@ -47,24 +47,34 @@ export const getRating = () => http<{ teams: RatingTeam[]; speakers: RatingSpeak
 
 // ---------- auth ----------
 
-// codes the UI translates: invalid | exists | blocked
+// codes the UI translates: invalid | exists | blocked | account_locked | invalid_code | ticket_expired
+const AUTH_CODES = ['invalid', 'exists', 'blocked', 'account_locked', 'invalid_code', 'ticket_expired'] as const
 export class AuthError extends Error {
-  constructor(public code: 'invalid' | 'exists' | 'blocked') { super(code) }
+  constructor(public code: typeof AUTH_CODES[number]) { super(code) }
 }
+const asAuthError = (e: unknown) => (e instanceof ApiError && (AUTH_CODES as readonly string[]).includes(e.code) ? new AuthError(e.code as AuthError['code']) : e)
 
 const authCall = async (p: Promise<{ user: User }>) => {
   try {
     return (await p).user
   } catch (e) {
-    if (e instanceof ApiError && ['invalid', 'exists', 'blocked'].includes(e.code)) throw new AuthError(e.code as AuthError['code'])
-    throw e
+    throw asAuthError(e)
   }
 }
 
-export const login = (email: string, password: string) => authCall(http('POST', '/auth/login', { email, password }))
+// the password is right: a session, or — with two-step sign-in on — a ticket for the code
+export type LoginResult = { user: User } | { twoFactor: true; ticket: string }
+export const login = async (email: string, password: string): Promise<LoginResult> => {
+  try { return await http<LoginResult>('POST', '/auth/login', { email, password }) } catch (e) { throw asAuthError(e) }
+}
+export const loginSecondStep = (ticket: string, code: string) => authCall(http('POST', '/auth/login/2fa', { ticket, code }))
+export const setupTwoFactor = () => http<{ secret: string; url: string }>('POST', '/me/2fa/setup', {})
+export const enableTwoFactor = (code: string) => http<{ user: User; recovery: string[] }>('POST', '/me/2fa/enable', { code })
+export const disableTwoFactor = (code: string) => authCall(http('POST', '/me/2fa/disable', { code }))
 
 // no role: everyone starts as a plain user; consent to personal data processing is required
-export const register = (data: { name: string; email: string; phone: string; password: string; consent: true }) =>
+// website: a field hidden from people; only bots fill it in (the server then creates nothing)
+export const register = (data: { name: string; email: string; phone: string; password: string; consent: true; website?: string }) =>
   // the account starts in the language the site is shown in: letters and the bot use it
   authCall(http('POST', '/auth/register', { ...data, language: i18n.language === 'kz' ? 'kz' : 'ru' }))
 

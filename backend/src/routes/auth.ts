@@ -10,6 +10,8 @@ import { passwordChangedLetter, resetPasswordLetter, verifyEmailLetter } from '.
 import { hashToken, newToken } from '../lib/tokens.js'
 import { body } from '../middleware/validate.js'
 import { clearSession, requireAuth, sessionUser, setSession } from '../middleware/auth.js'
+import { clearFailures, isLocked, noteFailure } from '../services/loginGuard.js'
+import { secondStepTicket, takeSecondStep } from '../services/twoFactor.js'
 
 export const authRouter = Router()
 
@@ -41,6 +43,8 @@ const registerSchema = z.object({
 })
 
 authRouter.post('/register', limiter, async (req, res) => {
+  // a hidden field only bots fill in: answered like a success, nothing is created
+  if (typeof req.body?.website === 'string' && req.body.website.trim()) return void res.status(201).json({ ok: true })
   const data = body(req, registerSchema)
   if (await prisma.user.findUnique({ where: { email: data.email } })) throw conflict('exists')
   const user = await prisma.user.create({
@@ -55,11 +59,27 @@ const loginSchema = z.object({ email: z.string().trim().toLowerCase().email(), p
 
 authRouter.post('/login', limiter, async (req, res) => {
   const { email, password } = body(req, loginSchema)
+  // one account guessed from many addresses: it stops answering for a while, even to the right password
+  if (isLocked(email)) throw new HttpError(429, 'account_locked')
   const user = await prisma.user.findUnique({ where: { email } })
   // same error for unknown email and wrong password (no user enumeration)
   // accounts created with Google have no password: the same error, the login page suggests the Google button
-  if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) throw unauthorized('invalid')
+  if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
+    noteFailure(email)
+    throw unauthorized('invalid')
+  }
   if (user.blocked) throw new HttpError(403, 'blocked')
+  clearFailures(email)
+  // two-step sign-in: the password is right, now the code from the app
+  if (user.totpEnabledAt) return void res.json({ twoFactor: true, ticket: secondStepTicket(user.id) })
+  setSession(res, user.id)
+  res.json({ user: await sessionUser(user) })
+})
+
+// the second step: the 6-digit code from the app (or a recovery code), with the ticket from the first step
+authRouter.post('/login/2fa', limiter, async (req, res) => {
+  const { ticket, code } = body(req, z.object({ ticket: z.string().max(1000), code: z.string().trim().min(6).max(20) }))
+  const user = await takeSecondStep(ticket, code)
   setSession(res, user.id)
   res.json({ user: await sessionUser(user) })
 })

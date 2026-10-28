@@ -389,6 +389,7 @@ function LogTab() {
 
 export default function AdminPanel() {
   const { t } = useTranslation()
+  const { user } = useAuth()
   const { data, loading, error, reload } = useAsync(getAdminTournaments)
   const [list, setList] = useState<AdminTournament[]>([])
   // the open section lives in the address (?tab=), so a refresh or "back" keeps it
@@ -404,6 +405,12 @@ export default function AdminPanel() {
   return (
     <div className="mx-auto max-w-[90rem] px-4 py-8 sm:px-6">
       <CabinetHeader title={t('admin.title')} subtitle={t('admin.subtitle')} />
+      {user && !user.twoFactor && (
+        <p role="alert" className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-danger/40 bg-danger-soft px-4 py-3 text-sm font-medium text-danger">
+          <ShieldAlert className="size-4 shrink-0" /><span className="min-w-0 flex-1">{t('twoFactor.adminWarning')}</span>
+          <Link to="/me?tab=settings" className="font-bold underline">{t('twoFactor.adminAction')}</Link>
+        </p>
+      )}
       <Tabs value={tab} onValueChange={setTab} className="mt-6">
         {/* laptops: sections in a sticky sidebar next to the content; phones: tabs on top */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
