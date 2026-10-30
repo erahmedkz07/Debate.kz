@@ -40,7 +40,7 @@ cd backend && npm install && npx prisma migrate dev && npm run db:seed && npm ru
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
-Подробности — в [frontend/README.md](frontend/README.md). Выкладка в интернет — [deploy/README.md](deploy/README.md).
+Подробности — в [frontend/README.md](frontend/README.md). Выкладка в интернет — [deploy/README.md](deploy/README.md). Бэкап, мониторинг, журнал ошибок и нагрузочный тест — [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Автор
 

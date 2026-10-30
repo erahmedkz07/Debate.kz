@@ -1,12 +1,13 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express'
 import { HttpError } from '../lib/errors.js'
 import { isProd } from '../lib/env.js'
+import { logError } from '../services/errorLog.js'
 
 export const notFoundHandler: RequestHandler = (_req, res) => {
   res.status(404).json({ error: 'not_found' })
 }
 
-export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof HttpError) {
     res.status(err.status).json({ error: err.code, details: err.details })
     return
@@ -22,5 +23,7 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return
   }
   console.error(err)
+  // written down and told to the admins (the path without its query: tokens may sit there)
+  void logError({ source: 'server', message: String(err?.message ?? err), stack: err?.stack, method: req.method, path: req.path })
   res.status(500).json({ error: 'internal_error', ...(isProd ? {} : { message: String(err?.message ?? err) }) })
 }

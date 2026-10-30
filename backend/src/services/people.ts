@@ -1,7 +1,7 @@
 import { notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
-import { getStandings, motionFor, publicWhere } from './tournaments.js'
+import { cachedStandings, motionFor, publicWhere } from './tournaments.js'
 import { resultOf, sidesInDebate } from './formats.js'
 import { finalPlaces } from './playoffs.js'
 import { hiddenRoundIds } from './silent.js'
@@ -27,9 +27,9 @@ export async function publicProfile(userId: string) {
   for (const s of speakerSlots) {
     const t = s.team.tournament
     const hide = await hiddenRoundIds(t.id)
-    const standings = await getStandings(t.id, hide)
+    const standings = await cachedStandings(t.id, hide)
     const row = standings.speakers.find(x => x.speaker.id === s.id)
-    const final = t.status === 'finished' ? await finalPlaces(t.id) : null
+    const final = t.status === 'finished' ? await finalPlaces(t.id, await cachedStandings(t.id)) : null
     const place = final?.get(s.teamId) ?? standings.teams.find(x => x.team.id === s.teamId)?.rank
     tournaments.push({
       id: t.id, name: t.name, startDate: toDay(t.startDate), status: t.status, team: s.team.name,
@@ -118,9 +118,9 @@ export async function speakerInTournament(tournamentId: string, speakerId: strin
   if (!speaker) throw notFound('speaker_not_found')
   const t = speaker.team.tournament
   const hide = await hiddenRoundIds(t.id)
-  const standings = await getStandings(t.id, hide)
+  const standings = await cachedStandings(t.id, hide)
   const row = standings.speakers.find(x => x.speaker.id === speaker.id)
-  const final = t.status === 'finished' ? await finalPlaces(t.id) : null
+  const final = t.status === 'finished' ? await finalPlaces(t.id, await cachedStandings(t.id)) : null
   const teamPlace = final?.get(speaker.teamId) ?? standings.teams.find(x => x.team.id === speaker.teamId)?.rank
   const debates = await prisma.debate.findMany({
     where: {

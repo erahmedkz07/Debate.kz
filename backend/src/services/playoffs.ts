@@ -274,11 +274,12 @@ function exitPlaces(rounds: ElimRound[]) {
 
 // Final places once every playoff round is over: the open bracket first (its champion 1st),
 // then everyone else in the order of the standings. null while the playoffs are not over.
-export async function finalPlaces(tournamentId: string): Promise<Map<string, number> | null> {
+// standings: the full table if the caller already has it (a speaker's page reads the cached one)
+export async function finalPlaces(tournamentId: string, standings?: Awaited<ReturnType<typeof getStandings>>): Promise<Map<string, number> | null> {
   const all = await prisma.round.findMany({ where: { tournamentId, kind: 'elimination' }, orderBy: { number: 'desc' }, include: { debates: true } })
   if (!all.length || all.some(r => r.status !== 'completed')) return null
   const places = exitPlaces(all.filter(r => r.category === null))
-  const standings = await getStandings(tournamentId)
+  standings ??= await getStandings(tournamentId)
   let next = places.size + 1 // the teams of the open break hold places 1..breakSize
   for (const row of standings.teams) if (!places.has(row.team.id)) places.set(row.team.id, next++)
   return places

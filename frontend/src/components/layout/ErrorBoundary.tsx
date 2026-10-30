@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { reportError } from '@/lib/reportError'
 
 // A crash while drawing one page must not leave a white screen: the visitor gets a message and a way out.
 // A new page (another address) starts clean. A failed lazy chunk (the site was updated) is fixed by a reload.
@@ -13,6 +14,7 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   }
   componentDidCatch(error: unknown) {
     console.error(error)
+    reportError(error)
   }
   render() {
     return this.state.failed ? <Fallback /> : this.props.children

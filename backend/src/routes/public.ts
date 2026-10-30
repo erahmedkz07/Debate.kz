@@ -1,14 +1,19 @@
+import path from 'node:path'
 import { Router } from 'express'
+import sharp from 'sharp'
 import { z } from 'zod'
 import type { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
-import { param, query } from '../middleware/validate.js'
-import { getStandings, getTournamentDetails, isOrganizerOf, isPublic, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
+import { body, param, query } from '../middleware/validate.js'
+import { cachedStandings, getStandings, getTournamentDetails, isOrganizerOf, isPublic, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
 import { getBracket } from '../services/playoffs.js'
 import { notFound } from '../lib/errors.js'
+import rateLimit from 'express-rate-limit'
+import { logError } from '../services/errorLog.js'
 import { env } from '../lib/env.js'
+import { shortCache } from '../lib/shortCache.js'
 import { toDay } from '../lib/dates.js'
-import { coverOf } from '../services/covers.js'
+import { COVERS_DIR, coverOf, isAllowedCover } from '../services/covers.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { selectionOf } from '../services/selection.js'
 import { publicProfile, speakerInTournament } from '../services/people.js'
@@ -28,8 +33,14 @@ const listSchema = z.object({
 
 const statusRank = { ongoing: 0, registration: 1, finished: 2 } as const
 
+// the list is the same for everyone with the same filters: kept for a few seconds (the home page opens it)
+const listCache = shortCache<ReturnType<typeof toSummary>[]>(5_000)
 publicRouter.get('/tournaments', async (req, res) => {
   const f = query(req, listSchema)
+  res.json(await listCache(JSON.stringify(f), () => listTournaments(f)))
+})
+
+async function listTournaments(f: z.infer<typeof listSchema>) {
   const where: Prisma.TournamentWhereInput = {
     ...publicWhere,
     ...(f.search && { OR: [{ name: { contains: f.search, mode: 'insensitive' } }, { organizerName: { contains: f.search, mode: 'insensitive' } }] }),
@@ -44,34 +55,39 @@ publicRouter.get('/tournaments', async (req, res) => {
   if (f.sort === 'teams') list.sort((a, b) => b.teamsCount - a.teamsCount)
   else if (f.sort !== 'date-desc') list.sort((a, b) => statusRank[a.status] - statusRank[b.status] || a.startDate.localeCompare(b.startDate))
   if (f.limit) list = list.slice(0, f.limit)
-  res.json(list)
-})
+  return list
+}
 
+// organizers get their own, fresh view; everyone else the same public one, kept for a few seconds (lib/shortCache.ts)
+const detailsCache = shortCache<Awaited<ReturnType<typeof getTournamentDetails>>>(5_000)
 publicRouter.get('/tournaments/:id', async (req, res) => {
-  res.json(await getTournamentDetails(param(req, 'id'), req.user))
+  const id = param(req, 'id')
+  if (await isOrganizerOf(req.user, id)) return void res.json(await getTournamentDetails(id, req.user))
+  res.json(await detailsCache(id, () => getTournamentDetails(id)))
 })
 
-// every speaker's page in a tournament (an account is not needed)
+// every speaker's page in a tournament (an account is not needed); the same for everyone, kept for a few seconds
+const speakerCache = shortCache<Awaited<ReturnType<typeof speakerInTournament>>>(5_000)
 publicRouter.get('/tournaments/:id/speakers/:speakerId', async (req, res) => {
-  res.json(await speakerInTournament(param(req, 'id'), param(req, 'speakerId')))
+  const [id, speakerId] = [param(req, 'id'), param(req, 'speakerId')]
+  res.json(await speakerCache(`${id}|${speakerId}`, () => speakerInTournament(id, speakerId)))
 })
 
 // The public table of a tournament is recomputed from the ballots: kept for a few seconds per tournament, so the
 // crowd opening it after a round (a whole hall at once) costs one computation. Organizers always get it fresh.
-const standingsCache = new Map<string, { at: number; data: unknown }>()
-const STANDINGS_TTL_MS = process.env.NODE_ENV === 'test' ? 0 : 5_000 // the e2e checks read it right after a ballot
-publicRouter.get('/tournaments/:id/standings', async (req, res) => {
-  const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') }, select: { visible: true, moderation: true, abandonedAt: true } })
+const assertPublicTournament = async (id: string) => {
+  const t = await prisma.tournament.findUnique({ where: { id }, select: { visible: true, moderation: true, abandonedAt: true } })
   if (!t || !isPublic(t)) throw notFound('tournament_not_found')
-  // silent rounds stay out of the public table until the break; organizers see the real one
+}
+const tableCache = shortCache<Awaited<ReturnType<typeof getStandings>>>(5_000)
+publicRouter.get('/tournaments/:id/standings', async (req, res) => {
   const id = param(req, 'id')
-  if (await isOrganizerOf(req.user, id)) return void res.json(await getStandings(id, new Set()))
-  const hit = standingsCache.get(id)
-  if (hit && Date.now() - hit.at < STANDINGS_TTL_MS) return void res.json(hit.data)
-  const data = await getStandings(id, await hiddenRoundIds(id))
-  if (standingsCache.size > 500) standingsCache.clear() // a bounded memory: only the tournaments being watched now
-  standingsCache.set(id, { at: Date.now(), data })
-  res.json(data)
+  // silent rounds stay out of the public table until the break; organizers see the real one
+  if (await isOrganizerOf(req.user, id)) {
+    await assertPublicTournament(id)
+    return void res.json(await getStandings(id, new Set()))
+  }
+  res.json(await tableCache(id, async () => { await assertPublicTournament(id); return cachedStandings(id, await hiddenRoundIds(id)) }))
 })
 
 // Sharing a tournament in WhatsApp or Telegram: their link previews read the page's HTML, which the site builds with
@@ -83,8 +99,10 @@ publicRouter.get('/share/t/:id', async (req, res) => {
   const site = env.CLIENT_ORIGIN.replace(/\/$/, '')
   if (!t || !isPublic(t)) return void res.redirect(302, `${site}/tournaments`)
   const target = `${site}/tournaments/${t.id}`
+  // an uploaded cover is WebP, which WhatsApp's preview may not show: it gets a JPEG copy (below); a template photo is
+  // asked from Unsplash as JPEG
   const cover = coverOf(t)
-  const image = cover.startsWith('http') ? cover : `${site}${cover.startsWith('/') ? '' : '/'}${cover}`
+  const image = cover.startsWith('http') ? cover.replace('auto=format', 'fm=jpg') : `${site}/api/share/t/${t.id}/cover.jpg`
   const dmy = (d: Date) => toDay(d).split('-').reverse().join('.')
   const dates = toDay(t.startDate) === toDay(t.endDate) ? dmy(t.startDate) : `${dmy(t.startDate)} – ${dmy(t.endDate)}`
   // the description without its formatting, short
@@ -95,10 +113,28 @@ publicRouter.get('/share/t/:id', async (req, res) => {
 <meta name="description" content="${esc(desc)}">
 <meta property="og:type" content="website"><meta property="og:site_name" content="Debate.kz">
 <meta property="og:title" content="${esc(t.name)}"><meta property="og:description" content="${esc(desc)}">
-<meta property="og:image" content="${esc(image)}"><meta property="og:url" content="${esc(target)}">
+<meta property="og:image" content="${esc(image)}"><meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:url" content="${esc(target)}">
 <meta name="twitter:card" content="summary_large_image">
 <meta http-equiv="refresh" content="0; url=${esc(target)}"><link rel="canonical" href="${esc(target)}">
 </head><body><a href="${esc(target)}">${esc(t.name)}</a><script>location.replace(${JSON.stringify(target)})</script></body></html>`)
+})
+
+// the uploaded cover of a public tournament as a 1200×630 JPEG for link previews (cached by the messengers for a day)
+publicRouter.get('/share/t/:id/cover.jpg', async (req, res) => {
+  const t = await prisma.tournament.findUnique({ where: { id: param(req, 'id') } })
+  if (!t || !isPublic(t) || !t.coverUrl || !isAllowedCover(t.coverUrl) || t.coverUrl.startsWith('http')) throw notFound('cover_not_found')
+  const jpg = await sharp(path.join(COVERS_DIR, path.basename(t.coverUrl))).resize(1200, 630, { fit: 'cover' }).jpeg({ quality: 82, mozjpeg: true }).toBuffer()
+    .catch(() => { throw notFound('cover_not_found') })
+  res.set('Cache-Control', 'public, max-age=86400').type('jpeg').send(jpg)
+})
+
+// a crash on a visitor's page (the page reports it itself): written down like a server error
+const clientErrorLimit = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
+publicRouter.post('/client-errors', clientErrorLimit, async (req, res) => {
+  const d = body(req, z.object({ message: z.string().max(500), stack: z.string().max(4000).optional(), path: z.string().max(300).optional() }))
+  await logError({ source: 'client', message: d.message, stack: d.stack, path: d.path?.split('?')[0], ua: req.get('user-agent')?.slice(0, 200) })
+  res.status(204).end()
 })
 
 // a person's public page: the career as a speaker and a judge, the awards (404 when the profile is hidden)
@@ -114,13 +150,15 @@ publicRouter.get('/tournaments/:id/selection', async (req, res) => {
   res.json(await selectionOf(id))
 })
 
-// the playoffs: seeds, elimination rounds and, after the final, the champion
+// the playoffs: seeds, elimination rounds and, after the final, the champion (the public one kept for a few seconds)
+const bracketCache = shortCache<Awaited<ReturnType<typeof getBracket>>>(5_000)
 publicRouter.get('/tournaments/:id/bracket', async (req, res) => {
   const id = param(req, 'id')
-  const t = await prisma.tournament.findUnique({ where: { id }, select: { visible: true, moderation: true, abandonedAt: true } })
-  const manager = await isOrganizerOf(req.user, id)
-  if (!t || (!isPublic(t) && !manager)) throw notFound('tournament_not_found')
-  res.json(await getBracket(id, manager))
+  if (await isOrganizerOf(req.user, id)) {
+    if (!(await prisma.tournament.findUnique({ where: { id }, select: { id: true } }))) throw notFound('tournament_not_found')
+    return void res.json(await getBracket(id, true))
+  }
+  res.json(await bracketCache(id, async () => { await assertPublicTournament(id); return getBracket(id, false) }))
 })
 
 publicRouter.get('/cities', async (_req, res) => {
