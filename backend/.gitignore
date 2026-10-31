@@ -6,3 +6,6 @@ uploads/
 private/
 test-storage/
 backups/
+
+# error log (services/errorLog.ts)
+logs/

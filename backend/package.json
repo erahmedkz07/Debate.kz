@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node --watch-path=src/index.ts --watch-path=src/app.ts --watch-path=src/routes --watch-path=src/lib --watch-path=src/middleware --watch-path=src/services --env-file=.env --import tsx src/index.ts",
+    "dev": "node --watch-path=src/index.ts --watch-path=src/app.ts --watch-path=src/routes --watch-path=src/lib --watch-path=src/middleware --watch-path=src/services --import ./scripts/load-env.mjs --import tsx src/index.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node --env-file=.env dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -16,7 +16,11 @@
     "db:studio": "prisma studio",
     "test:e2e": "node --env-file=.env scripts/e2e.mjs",
     "test:ui-api": "node --env-file=.env scripts/ui-api.mjs",
-    "admin:grant": "tsx scripts/make-admin.ts"
+    "admin:grant": "tsx scripts/make-admin.ts",
+    "backup": "node --env-file=.env scripts/backup.mjs",
+    "backup:verify": "node --env-file=.env scripts/backup-verify.mjs",
+    "monitor": "node --env-file=.env scripts/monitor.mjs",
+    "load-test": "node --env-file=.env scripts/load-test.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

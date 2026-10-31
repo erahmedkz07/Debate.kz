@@ -2988,6 +2988,34 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const html = await fetch(`${A}/share/t/${t.id}`).then(r => r.text())
   ok(html.includes('og:title') && html.includes(`Срок &lt;ссылок&gt; &quot;${jtag}&quot;`) && html.includes(`/tournaments/${t.id}`) && html.includes('og:image'), 'the share link carries the preview (the name escaped) and leads to the tournament')
   ok((await fetch(`${A}/share/t/nope`, { redirect: 'manual' })).status === 302, 'the share link of an unknown tournament goes to the list')
+  // the preview picture is a JPEG (WhatsApp may not show WebP): a template is asked from Unsplash as JPEG, an uploaded
+  // cover gets a JPEG copy 1200×630
+  ok(/og:image" content="https:\/\/images\.unsplash\.com\/[^"]*fm=jpg/.test(html) && !html.includes('auto=format'), 'a template cover is offered to messengers as a JPEG')
+  ok((await fetch(`${A}/share/t/${t.id}/cover.jpg`)).status === 404, 'no JPEG copy without an uploaded cover')
+  const hostSession = cookieOf(await fetch(`${A}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: host.email, password: 'secret123' }) }), 'dkz_token')
+  ok((await upload(t.id, new Blob([png], { type: 'image/png' }), hostSession)).status === 200, 'the organizer uploads a cover')
+  const shared = await fetch(`${A}/share/t/${t.id}`).then(r => r.text())
+  ok(shared.includes(`/api/share/t/${t.id}/cover.jpg`), 'the preview of an uploaded cover points to its JPEG copy')
+  const jpg = await fetch(`${A}/share/t/${t.id}/cover.jpg`)
+  const meta = jpg.ok ? await sharpLib(Buffer.from(await jpg.arrayBuffer())).metadata() : {}
+  ok(jpg.headers.get('content-type') === 'image/jpeg' && meta.format === 'jpeg' && meta.width === 1200 && meta.height === 630, 'the JPEG copy is a real 1200×630 JPEG')
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'rejected', moderationNote: 'e2e' })
+  ok((await fetch(`${A}/share/t/${t.id}/cover.jpg`)).status === 404, 'a tournament that is not public gives no cover')
+}
+
+// ---------- errors are written down ----------
+{
+  const { existsSync, readFileSync } = await import('node:fs')
+  const logFile = new URL('../test-storage/logs/errors.log', import.meta.url)
+  const before = existsSync(logFile) ? readFileSync(logFile, 'utf8').length : 0
+  const tag = `e2e-crash-${jtag}`
+  let r = await fetch(`${A}/client-errors`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: `TypeError ${tag}`, stack: 'at Page (x.tsx:1)', path: '/tournaments/1?secret=1' }) })
+  ok(r.status === 204, 'a page reports its crash')
+  const written = existsSync(logFile) ? readFileSync(logFile, 'utf8').slice(before) : ''
+  const line = written.split('\n').filter(Boolean).map(l => JSON.parse(l)).find(e => e.message.includes(tag))
+  ok(line?.source === 'client' && line.path === '/tournaments/1', 'the crash is written to logs/errors.log, without the query')
+  r = await fetch(`${A}/client-errors`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'x'.repeat(600) }) })
+  ok(r.status === 400, 'an oversized report is refused')
 }
 
 await db.end()

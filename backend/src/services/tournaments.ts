@@ -2,6 +2,7 @@ import type { Prisma, User } from '../generated/prisma/client.js'
 import { toDay } from '../lib/dates.js'
 import { forbidden, notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
+import { shortCache } from '../lib/shortCache.js'
 import { coverOf } from './covers.js'
 import { BP_POINTS, isBP, teamOnSide } from './formats.js'
 import { stageOf } from './stages.js'
@@ -195,6 +196,12 @@ export async function getTournamentDetails(id: string, viewer?: User) {
 }
 
 // ---------- standings (computed from real ballots) ----------
+
+// the table as visitors see it, kept for a few seconds (lib/shortCache.ts): the public table, speakers' pages and the
+// rating read it; organizers' views and every action (draw, break, certificates) compute it fresh with getStandings
+const standingsCache = shortCache<Awaited<ReturnType<typeof getStandings>>>(5_000)
+export const cachedStandings = (tournamentId: string, hide: Set<string> = new Set()) =>
+  standingsCache(`${tournamentId}|${[...hide].sort().join(',')}`, () => getStandings(tournamentId, hide))
 
 // hide: rounds whose results the reader may not see yet (silent rounds, see services/silent.ts)
 export async function getStandings(tournamentId: string, hide: Set<string> = new Set()) {
