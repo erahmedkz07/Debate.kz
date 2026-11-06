@@ -159,6 +159,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     // the number of preliminary rounds and the break: known only once the teams are in, so they change after creating
     preliminaryRounds: z.number().int().min(1).max(MAX_PRELIMS).optional(),
     breakSize: z.number().int().min(2).max(MAX_BREAK).optional(),
+    // reply speeches on or off: before the first ballot, so every debate of the tournament is scored the same way
+    replySpeeches: z.boolean().optional(),
     // leagues inside the tournament (a Russian and a Kazakh league): set before the first draw
     leagues: z.array(z.object({ key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), breakSize: z.number().int().min(2).max(MAX_BREAK).optional(), language: z.enum(['kz', 'ru']).optional() })).max(4).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
@@ -229,6 +231,10 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   if (rest.breakSize !== undefined && rest.breakSize !== cur.breakSize) {
     if (elimination) throw forbidden('break_already_announced')
     if (!validBreak(rest.breakSize, cur.format === 'BP')) throw badRequest('break_too_small')
+  }
+  if (rest.replySpeeches !== undefined && rest.replySpeeches !== cur.replySpeeches) {
+    if (!rulesOf(cur.format).reply) throw badRequest('format_has_no_replies')
+    if (await prisma.ballot.count({ where: { debate: { round: { tournamentId: cur.id } } } })) throw forbidden('ballots_already_sent')
   }
   if (rest.leagues) {
     const keys = rest.leagues.map(l => l.key)

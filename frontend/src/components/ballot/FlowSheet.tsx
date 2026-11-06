@@ -29,12 +29,15 @@ export function FlowTagBadge({ tag }: { tag: FlowTag }) {
 
 const keyOf = (debateId: string, uid: string) => `flow:${debateId}:${uid}`
 
-export function FlowSheet({ formatCode, initial, debateId, uid, onSave }: {
-  formatCode: string; initial?: FlowNotes; debateId: string; uid: string; onSave: (flow: FlowNotes) => Promise<unknown>
+// replies: false when the tournament runs without reply speeches (they are the last speeches, so the notes keep their places)
+const speechesOf = (formatCode: string, replies: boolean) => formatOfTournament(formatCode).speeches.filter(s => replies || !s.reply)
+
+export function FlowSheet({ formatCode, replies = true, initial, debateId, uid, onSave }: {
+  formatCode: string; replies?: boolean; initial?: FlowNotes; debateId: string; uid: string; onSave: (flow: FlowNotes) => Promise<unknown>
 }) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language === 'kz' ? 'kz' : 'ru'
-  const speeches = formatOfTournament(formatCode).speeches
+  const speeches = speechesOf(formatCode, replies)
   // the newest copy wins: this device's (written offline) or the server's
   const [flow, setFlow] = useState<FlowNotes>(() => {
     try { const local = localStorage.getItem(keyOf(debateId, uid)); if (local) return JSON.parse(local) as FlowNotes } catch { /* private mode */ }

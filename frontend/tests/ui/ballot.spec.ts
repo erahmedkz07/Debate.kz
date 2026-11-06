@@ -37,6 +37,32 @@ test('a judge by the personal link: the flow is saved, the ballot is sent with a
   await send(page)
 })
 
+test('reply speeches turned off in the settings: the ballot has only the speeches', async ({ page }) => {
+  const t = await leagueTournament()
+  await signIn(page, t.org.email, t.org.password)
+  await page.goto(`/dashboard/tournaments/${t.id}/settings?part=conduct`)
+  const toggle = page.getByRole('switch', { name: 'Проводим ответные речи' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+  const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)
+  const judge = t.details.judges.find((j: { id: string }) => j.id === room.judgeIds[0])
+  const prop = t.details.teams.find((x: { id: string }) => x.id === room.propositionTeamId).name
+  await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
+  const inputs = page.locator('input[inputmode="decimal"]')
+  await expect(inputs).toHaveCount(6)
+  await expect(page.getByText('Ответная речь')).toHaveCount(0)
+  for (const [i, v] of ['75', '75', '75', '70', '70', '70'].entries()) await inputs.nth(i).fill(v)
+  await page.locator('button[aria-pressed]').filter({ hasText: prop }).last().click()
+  await send(page)
+
+  // after the first ballot the setting is fixed
+  await page.goto(`/dashboard/tournaments/${t.id}/settings?part=conduct`)
+  await expect(page.getByText('Без ответных речей')).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'Проводим ответные речи' })).toHaveCount(0)
+})
+
 test('the organizer enters a panel\'s ballots one after another: each judge gets an empty form', async ({ page }) => {
   const t = await leagueTournament()
   const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)

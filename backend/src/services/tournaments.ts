@@ -4,7 +4,7 @@ import { forbidden, notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { shortCache } from '../lib/shortCache.js'
 import { coverOf } from './covers.js'
-import { BP_POINTS, isBP, teamOnSide } from './formats.js'
+import { BP_POINTS, isBP, rulesOf, teamOnSide } from './formats.js'
 import { stageOf } from './stages.js'
 import { silentIn } from './silent.js'
 
@@ -22,6 +22,8 @@ export const toSummary = (t: SummaryRow) => ({
   format: t.format, level: t.level, status: t.status, teamsCount: t._count.teams, maxTeams: t.maxTeams, applications: t._count.registrations,
   cover: coverOf(t), organizer: t.organizerName, description: t.description,
   preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
+  // only for formats that have them: false = this tournament runs without reply speeches
+  ...(rulesOf(t.format).reply && { replySpeeches: t.replySpeeches }),
   breakCategories: t.breakCategories as { key: string; name: string; size: number }[],
   leagues: leaguesOf(t),
 })

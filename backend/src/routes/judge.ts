@@ -7,7 +7,7 @@ import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
 import { isOrganizerOf, motionFor, organizerLink, teamInclude, toDebate, toTeam, linkExpired } from '../services/tournaments.js'
-import { BP_SIDES, rulesOf, sidesOf, type SideCode } from '../services/formats.js'
+import { BP_SIDES, rulesFor, sidesOf, type SideCode } from '../services/formats.js'
 import { background, notify } from '../services/notify.js'
 import { ensureCertificates } from '../services/certificates.js'
 
@@ -117,7 +117,7 @@ async function loadBallotContext(debateId: string, user: User | null, asJudgeId?
   if (asJudgeId && !mine) throw notFound('judge_not_on_panel')
   const myJudge = mine?.judge
   if (!myJudge && !manager) throw forbidden('not_on_panel')
-  const rules = rulesOf(d.round.tournament.format)
+  const rules = rulesFor(d.round.tournament)
   const teams: Record<SideCode, typeof d.proposition | null> = {
     proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition,
   }

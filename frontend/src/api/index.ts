@@ -322,6 +322,7 @@ export const updateTournament = (id: string, data: Partial<{
   leagues: { key: string; name: string }[]
   preliminaryRounds: number
   breakSize: number
+  replySpeeches: boolean
   selectionMode: 'manual' | 'first_come' | 'lottery'
   clubQuota: number | null
   coverUrl: string | null
