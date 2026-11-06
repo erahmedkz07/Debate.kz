@@ -1,7 +1,7 @@
 // Data access layer. Components must use ONLY these functions.
 // Every call goes to the Express API (/api, proxied by Vite in dev).
 import type {
-  Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentFormat, TournamentStatus, User, ScheduleItem, Side, PlayoffStage,
+  Certificate, MotionItem, MotionTopic, SpeakerProgress, AdminPayment, KaspiInfo, PlatformSettings, TournamentPayment, EmailInvite, ClubDetails, ClubSummary, Ref, NewsItem, ClubJoinRequest, MySafetyReport, SafetyCategory, SafetyReport, SafetyStatus, TeammateKind, TeammatePost, AppNotification, AdminAction, AdminTournament, Debate, InvitePreview, Judge, JudgeAssignment, MyTournament, RatingClub, RatingSpeaker, RatingTeam, Role, Round, SpeakerStanding, Team, TeamRegistration, TeamStanding, Testimonial, Tournament, TournamentDetails, TournamentFilters, TournamentFormat, TournamentStatus, User, ScheduleItem, Side, PlayoffStage, TournamentKind,
 } from '@/types'
 import { ApiError, http, qs, upload } from './http'
 import i18n, { loadLanguages } from '@/lib/i18n'
@@ -23,7 +23,7 @@ const or404 = async <T,>(p: Promise<T>) => {
 // ---------- public ----------
 
 export const getTournaments = (f: TournamentFilters = {}) =>
-  http<Tournament[]>('GET', `/tournaments${qs({ search: f.search, region: f.region, level: f.level, status: f.status, sort: f.sort })}`)
+  http<Tournament[]>('GET', `/tournaments${qs({ search: f.search, region: f.region, level: f.level, status: f.status, sort: f.sort, kind: f.kind })}`)
 
 export const getUpcomingTournaments = (limit = 3) =>
   http<Tournament[]>('GET', `/tournaments${qs({ status: 'registration', sort: 'date-asc', limit })}`)
@@ -268,6 +268,7 @@ export interface SpeakerLinkPage {
   team: { id: string; name: string; league?: string }
   tournament: { id: string; name: string; city: string; status: string; format: string }
   claimed: boolean
+  myClaim?: 'pending' | 'approved' | 'rejected' | null // the signed-in visitor's "this is me" request
   certificate?: string
   debates: {
     id: string; room: string; side: Side; opponents: string[]; judges: { name: string; isChair: boolean }[]
@@ -276,7 +277,11 @@ export interface SpeakerLinkPage {
   }[]
 }
 export const getSpeakerByLink = (key: string) => http<SpeakerLinkPage>('GET', `/speaker-link/${encodeURIComponent(key)}`)
-export const claimSpeaker = (key: string) => http<{ ok: true }>('POST', `/speaker-link/${encodeURIComponent(key)}/claim`, {})
+export const claimSpeaker = (key: string) => http<{ status: 'pending' | 'approved' }>('POST', `/speaker-link/${encodeURIComponent(key)}/claim`, {})
+// "this is me" requests waiting for the organizer
+export interface SpeakerClaim { id: string; at: string; user: { id: string; name: string; institution?: string; city?: string }; speaker: { id: string; name: string; team: string } }
+export const getSpeakerClaims = (tournamentId: string) => http<SpeakerClaim[]>('GET', `/tournaments/${encodeURIComponent(tournamentId)}/speaker-claims`)
+export const decideSpeakerClaim = (id: string, decision: 'approve' | 'reject') => http<{ status: string }>('POST', `/speaker-claims/${encodeURIComponent(id)}/${decision}`, {})
 export interface SpeakerLinkTeam { teamId: string; teamName: string; institution: string; league?: string; speakers: { id: string; name: string; position: number; accessKey: string; linked: boolean }[] }
 export const getSpeakerLinks = (tournamentId: string) => http<SpeakerLinkTeam[]>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/speaker-links`, {})
 export const getJudgeLink = (key: string) => http<JudgeLinkData>('GET', '/judge-link', undefined, key)
@@ -310,6 +315,8 @@ export interface CreateTournamentInput {
   coverUrl?: string // a template picked in the wizard (an own picture is uploaded after creation)
   paymentReference?: string // Pro: the reference from getPlanQuote the organizer paid with
   format?: TournamentFormat
+  kind: TournamentKind
+  registrationUrl?: string // local only: a Google Form or another sign-up page
 }
 export const createTournament = (data: CreateTournamentInput) => http<Tournament>('POST', '/tournaments', data)
 export const updateSchedule = (id: string, items: ScheduleItem[]) => http<ScheduleItem[]>('PUT', `/tournaments/${id}/schedule`, { items })
@@ -323,6 +330,8 @@ export const updateTournament = (id: string, data: Partial<{
   preliminaryRounds: number
   breakSize: number
   replySpeeches: boolean
+  kind: TournamentKind
+  registrationUrl: string | null
   selectionMode: 'manual' | 'first_come' | 'lottery'
   clubQuota: number | null
   coverUrl: string | null
@@ -338,6 +347,10 @@ export const addJudgesBulk = (tournamentId: string, names: string[], league?: st
   http<{ created: number; skipped: number }>('POST', `/tournaments/${tournamentId}/judges/bulk`, { names, ...(league && { league }) })
 export const addTeamsBulk = (tournamentId: string, data: { names: string[]; league?: string; institution?: string }) =>
   http<{ created: Team[]; skipped: number }>('POST', `/tournaments/${tournamentId}/teams/bulk`, data)
+// teams pasted from a spreadsheet (a Google Form's answers), local tournaments only
+export interface ImportTeam { name: string; institution: string; speakers: string[]; league?: string | null }
+export const importTeams = (tournamentId: string, teams: ImportTeam[]) =>
+  http<{ created: Team[]; skipped: number }>('POST', `/tournaments/${tournamentId}/teams/import`, { teams })
 export const addTeam = (tournamentId: string, data: TeamInput) => http<Team>('POST', `/tournaments/${tournamentId}/teams`, data)
 export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH', `/teams/${teamId}`, data)
 export const deleteTeam = (teamId: string) => http<{ withdrawn?: boolean } | undefined>('DELETE', `/teams/${teamId}`)

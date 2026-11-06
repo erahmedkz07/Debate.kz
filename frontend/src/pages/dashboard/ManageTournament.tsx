@@ -3,10 +3,11 @@ import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-ro
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Copy, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, Link2, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Trash2, Trophy, Undo2, UserPlus, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Copy, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, Link2, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Table2, Trash2, Trophy, Undo2, UserPlus, Users, X } from 'lucide-react'
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, returnJudge, returnTeam, setForfeit, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
+  importTeams, type ImportTeam, getSpeakerClaims, decideSpeakerClaim,
 } from '@/api'
 import { leagueMotion, type Debate, type Judge, type League, type Round, type ScheduleItem, type Team, type TournamentDetails, type TournamentStatus } from '@/types'
 import { useAsync, shownInUrl } from '@/lib/hooks'
@@ -48,6 +49,7 @@ import { NumberChoice } from '@/components/ui/number-choice'
 import { InstitutionSelect } from '@/components/ui/institution-select'
 import { LeagueTabs, leagueName } from '@/components/tournament/LeagueTabs'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
+import { parseTeamTable, type TeamColumns } from '@/lib/teamTable'
 
 const sections = [
   { key: 'overview', icon: LayoutDashboard },
@@ -325,9 +327,13 @@ function Teams({ data, reload }: SectionProps) {
   const [editing, setEditing] = useState<Team | null>(null)
   const [open, setOpen] = useState(false)
   const [bulk, setBulk] = useState(false)
+  const [paste, setPaste] = useState(false)
   const [toDelete, setToDelete] = useState<Team | null>(null)
   const leagues = data.leagues ?? []
   const [league, setLeague] = useState('')
+  // an open tournament's teams come only from applications by accounts
+  const local = data.kind === 'local'
+  const full = data.teams.filter(x => !x.swing).length >= data.maxTeams
   // swing teams only fill the draw: never listed as teams
   const shown = data.teams.filter(x => !x.swing && (!league || x.league === league))
   // teams of a tournament with leagues that are in none: the draw waits for them
@@ -352,10 +358,15 @@ function Teams({ data, reload }: SectionProps) {
             {data.teams.some(x => !x.swing) && (
               <Button asChild variant="outline"><a href={`/tournaments/${data.id}/speaker-links/print`} target="_blank" rel="noopener"><QrCode className="size-4" />{t('speakerLink.button')}</a></Button>
             )}
-            <Button variant="outline" disabled={data.teams.length >= data.maxTeams} onClick={() => setBulk(true)}><ListPlus className="size-4" />{t('dashboard.teams.bulk')}</Button>
-            <Button disabled={data.teams.length >= data.maxTeams} onClick={() => { setEditing(null); setOpen(true) }}><Plus className="size-4" />{t('dashboard.teams.add')}</Button>
+            {local && <>
+              <Button variant="outline" disabled={full} onClick={() => setPaste(true)}><Table2 className="size-4" />{t('dashboard.teams.paste')}</Button>
+              <Button variant="outline" disabled={full} onClick={() => setBulk(true)}><ListPlus className="size-4" />{t('dashboard.teams.bulk')}</Button>
+              <Button disabled={full} onClick={() => { setEditing(null); setOpen(true) }}><Plus className="size-4" />{t('dashboard.teams.add')}</Button>
+            </>}
           </div>
         } />
+      {!local && <p className="mb-4 flex items-start gap-2 rounded-2xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground"><Inbox className="mt-0.5 size-4 shrink-0" />{t('dashboard.teams.openNote')}</p>}
+      <SpeakerClaimsCard tournamentId={data.id} onDone={reload} />
       {leagues.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <LeagueTabs leagues={leagues} value={league} onChange={setLeague} all />
@@ -434,6 +445,7 @@ function Teams({ data, reload }: SectionProps) {
       )}
       <TeamDialog team={editing} open={open} onOpenChange={setOpen} onSave={save} saving={busy === 'save'} speakers={formatOfTournament(data.format).score.speakersPerTeam} city={data.city} leagues={leagues} league={league} />
       <BulkTeamsDialog data={data} open={bulk} onOpenChange={setBulk} league={league} onDone={reload} />
+      <PasteTeamsDialog data={data} open={paste} onOpenChange={setPaste} onDone={reload} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t(played(toDelete) ? 'dashboard.teams.confirmWithdraw' : 'dashboard.teams.confirmDelete', { name: toDelete?.name })}
           description={played(toDelete) ? t('dashboard.teams.withdrawHint') : undefined}>
@@ -548,6 +560,51 @@ function RoundsBreakCard({ data, reload }: SectionProps) {
         <div className="flex justify-end gap-2">
           {dirty && <Button variant="ghost" onClick={() => { setPrelims(prelimsNow); setBreakSize(data.breakSize); setSizes(savedSizes()) }}>{t('common.cancel')}</Button>}
           <Button disabled={!dirty || Object.values(bad).some(Boolean) || busy === 'rounds'} onClick={save}>{t('common.save')}</Button>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/* ---------- The kind of the tournament ---------- */
+// Open or local: changed only while there are no teams and no applications (the server checks it too). A local
+// tournament may name its own sign-up page (a Google Form); the public page's button then leads there.
+function KindCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const [url, setUrl] = useState(data.registrationUrl ?? '')
+  useEffect(() => { setUrl(data.registrationUrl ?? '') }, [data.registrationUrl])
+  const locked = data.teams.some(x => !x.swing) || (data.applications ?? 0) > 0
+  const urlOk = !url.trim() || /^https:\/\/\S+\.\S+/.test(url.trim())
+  const setKind = async (kind: 'open' | 'local') => {
+    if (kind !== data.kind && await run('kind', () => updateTournament(data.id, { kind }), t('common.saved'))) reload()
+  }
+  const saveUrl = async () => {
+    if (await run('url', () => updateTournament(data.id, { registrationUrl: url.trim() || null }), t('common.saved'))) reload()
+  }
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="font-bold">{t('wizard.kind.label')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t(locked ? 'dashboard.kind.locked' : 'dashboard.kind.text')}</p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t('wizard.kind.label')}>
+        {(['open', 'local'] as const).map(k => (
+          <button key={k} type="button" role="radio" aria-checked={data.kind === k} disabled={locked || busy === 'kind'} onClick={() => setKind(k)}
+            className={cn('rounded-2xl border-2 p-4 text-left transition-all disabled:cursor-default', !locked && 'cursor-pointer', data.kind === k ? 'border-primary bg-primary-soft' : 'border-border', locked && data.kind !== k && 'opacity-50')}>
+            <span className="flex items-center gap-2 font-bold">{data.kind === k && <Check className="size-4 text-primary" />}{t(`tournamentKind.${k}`)}</span>
+            <span className="mt-1 block text-sm text-muted-foreground">{t(`wizard.kind.${k}`)}</span>
+          </button>
+        ))}
+      </div>
+      {data.kind === 'local' && (
+        <div>
+          <Label htmlFor="k-url">{t('wizard.kind.url')} <span className="font-normal text-muted-foreground">· {t('common.optional')}</span></Label>
+          <div className="flex gap-2">
+            <Input id="k-url" type="url" inputMode="url" placeholder="https://forms.gle/…" value={url} aria-invalid={!urlOk} onChange={e => setUrl(e.target.value)} />
+            <Button disabled={!urlOk || url.trim() === (data.registrationUrl ?? '') || busy === 'url'} onClick={saveUrl}>{t('common.save')}</Button>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{t(urlOk ? 'wizard.kind.urlHint' : 'wizard.kind.urlInvalid')}</p>
         </div>
       )}
     </Card>
@@ -716,6 +773,128 @@ function BulkTeamsDialog({ data, open, onOpenChange, league: defaultLeague, onDo
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// Teams pasted from a spreadsheet: the answers of a Google Form (or any table) copied as they are. The page guesses
+// which column is which from the header row, the organizer can correct it, sees the teams before adding them.
+function PasteTeamsDialog({ data, open, onOpenChange, onDone }: { data: TournamentDetails; open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const leagues = data.leagues ?? []
+  const speakers = formatOfTournament(data.format).score.speakersPerTeam
+  const [text, setText] = useState('')
+  const [columns, setColumns] = useState<TeamColumns | null>(null)
+  const [league, setLeague] = useState('')
+  useEffect(() => { if (open) { setText(''); setColumns(null); setLeague(leagues[0]?.key ?? '') } }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  const table = parseTeamTable(text, { speakers, leagues, columns, league })
+  const ready = table.teams.filter(x => !x.error)
+  const room = data.maxTeams - data.teams.filter(x => !x.swing).length
+  const cols = table.header.map((h, i) => ({ value: String(i), label: h || t('dashboard.teams.pasteColumn', { n: i + 1 }) }))
+  const pick = (field: keyof TeamColumns, i: number) => setColumns({ ...table.columns, [field]: i })
+  const submit = async () => {
+    let r: Awaited<ReturnType<typeof importTeams>> | undefined
+    const teams: ImportTeam[] = ready.map(x => ({ name: x.name, institution: x.institution, speakers: x.speakers, ...(leagues.length && { league: x.league }) }))
+    if (await run('paste', async () => { r = await importTeams(data.id, teams) }) && r) {
+      toast.success(t('dashboard.teams.bulkDone', { count: r.created.length }), r.skipped ? { description: t('dashboard.teams.bulkSkipped', { count: r.skipped }) } : undefined)
+      onOpenChange(false); onDone()
+    }
+  }
+  const fields: { key: keyof TeamColumns; label: string }[] = [
+    { key: 'name', label: t('common.team') },
+    { key: 'institution', label: t('dashboard.teams.institution') },
+    ...Array.from({ length: speakers }, (_, i) => ({ key: `speaker${i + 1}` as keyof TeamColumns, label: t('tournament.registerDialog.speaker', { n: i + 1 }) })),
+    ...(leagues.length ? [{ key: 'league' as const, label: t('leagues.league') }] : []),
+  ]
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent heading={t('dashboard.teams.pasteTitle')} description={t('dashboard.teams.pasteText', { count: speakers })} className="sm:max-w-3xl">
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="pt">{t('dashboard.teams.pasteLabel')}</Label>
+            <Textarea id="pt" rows={6} value={text} onChange={e => { setText(e.target.value); setColumns(null) }} className="font-mono text-xs"
+              placeholder={t('dashboard.teams.pastePlaceholder')} />
+          </div>
+          {table.header.length > 0 && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {fields.map(f => (
+                <div key={f.key}>
+                  <Label htmlFor={`pc-${f.key}`}>{f.label}</Label>
+                  <Select id={`pc-${f.key}`} value={table.columns[f.key] === undefined ? '' : String(table.columns[f.key])} onValueChange={v => pick(f.key, Number(v))}
+                    options={f.key === 'league' ? [{ value: '-1', label: t('dashboard.teams.pasteOneLeague') }, ...cols] : cols} />
+                </div>
+              ))}
+              {leagues.length > 0 && table.columns.league === -1 && (
+                <div><Label htmlFor="pl">{t('dashboard.teams.pasteLeagueAll')}</Label><Select id="pl" value={league} onValueChange={setLeague} options={leagues.map(l => ({ value: l.key, label: l.name }))} /></div>
+              )}
+            </div>
+          )}
+          {table.teams.length > 0 && (
+            <div className="max-h-64 overflow-auto rounded-xl border border-border">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-muted text-left text-muted-foreground">
+                  <tr><th className="px-3 py-2">{t('common.team')}</th><th className="px-3 py-2">{t('dashboard.teams.institution')}</th><th className="px-3 py-2">{t('tournament.speakers')}</th>{leagues.length > 0 && <th className="px-3 py-2">{t('leagues.league')}</th>}</tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {table.teams.map((x, i) => (
+                    <tr key={i} className={cn(x.error && 'bg-danger-soft text-danger')}>
+                      <td className="px-3 py-2 font-semibold">{x.name || '—'}</td>
+                      <td className="px-3 py-2">{x.institution || '—'}</td>
+                      <td className="px-3 py-2">{x.error ? t(`dashboard.teams.pasteError.${x.error}`, { count: speakers }) : x.speakers.join(', ')}</td>
+                      {leagues.length > 0 && <td className="px-3 py-2">{leagueName(leagues, x.league ?? '') || '—'}</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {table.teams.length > 0 && (
+            <p className="text-xs text-muted-foreground">{t('dashboard.teams.pasteReady', { count: ready.length })}
+              {ready.length < table.teams.length && <span className="text-danger"> · {t('dashboard.teams.pasteBad', { count: table.teams.length - ready.length })}</span>}
+              {ready.length > room && <span className="text-danger"> · {t('dashboard.teams.bulkTooMany', { count: room })}</span>}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button disabled={!ready.length || ready.length > room || busy === 'paste'} onClick={submit}>
+              {busy === 'paste' && <Loader2 className="size-4 animate-spin" />}{t('dashboard.teams.bulkAdd', { count: ready.length })}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// "This is me" by a speaker's link: the organizer confirms that the person really is that speaker (a link can be
+// forwarded, a card handed to the wrong person). Confirmed: the results and certificate go to the person's profile.
+function SpeakerClaimsCard({ tournamentId, onDone }: { tournamentId: string; onDone: () => void }) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const { data, reload } = useAsync(() => getSpeakerClaims(tournamentId), [tournamentId])
+  if (!data?.length) return null
+  const decide = async (id: string, decision: 'approve' | 'reject') => {
+    if (await run(`claim-${id}`, () => decideSpeakerClaim(id, decision), t(decision === 'approve' ? 'dashboard.claims.approved' : 'dashboard.claims.rejected'))) { reload(); onDone() }
+  }
+  return (
+    <Card className="mb-4 border-2 border-accent p-5">
+      <p className="flex items-center gap-2 font-bold"><UserPlus className="size-4 text-primary" />{t('dashboard.claims.title', { count: data.length })}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.claims.text')}</p>
+      <ul className="mt-3 divide-y divide-border">
+        {data.map(c => (
+          <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <p className="text-sm">
+              <Link to={`/people/${c.user.id}`} className="font-bold hover:text-primary hover:underline">{c.user.name}</Link>
+              {(c.user.institution || c.user.city) && <span className="text-muted-foreground"> · {[c.user.institution, c.user.city].filter(Boolean).join(', ')}</span>}
+              <br /><span className="text-muted-foreground">{t('dashboard.claims.says', { speaker: c.speaker.name, team: c.speaker.team })}</span>
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" className="hover:text-danger" disabled={busy === `claim-${c.id}`} onClick={() => decide(c.id, 'reject')}><X className="size-4" />{t('dashboard.claims.reject')}</Button>
+              <Button size="sm" disabled={busy === `claim-${c.id}`} onClick={() => decide(c.id, 'approve')}><Check className="size-4" />{t('dashboard.claims.approve')}</Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 
@@ -1872,6 +2051,7 @@ function SettingsSection({ data, reload }: SectionProps) {
               <div className="flex justify-end"><Button disabled={busy === 'save' || form.name.trim().length < 3} onClick={save}>{t('common.save')}</Button></div>
             </Card>
             <CoverCard tournamentId={data.id} cover={data.cover} onChanged={reload} />
+            <KindCard data={data} reload={reload} />
           </TabsContent>
           <TabsContent value="place" className="space-y-5">
             {data.status !== 'finished' ? <DetailsCard data={data} reload={reload} /> : <Card className="p-6 text-sm text-muted-foreground">{t('dashboard.settings.finishedNote')}</Card>}
@@ -1978,7 +2158,7 @@ export default function ManageTournament() {
       <div className="mt-6 grid gap-6 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)]">
         <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-1 lg:px-0">
           <div className="contents lg:block lg:rounded-2xl lg:border lg:border-border lg:bg-card lg:p-2">
-            {sections.map(({ key, icon: Icon }) => (
+            {sections.filter(s => s.key !== 'registrations' || data.kind === 'open').map(({ key, icon: Icon }) => (
               <NavLink key={key} to={`/dashboard/tournaments/${id}${key === 'overview' ? '' : `/${key}`}`} end
                 className={cn('flex shrink-0 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-colors',
                   current === key ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>

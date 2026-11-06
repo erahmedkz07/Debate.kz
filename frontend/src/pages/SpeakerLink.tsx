@@ -2,7 +2,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Award, CheckCircle2, DoorOpen, Gavel, Loader2, Trophy, UserCheck, Users } from 'lucide-react'
+import { Award, CheckCircle2, Clock, DoorOpen, Gavel, Loader2, Trophy, UserCheck, Users } from 'lucide-react'
 import { claimSpeaker, getSpeakerByLink } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
@@ -38,8 +38,8 @@ export default function SpeakerLink() {
     if (!user) return navigate(`/login?next=${encodeURIComponent(`/s/${key}`)}`)
     setBusy(true)
     try {
-      await claimSpeaker(key)
-      toast.success(t('speakerLink.claimed'))
+      const r = await claimSpeaker(key)
+      toast.success(t(r.status === 'approved' ? 'speakerLink.claimed' : 'speakerLink.claimSent'))
       reload()
     } catch (e) {
       toast.error(errorMessage(e, t))
@@ -57,6 +57,10 @@ export default function SpeakerLink() {
       {/* save to my profile */}
       {data.claimed ? (
         <p className="mt-5 flex items-start gap-2 rounded-2xl bg-success-soft p-4 text-sm text-success"><CheckCircle2 className="mt-0.5 size-4 shrink-0" />{t('speakerLink.inProfile')}</p>
+      ) : data.myClaim === 'pending' ? (
+        <p className="mt-5 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft p-4 text-sm"><Clock className="mt-0.5 size-4 shrink-0" />{t('speakerLink.claimPending')}</p>
+      ) : data.myClaim === 'rejected' ? (
+        <p className="mt-5 rounded-2xl border border-border bg-muted/50 p-4 text-sm text-muted-foreground">{t('speakerLink.claimRejected')}</p>
       ) : (
         <Card className="mt-5 border-2 border-primary/30 p-5">
           <p className="font-bold">{t('speakerLink.claimTitle')}</p>

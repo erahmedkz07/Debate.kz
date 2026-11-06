@@ -110,6 +110,7 @@ export default function Rating() {
     <>
       <PageHeader title={t('rating.title')} subtitle={t('rating.subtitle')} />
       <div className="container-page py-10">
+        <p className="mb-6 rounded-2xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">{t('rating.whoCounts')}</p>
         {error ? <ErrorState onRetry={reload} /> : (
           <Tabs value={tab} onValueChange={v => { if (!shownInUrl('tab', v, 'teams')) setParams(v === 'teams' ? {} : { tab: v }, { preventScrollReset: true }) }}>
             <div className="flex flex-wrap items-center justify-between gap-3">

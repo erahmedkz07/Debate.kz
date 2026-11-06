@@ -24,6 +24,7 @@ export const toSummary = (t: SummaryRow) => ({
   preliminaryRounds: t.preliminaryRounds, breakSize: t.breakSize, languages: t.languages,
   // only for formats that have them: false = this tournament runs without reply speeches
   ...(rulesOf(t.format).reply && { replySpeeches: t.replySpeeches }),
+  kind: t.kind, ...(t.kind === 'local' && t.registrationUrl && { registrationUrl: t.registrationUrl }),
   breakCategories: t.breakCategories as { key: string; name: string; size: number }[],
   leagues: leaguesOf(t),
 })

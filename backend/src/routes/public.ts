@@ -28,6 +28,7 @@ const listSchema = z.object({
   level: z.enum(['all', 'school', 'university', 'mixed']).optional(),
   status: z.enum(['all', 'registration', 'ongoing', 'finished']).optional(),
   sort: z.enum(['date-asc', 'date-desc', 'teams']).optional(),
+  kind: z.enum(['all', 'open', 'local']).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 })
 
@@ -48,6 +49,7 @@ async function listTournaments(f: z.infer<typeof listSchema>) {
     ...(f.region && f.region !== 'all' && { region: f.region }),
     ...(f.level && f.level !== 'all' && { level: { in: [f.level, 'mixed' as const] } }),
     ...(f.status && f.status !== 'all' && { status: f.status }),
+    ...(f.kind && f.kind !== 'all' && { kind: f.kind }),
   }
   const rows = await prisma.tournament.findMany({ where, include: summaryInclude, orderBy: { startDate: f.sort === 'date-desc' ? 'desc' : 'asc' } })
   let list = rows.map(toSummary)
@@ -225,7 +227,8 @@ let ratingCache: { at: number; data: unknown } | null = null
 const RATING_TTL_MS = process.env.NODE_ENV === 'test' ? 0 : 60_000 // the e2e checks read it right after a change
 publicRouter.get('/rating', async (_req, res) => {
   if (ratingCache && Date.now() - ratingCache.at < RATING_TTL_MS) return void res.json(ratingCache.data)
-  const tournaments = await prisma.tournament.findMany({ where: publicWhere, select: { id: true, level: true, city: true, startDate: true } })
+  // only open tournaments: their teams and speakers are accounts; a local tournament's ranking stays on its own page
+  const tournaments = await prisma.tournament.findMany({ where: { ...publicWhere, kind: 'open' }, select: { id: true, level: true, city: true, startDate: true } })
   type Ref = { id: string; name: string } | undefined
   // teams: the same club team is one row across tournaments even if it entered under different names
   const teamAgg = new Map<string, { name: string; institution: string; club: Ref; logoUrl?: string; city: string; level: Level; tournaments: Set<string>; wins: number; points: number }>()

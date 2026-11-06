@@ -198,6 +198,8 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   const role = await participationIn(req.user!.id, t.id)
   if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
   if (t.status !== 'registration' || !t.registrationOpen) throw forbidden('registration_closed')
+  // a local tournament's teams are entered by its organizer (or sign up through its own form)
+  if (t.kind === 'local') throw forbidden('local_tournament')
   if (t.registrationDeadline && toDay(t.registrationDeadline) < todayKz()) throw forbidden('registration_closed')
   assertSpeakers(t.format, data.speakers)
   // a participant states their club and team in the profile first (organizers and ratings need to know who is from where)
