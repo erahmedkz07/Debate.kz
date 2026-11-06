@@ -387,6 +387,10 @@ export const setTeamCategories = (teamId: string, categories: string[]) => http<
 
 export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; addSwing?: boolean; method?: DrawMethod; protectClubs?: boolean } = {}) =>
   http<{ debates: Debate[]; report: DrawReport }>('POST', `/rounds/${roundId}/draw`, opts)
+// two teams change places in a round (between rooms or inside one); the answer warns of rematches and clubmates
+export type TeamSlot = { debateId: string; side: Side }
+export const swapTeams = (roundId: string, a: TeamSlot, b: TeamSlot) =>
+  http<{ warnings: { kind: 'rematch' | 'same_club'; teams: string[] }[] }>('POST', `/rounds/${encodeURIComponent(roundId)}/swap-teams`, { a, b })
 export const updateDebate = (debateId: string, data: Partial<{ room: string; onlineUrl: string | null; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 

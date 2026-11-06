@@ -126,3 +126,22 @@ test('the wizard: the kind is chosen, a local tournament keeps its Google Form l
   expect(t.registrationUrl).toBe('https://forms.gle/uiwizard')
   await expect(page.getByRole('button', { name: 'Вставить из таблицы' })).toBeVisible()
 })
+
+test('draw: two teams of different rooms change places with two clicks', async ({ page }) => {
+  const t = await leagueTournament()
+  const ru = t.details.debates.filter((d: { propositionTeamId: string }) => t.details.teams.find((x: { id: string; league: string }) => x.id === d.propositionTeamId)?.league === 'ru')
+  const name = (id: string) => t.details.teams.find((x: { id: string }) => x.id === id).name as string
+  const [one, two] = ru
+  const a = name(one.oppositionTeamId), b = name(two.propositionTeamId)
+  await signIn(page, t.org.email, t.org.password)
+  await page.goto(`/dashboard/tournaments/${t.id}/draw`)
+  await page.getByRole('button', { name: a, exact: true }).click()
+  await expect(page.getByText(`Выбрана «${a}»`)).toBeVisible()
+  await page.getByRole('button', { name: b, exact: true }).click()
+  await expect(page.getByText('Команды поменялись местами')).toBeVisible()
+  const after = (await t.org('GET', `/tournaments/${t.id}`)).data.debates
+  expect(name(after.find((d: { id: string }) => d.id === one.id).oppositionTeamId)).toBe(b)
+  expect(name(after.find((d: { id: string }) => d.id === two.id).propositionTeamId)).toBe(a)
+  // the table shows the new rooms
+  await expect(page.locator('tbody tr').filter({ hasText: name(one.propositionTeamId) }).getByRole('button', { name: b, exact: true })).toBeVisible()
+})

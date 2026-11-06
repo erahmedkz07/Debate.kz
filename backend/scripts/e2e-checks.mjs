@@ -3135,6 +3135,96 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(winners.length > 0 && !rating.teams.some(x => winners.includes(`${x.name}|${x.institution}`)), "a local tournament's results are in its own table, not in the site's rating")
 }
 
+// ---------- moving teams in a draw: two teams change places (to repeat a draw made on paper) ----------
+{
+  const host = await newAccount('Перестановка Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(640), name: `Перестановка ${jtag}`, preliminaryRounds: 2, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const names = ['Пер А', 'Пер Б', 'Пер В', 'Пер Г']
+  for (const n of names) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Пер Судья Один', 'Пер Судья Два'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const [r1, r2] = d.rounds
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const [x, y] = d.debates.filter(q => q.roundId === r1.id)
+  const nameOf = id => d.teams.find(q => q.id === id).name
+  const before = { xo: x.oppositionTeamId, yp: y.propositionTeamId }
+  const swap = (body, c = host.c, roundId = r1.id) => c('POST', `/rounds/${roundId}/swap-teams`, body)
+
+  ok((await swap({ a: { debateId: x.id, side: 'opposition' }, b: { debateId: y.id, side: 'proposition' } }, client())).status === 401, 'only the organizer moves teams')
+  r = await swap({ a: { debateId: x.id, side: 'opposition' }, b: { debateId: y.id, side: 'proposition' } })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const x2 = d.debates.find(q => q.id === x.id), y2 = d.debates.find(q => q.id === y.id)
+  ok(r.status === 200 && x2.oppositionTeamId === before.yp && y2.propositionTeamId === before.xo && x2.propositionTeamId === x.propositionTeamId, 'two teams of two rooms change places; the rest stays')
+  ok(r.data.warnings.length === 0, 'a first round has no rematches to warn of')
+  r = await swap({ a: { debateId: x.id, side: 'proposition' }, b: { debateId: x.id, side: 'opposition' } })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  ok(r.status === 200 && d.debates.find(q => q.id === x.id).propositionTeamId === before.yp, 'inside one room the two teams change sides')
+  ok((await swap({ a: { debateId: x.id, side: 'closingProposition' }, b: { debateId: y.id, side: 'proposition' } })).data?.error === 'no_team_on_side', 'a two-team room has no closing half')
+
+  // a judge never stays with a team they conflict with
+  const room = d.debates.find(q => q.id === y.id)
+  const judgeId = room.judgeIds[0]
+  const other = d.debates.find(q => q.id === x.id).propositionTeamId
+  await host.c('PUT', `/judges/${judgeId}/conflicts`, { teamIds: [other] })
+  r = await swap({ a: { debateId: x.id, side: 'proposition' }, b: { debateId: y.id, side: 'opposition' } })
+  ok(r.data?.error === 'swap_judge_conflict' && r.data.details?.judgeId === judgeId, "a team cannot move into the room of a judge it conflicts with")
+  await host.c('PUT', `/judges/${judgeId}/conflicts`, { teamIds: [] })
+
+  // after the first ballot of a room its teams stay
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: 'ЭП отменит оценки', status: 'released' })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const sheetOwner = d.debates.find(q => q.id === x.id)
+  const sheetJudge = await judgeAs(sheetOwner.judgeIds[0])
+  const sheet = (await sheetJudge('GET', `/ballots/${x.id}`)).data
+  const sc = {}
+  sheet.proposition.speakers.forEach(q => (sc[q.id] = 72)); sheet.opposition.speakers.forEach(q => (sc[q.id] = 68))
+  ok((await sheetJudge('POST', `/ballots/${x.id}`, { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } })).status === 201, 'a ballot is sent in one room')
+  ok((await swap({ a: { debateId: x.id, side: 'proposition' }, b: { debateId: y.id, side: 'opposition' } })).data?.error === 'ballots_in_room', 'after a ballot the teams of that room stay')
+
+  // round 2: a rematch is allowed, with a warning
+  const forfeits = d.debates.filter(q => q.roundId === r1.id && q.id !== x.id)
+  for (const q of forfeits) await host.c('POST', `/debates/${q.id}/forfeit`, { side: 'opposition' })
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })
+  ok((await swap({ a: { debateId: x.id, side: 'proposition' }, b: { debateId: y.id, side: 'opposition' } })).data?.error === 'round_completed', 'a completed round stays as it was')
+  await host.c('POST', `/rounds/${r2.id}/draw`, { addSwing: false })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const r1rooms = d.debates.filter(q => q.roundId === r1.id).map(q => [q.propositionTeamId, q.oppositionTeamId])
+  const [p, q2] = d.debates.filter(q => q.roundId === r2.id)
+  // put a round-1 pair back together: the teams of the first round-1 room, wherever they are now
+  const [ta, tb] = r1rooms[0]
+  const where = id => { const room2 = [p, q2].find(o => o.propositionTeamId === id || o.oppositionTeamId === id); return { debateId: room2.id, side: room2.propositionTeamId === id ? 'proposition' : 'opposition' } }
+  const at = where(ta), bt = where(tb)
+  const mate = at.side === 'proposition' ? 'opposition' : 'proposition'
+  r = await swap({ a: { debateId: at.debateId, side: mate }, b: bt }, host.c, r2.id)
+  ok(r.status === 200 && r.data.warnings.some(w => w.kind === 'rematch' && w.teams.includes(nameOf(ta)) && w.teams.includes(nameOf(tb))), 'a rematch is allowed, with a warning naming the teams')
+
+  // the playoffs follow the bracket
+  const elim = await db.query(`insert into rounds (id, tournament_id, number, name, kind, status, date) values ($1, $2, 9, 'Финал', 'elimination', 'draft', now()) returning id`, [`elim-${jtag}`, t.id])
+  ok((await swap({ a: { debateId: p.id, side: 'proposition' }, b: { debateId: p.id, side: 'opposition' } }, host.c, elim.rows[0].id)).data?.error === 'playoffs_follow_bracket', 'teams of a playoff round are not moved by hand')
+  await db.query('delete from rounds where id = $1', [elim.rows[0].id])
+}
+
+// ---------- moving teams with leagues: never across leagues ----------
+{
+  const host = await newAccount('Перестановка Лиги')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(641), name: `Перестановка лиги ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'ru', name: 'Русская лига', language: 'ru' }, { key: 'kz', name: 'Қазақ лигасы', language: 'kz' }] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'ru', names: ['ПерРу 1', 'ПерРу 2'] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'kz', names: ['ПерҚаз 1', 'ПерҚаз 2'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['ПерЛ Судья 1', 'ПерЛ Судья 2'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  await host.c('POST', `/rounds/${d.rounds[0].id}/draw`, { addSwing: false })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const [a, b] = d.debates
+  r = await host.c('POST', `/rounds/${d.rounds[0].id}/swap-teams`, { a: { debateId: a.id, side: 'proposition' }, b: { debateId: b.id, side: 'proposition' } })
+  ok(r.data?.error === 'different_leagues', 'with leagues a team never moves into another league\'s room')
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')
