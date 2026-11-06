@@ -353,7 +353,7 @@ function BallotForm() {
       )}
 
       {/* the flow: notes speech by speech while the debate goes on, saved by itself */}
-      <FlowSheet formatCode={rules.format} initial={data.flow} debateId={debateId} uid={uid}
+      <FlowSheet formatCode={rules.format} replies={!!rules.reply} initial={data.flow} debateId={debateId} uid={uid}
         onSave={flow => saveFlow(debateId, flow, judgeKey, judgeKey ? undefined : asJudge)} />
 
       <div className={cn('mt-6', bp ? 'grid gap-5 sm:grid-cols-2' : 'space-y-5')}>

@@ -234,6 +234,8 @@ model Tournament {
   paid                 Boolean          @default(true)
   visible              Boolean          @default(true)
   registrationOpen     Boolean          @default(true) @map("registration_open")
+  // formats with reply speeches (WSDC, APF, Asian): the organizer may run the tournament without them
+  replySpeeches        Boolean          @default(true) @map("reply_speeches")
   requireApproval      Boolean          @default(true) @map("require_approval")
   registrationDeadline DateTime?        @map("registration_deadline") @db.Date
   moderation           ModerationStatus @default(pending) // public only after admin approval

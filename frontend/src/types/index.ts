@@ -27,6 +27,8 @@ export interface Tournament {
   description: string
   preliminaryRounds: number
   breakSize: number
+  // formats with reply speeches only: false = the tournament runs without them
+  replySpeeches?: boolean
   breakCategories?: BreakCategory[] // extra brackets (novices, juniors…)
   leagues?: League[] // leagues inside the tournament: each pairs and ranks on its own
   languages: Lang[]

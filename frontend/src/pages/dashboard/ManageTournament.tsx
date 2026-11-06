@@ -554,6 +554,33 @@ function RoundsBreakCard({ data, reload }: SectionProps) {
   )
 }
 
+/* ---------- Reply speeches ---------- */
+// WSDC, APF and Asian have reply speeches; a league may run without them. Changed only before the first ballot, so every
+// debate of the tournament is scored the same way (the server checks it too).
+function RepliesCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const locked = data.debates.some(d => d.ballotStatus && d.ballotStatus !== 'pending')
+  const toggle = async (on: boolean) => {
+    if (await run('replies', () => updateTournament(data.id, { replySpeeches: on }), t('common.saved'))) reload()
+  }
+  return (
+    <Card className="space-y-3 p-6">
+      <div>
+        <h3 className="flex items-center gap-2 font-bold"><Megaphone className="size-4 text-primary" />{t('dashboard.replies.title')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t(locked ? 'dashboard.replies.locked' : 'dashboard.replies.text')}</p>
+      </div>
+      {locked ? (
+        <p className="text-sm font-semibold">{t(data.replySpeeches ? 'dashboard.replies.on' : 'dashboard.replies.off')}</p>
+      ) : (
+        <div className={cn(busy === 'replies' && 'pointer-events-none opacity-60')}>
+          <Switch label={t('dashboard.replies.switch')} checked={!!data.replySpeeches} onChange={toggle} />
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // A judge's personal link: no account needed. The organizer sends it (WhatsApp, Telegram) or shows the QR; the judge
 // opens their debates and fills the ballots. A new link stops the old one (a lost phone, a link sent to the wrong person).
 function JudgeShareDialog({ judge, onClose, onEmail, onChanged }: { judge: Judge | null; onClose: () => void; onEmail: (j: Judge) => void; onChanged: () => void }) {
@@ -1852,6 +1879,7 @@ function SettingsSection({ data, reload }: SectionProps) {
           {parts.includes('conduct') && (
             <TabsContent value="conduct" className="space-y-5">
               <RoundsBreakCard data={data} reload={reload} />
+              {data.replySpeeches !== undefined && <RepliesCard data={data} reload={reload} />}
               <RoomsCard data={data} reload={reload} />
               <LeaguesCard data={data} reload={reload} />
               {!data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}

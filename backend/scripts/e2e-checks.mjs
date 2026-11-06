@@ -3003,6 +3003,41 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await fetch(`${A}/share/t/${t.id}/cover.jpg`)).status === 404, 'a tournament that is not public gives no cover')
 }
 
+// ---------- reply speeches can be turned off (a league that does not hold them) ----------
+{
+  const host = await newAccount('Без ответных Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(620), name: `Без ответных ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  ok((await host.c('GET', `/tournaments/${t.id}`)).data.replySpeeches === true, 'WSDC starts with reply speeches, as its rules say')
+  const kp = (await host.c('POST', '/tournaments', { ...tBody(621), name: `КП ответные ${jtag}`, format: 'POPPER' })).data
+  ok((await host.c('GET', `/tournaments/${kp.id}`)).data.replySpeeches === undefined, 'a format without reply speeches has no such setting')
+  ok((await host.c('PATCH', `/tournaments/${kp.id}`, { replySpeeches: false })).data?.error === 'format_has_no_replies', 'and it cannot be turned off there')
+  ok((await client()('PATCH', `/tournaments/${t.id}`, { replySpeeches: false })).status === 401, 'only the organizer changes it')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { replySpeeches: false })).status === 200 && (await host.c('GET', `/tournaments/${t.id}`)).data.replySpeeches === false, 'the organizer turns reply speeches off')
+
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Ответ А', 'Ответ Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await addJudge(host.c, t.id, 'Ответ Судья')
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const round = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП отменит домашние задания', status: 'released' })
+  const debate = (await host.c('GET', `/tournaments/${t.id}`)).data.debates.find(x => x.roundId === round.id)
+  const judgeId = (await db.query('select judge_id from debate_judges where debate_id = $1', [debate.id])).rows[0].judge_id
+  const j = await judgeAs(judgeId)
+  const sheet = (await j('GET', `/ballots/${debate.id}`)).data
+  ok(sheet.rules && !sheet.rules.reply && sheet.rules.speakers === 3, 'the ballot comes without reply speeches')
+  const scores = {}
+  sheet.proposition.speakers.forEach(x => (scores[x.id] = 70)); sheet.opposition.speakers.forEach(x => (scores[x.id] = 69))
+  r = await j('POST', `/ballots/${debate.id}`, { winner: 'proposition', scores })
+  ok(r.status === 201 && r.data.totals.proposition === 210 && r.data.totals.opposition === 207, 'a ballot without reply speeches is accepted; the winner is decided by the speeches')
+  // a reply sent anyway (an old page, a stale draft) is not counted
+  r = await j('POST', `/ballots/${debate.id}`, { winner: 'proposition', scores, reply: { proposition: 30, opposition: 40 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } })
+  const rows = (await db.query('select count(*) filter (where s.position = 4)::int as replies from speaker_scores s join ballots b on b.id = s.ballot_id where b.debate_id = $1', [debate.id])).rows[0]
+  ok(r.status === 201 && r.data.totals.proposition === 210 && rows.replies === 0, 'a reply score sent anyway is ignored')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { replySpeeches: true })).data?.error === 'ballots_already_sent', 'after the first ballot the setting is fixed: every debate is scored the same way')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { replySpeeches: false })).status === 200, 'saving the same value is fine')
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')

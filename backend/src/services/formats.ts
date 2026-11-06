@@ -34,6 +34,11 @@ export const FORMAT_RULES: Record<FormatCode, FormatRules> = {
 }
 
 export const rulesOf = (format: string): FormatRules => FORMAT_RULES[format as FormatCode] ?? FORMAT_RULES.WSDC
+// the rules of one tournament: its format, without reply speeches if the organizer turned them off
+export const rulesFor = (t: { format: string; replySpeeches: boolean }): FormatRules => {
+  const r = rulesOf(t.format)
+  return t.replySpeeches || !r.reply ? r : { ...r, reply: undefined }
+}
 
 // the score ranges a new tournament starts with (stored per tournament in scoring_configs)
 export const scoringDefaults = (format: string) => {
