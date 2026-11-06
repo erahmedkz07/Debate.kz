@@ -7,9 +7,9 @@ import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClo
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, returnJudge, returnTeam, setForfeit, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
-  importTeams, type ImportTeam, getSpeakerClaims, decideSpeakerClaim,
+  importTeams, type ImportTeam, getSpeakerClaims, decideSpeakerClaim, swapTeams, type TeamSlot,
 } from '@/api'
-import { leagueMotion, type Debate, type Judge, type League, type Round, type ScheduleItem, type Team, type TournamentDetails, type TournamentStatus } from '@/types'
+import { leagueMotion, type Debate, type Judge, type League, type Round, type ScheduleItem, type Side, type Team, type TournamentDetails, type TournamentStatus } from '@/types'
 import { useAsync, shownInUrl } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { cn, formatDate, formatDateRange, formatDateTime, initials, todayKz } from '@/lib/utils'
@@ -1363,6 +1363,9 @@ function Draw({ data, reload }: SectionProps) {
   // a playoff round of a league (its bracket): the draw shows only that league
   const leagueOfRound = (r?: Round) => (r?.category && leagues.some(l => l.key === r.category) ? r.category : '')
   const [leagueTab, setLeagueTab] = useState(() => leagueOfRound(defaultRound))
+  // moving teams: the first click picks a team, the second one swaps the two (preliminary rounds, before ballots)
+  const [picked, setPicked] = useState<TeamSlot | null>(null)
+  useEffect(() => setPicked(null), [roundId])
   const round = data.rounds.find(r => r.id === roundId)
   if (!round) return <EmptyState title={t('common.empty')} />
   const chooseRound = (id: string) => { setRoundId(id); const l = leagueOfRound(data.rounds.find(r => r.id === id)); if (l) setLeagueTab(l) }
@@ -1420,6 +1423,32 @@ function Draw({ data, reload }: SectionProps) {
   }
   const publish = async () => { if (await run('publish', () => updateRound(round.id, { status: 'released' }), t('dashboard.draw.published'))) reload() }
   const patch = async (d: Debate, p: Parameters<typeof updateDebate>[1]) => { if (await run(d.id, () => updateDebate(d.id, p))) reload() }
+  const movable = (d: Debate) => editable && !playoff && d.ballotStatus === 'pending' && !d.forfeit
+  const pickTeam = async (d: Debate, side: Side) => {
+    if (!picked) return setPicked({ debateId: d.id, side })
+    if (picked.debateId === d.id && picked.side === side) return setPicked(null)
+    let warnings: Awaited<ReturnType<typeof swapTeams>>['warnings'] = []
+    const ok = await run('move', async () => { warnings = (await swapTeams(round.id, picked, { debateId: d.id, side })).warnings }, t('dashboard.draw.move.done'))
+    setPicked(null)
+    if (!ok) return
+    if (warnings.length) toast.warning(t('dashboard.draw.move.warning'), { description: warnings.map(w => t(`dashboard.draw.move.${w.kind}`, { a: w.teams[0], b: w.teams[1] })).join(' '), duration: 10000 })
+    reload()
+  }
+  const pickedName = picked && team(teamIdOn(data.debates.find(x => x.id === picked.debateId)!, picked.side) ?? '')?.name
+  // a team's name: a button while teams can be moved
+  const teamCell = (d: Debate, side: Side) => {
+    const name = team(teamIdOn(d, side) ?? '')?.name
+    // with leagues a team moves only inside its league
+    const pickedLeague = picked && team(teamIdOn(data.debates.find(x => x.id === picked.debateId)!, picked.side) ?? '')?.league
+    if (!movable(d) || (picked && leagues.length > 0 && team(teamIdOn(d, side) ?? '')?.league !== pickedLeague)) return name
+    const on = picked?.debateId === d.id && picked.side === side
+    return (
+      <button type="button" aria-pressed={on} disabled={busy === 'move'} onClick={() => pickTeam(d, side)} title={t(picked ? 'dashboard.draw.move.here' : 'dashboard.draw.move.pick')}
+        className={cn('-mx-1.5 cursor-pointer rounded-lg px-1.5 py-0.5 text-left font-bold transition-colors', on ? 'bg-primary text-primary-foreground' : picked ? 'outline-dashed outline-1 outline-primary/50 hover:bg-primary-soft' : 'hover:bg-muted')}>
+        {name}
+      </button>
+    )
+  }
 
   return (
     <>
@@ -1487,7 +1516,13 @@ function Draw({ data, reload }: SectionProps) {
           action={editable && <Button disabled={!!busy} onClick={generate}><Shuffle className="size-4" />{t('dashboard.draw.generate')}</Button>} />
       ) : (
         <>
-          {editable && <p className="mb-3 text-sm text-muted-foreground">{t('dashboard.draw.hint')}</p>}
+          {editable && !picked && <p className="mb-3 text-sm text-muted-foreground">{t(playoff ? 'dashboard.draw.hint' : 'dashboard.draw.move.hint')}</p>}
+          {picked && (
+            <div className="sticky top-16 z-10 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-primary bg-primary-soft px-4 py-3 text-sm">
+              <p className="font-semibold">{t('dashboard.draw.move.picked', { team: pickedName })}</p>
+              <Button size="sm" variant="ghost" onClick={() => setPicked(null)}><X className="size-4" />{t('common.cancel')}</Button>
+            </div>
+          )}
           <Card className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -1515,7 +1550,7 @@ function Draw({ data, reload }: SectionProps) {
                         onValueChange={v => patch(d, { room: v })} options={roomOptions(d)} />
                       <OnlineLink url={d.onlineUrl} className="mt-1 text-xs" label={t('online.link')} />
                     </td>
-                    <td className="px-4 py-3 font-bold">{team(d.propositionTeamId)?.name}
+                    <td className="px-4 py-3 font-bold">{teamCell(d, 'proposition')}
                       {d.forfeit && <span className="block text-xs font-semibold text-danger">{t('dashboard.forfeit.badge', { team: team(teamIdOn(d, d.forfeit)!)?.name })}</span>}
                       {(data.leagues ?? []).length > 0 && <span className="block text-xs font-normal text-muted-foreground">{leagueName(data.leagues, team(d.propositionTeamId)?.league)}</span>}</td>
                     <td className="px-2 py-3">
@@ -1525,7 +1560,7 @@ function Draw({ data, reload }: SectionProps) {
                       </Button>
                     </td>
                     {sideList.slice(1).map(side => (
-                      <td key={side} className="px-4 py-3 font-bold">{team(teamIdOn(d, side)!)?.name}
+                      <td key={side} className="px-4 py-3 font-bold">{teamCell(d, side)}
                         {/* the league under every team, so a screenshot of one row still says which league it is */}
                         {(data.leagues ?? []).length > 0 && <span className="block text-xs font-normal text-muted-foreground">{leagueName(data.leagues, team(teamIdOn(d, side)!)?.league)}</span>}</td>
                     ))}

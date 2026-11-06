@@ -809,6 +809,66 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
   res.json(toDebate(x, true))
 })
 
+// Two teams change places in a round: between rooms or inside one. To repeat a draw made on paper, or to correct a
+// pairing by hand (a late team, two teams that should not meet). Preliminary rounds only (the playoffs follow the
+// bracket), before any ballot of those rooms, inside one league. A judge never stays with a team they conflict with.
+// The organizer has the last word: a rematch or two clubmates in one room are allowed, with a warning.
+const SIDE_COLUMN = { proposition: 'propositionTeamId', opposition: 'oppositionTeamId', closingProposition: 'closingPropositionTeamId', closingOpposition: 'closingOppositionTeamId' } as const
+type SlotSide = keyof typeof SIDE_COLUMN
+const slotSchema = z.object({ debateId: z.string(), side: z.enum(['proposition', 'opposition', 'closingProposition', 'closingOpposition']) })
+organizerRouter.post('/rounds/:roundId/swap-teams', org, async (req, res) => {
+  const d = body(req, z.object({ a: slotSchema, b: slotSchema }))
+  const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') }, include: { tournament: { select: { leagues: true } }, debates: { include: { judges: true } } } })
+  if (!round) throw notFound('round_not_found')
+  await assertCanManage(req.user, round.tournamentId)
+  if (round.kind === 'elimination') throw forbidden('playoffs_follow_bracket')
+  if (round.status === 'completed') throw forbidden('round_completed')
+  const da = round.debates.find(x => x.id === d.a.debateId), db = round.debates.find(x => x.id === d.b.debateId)
+  if (!da || !db) throw notFound('debate_not_found')
+  const ta = da[SIDE_COLUMN[d.a.side]], tb = db[SIDE_COLUMN[d.b.side]]
+  if (!ta || !tb) throw badRequest('no_team_on_side')
+  if (ta === tb) return void res.json({ warnings: [] })
+  if (da.forfeit || db.forfeit) throw forbidden('debate_forfeited')
+  if (await prisma.ballot.count({ where: { debateId: { in: [da.id, db.id] } } })) throw forbidden('ballots_in_room')
+  const teams = new Map((await prisma.team.findMany({ where: { tournamentId: round.tournamentId }, select: { id: true, name: true, league: true, clubId: true } })).map(t => [t.id, t]))
+  // the rooms of a tournament with leagues are kept apart by league
+  if (leaguesOf(round.tournament).length && teams.get(ta)?.league !== teams.get(tb)?.league) throw badRequest('different_leagues')
+
+  // the rooms after the swap
+  const roomOf = (x: typeof da) => Object.fromEntries((Object.keys(SIDE_COLUMN) as SlotSide[]).map(side => [side, x[SIDE_COLUMN[side]]])) as Record<SlotSide, string | null>
+  const rooms = new Map([[da.id, roomOf(da)], [db.id, roomOf(db)]])
+  rooms.get(da.id)![d.a.side] = tb
+  rooms.get(db.id)![d.b.side] = ta
+  const idsOf = (id: string) => Object.values(rooms.get(id)!).filter((x): x is string => !!x)
+  const clash = await conflictChecker(round.tournamentId)
+  for (const x of [da, db]) {
+    const bad = x.judges.find(j => clash(j.judgeId, idsOf(x.id)))
+    if (bad) throw badRequest('swap_judge_conflict', { judgeId: bad.judgeId, debateId: x.id })
+  }
+
+  // warnings: teams that met in an earlier round, two teams of one club in a room
+  const earlier = await prisma.debate.findMany({ where: { round: { tournamentId: round.tournamentId, id: { not: round.id } } }, select: { propositionTeamId: true, oppositionTeamId: true, closingPropositionTeamId: true, closingOppositionTeamId: true } })
+  const met = new Set(earlier.flatMap(x => {
+    const ids = [x.propositionTeamId, x.oppositionTeamId, x.closingPropositionTeamId, x.closingOppositionTeamId].filter((y): y is string => !!y)
+    return ids.flatMap(a => ids.filter(b => b !== a).map(b => `${a}|${b}`))
+  }))
+  const warnings: { kind: 'rematch' | 'same_club'; teams: string[] }[] = []
+  for (const id of new Set([da.id, db.id])) {
+    const ids = idsOf(id)
+    for (const [i, a] of ids.entries()) for (const b of ids.slice(i + 1)) {
+      if (![ta, tb].includes(a) && ![ta, tb].includes(b)) continue // only the pairs the swap made
+      const names = [teams.get(a)?.name ?? '', teams.get(b)?.name ?? '']
+      if (met.has(`${a}|${b}`)) warnings.push({ kind: 'rematch', teams: names })
+      const ca = teams.get(a)?.clubId
+      if (ca && ca === teams.get(b)?.clubId) warnings.push({ kind: 'same_club', teams: names })
+    }
+  }
+
+  const columns = (id: string) => Object.fromEntries((Object.keys(SIDE_COLUMN) as SlotSide[]).map(side => [SIDE_COLUMN[side], rooms.get(id)![side]]))
+  await prisma.$transaction([...new Set([da.id, db.id])].map(id => prisma.debate.update({ where: { id }, data: columns(id) })))
+  res.json({ warnings })
+})
+
 // ---------- registrations ----------
 
 organizerRouter.get('/tournaments/:id/registrations', org, async (req, res) => {
