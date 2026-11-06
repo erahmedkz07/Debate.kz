@@ -71,10 +71,13 @@ export default function CreateTournament() {
     approval: z.boolean(),
     langRu: z.boolean(),
     langKz: z.boolean(),
+    // open (applications by accounts, counts in the rating) or local (the organizer enters the teams): chosen, never assumed
+    kind: z.string().refine(k => k === 'open' || k === 'local', t('wizard.kind.required')),
+    regUrl: z.string().trim().optional().refine(u => !u || /^https:\/\/\S+\.\S+/.test(u), t('wizard.kind.urlInvalid')),
   }).refine(v => !v.startDate || !v.endDate || v.endDate >= v.startDate, { path: ['endDate'], message: t('wizard.errors.dates') })
   type Form = z.input<typeof schema>
 
-  const blank: Form = { name: '', level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, region: '', city: '', district: '', venue: '', startDate: '', endDate: '', regDeadline: '', description: '' }
+  const blank: Form = { name: '', level: 'school', format: 'WSDC', prelims: 4, breakSize: 4, maxTeams: 12, regOpen: true, approval: true, langRu: true, langKz: true, kind: '', regUrl: '', region: '', city: '', district: '', venue: '', startDate: '', endDate: '', regDeadline: '', description: '' }
   const { register, handleSubmit, trigger, watch, setValue, reset, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: { ...blank, ...(draft?.values as Partial<Form>) },
@@ -106,7 +109,7 @@ export default function CreateTournament() {
   const fieldsByStep: Record<Step, (keyof Form)[]> = {
     basic: ['name', 'region', 'city', 'startDate', 'endDate', 'level'],
     format: ['prelims', 'breakSize'],
-    registration: ['maxTeams'],
+    registration: ['maxTeams', 'kind', 'regUrl'],
     payment: [],
     summary: [],
   }
@@ -129,6 +132,8 @@ export default function CreateTournament() {
         coverUrl: cover && !coverFile ? cover : undefined,
         paymentReference: paid ? quote?.reference : undefined,
         format: f.format,
+        kind: f.kind as 'open' | 'local',
+        registrationUrl: f.kind === 'local' && f.regUrl?.trim() ? f.regUrl.trim() : undefined,
       })
       // the receipt goes to the admin queue at once; if it fails, the organizer can resend it from the settings
       if (paid && receipt) {
@@ -302,15 +307,40 @@ export default function CreateTournament() {
                     <FieldError message={errors.maxTeams && '4–128'} />
                   </div>
                   <PlanNotice paid={paid} ready={false} />
-                  <div className="divide-y divide-border rounded-2xl border border-border px-4">
-                    <div className="py-2"><Switch label={t('wizard.regOpen')} checked={v.regOpen} onChange={c => setValue('regOpen', c)} /></div>
-                    <div className="py-2"><Switch label={t('wizard.regApproval')} checked={v.approval} onChange={c => setValue('approval', c)} /></div>
-                  </div>
                   <div>
-                    <Label htmlFor="deadline">{t('wizard.regDeadline')}</Label>
-                    <DatePicker id="deadline" value={v.regDeadline} min={today} max={v.startDate || undefined}
-                      onChange={d => setValue('regDeadline', d)} />
+                    <Label>{t('wizard.kind.label')}</Label>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t('wizard.kind.label')}>
+                      {(['open', 'local'] as const).map(k => (
+                        <button key={k} type="button" role="radio" aria-checked={v.kind === k} onClick={() => setValue('kind', k, { shouldValidate: true })}
+                          className={cn('cursor-pointer rounded-2xl border-2 p-4 text-left transition-all', v.kind === k ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
+                          <span className="flex items-center gap-2 font-bold">{v.kind === k && <Check className="size-4 text-primary" />}{t(`tournamentKind.${k}`)}</span>
+                          <span className="mt-1 block text-sm text-muted-foreground">{t(`wizard.kind.${k}`)}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <FieldError message={errors.kind?.message} />
                   </div>
+                  {v.kind === 'open' && (
+                    <>
+                      <div className="divide-y divide-border rounded-2xl border border-border px-4">
+                        <div className="py-2"><Switch label={t('wizard.regOpen')} checked={v.regOpen} onChange={c => setValue('regOpen', c)} /></div>
+                        <div className="py-2"><Switch label={t('wizard.regApproval')} checked={v.approval} onChange={c => setValue('approval', c)} /></div>
+                      </div>
+                      <div>
+                        <Label htmlFor="deadline">{t('wizard.regDeadline')}</Label>
+                        <DatePicker id="deadline" value={v.regDeadline} min={today} max={v.startDate || undefined}
+                          onChange={d => setValue('regDeadline', d)} />
+                      </div>
+                    </>
+                  )}
+                  {v.kind === 'local' && (
+                    <div>
+                      <Label htmlFor="regUrl">{t('wizard.kind.url')} <span className="font-normal text-muted-foreground">· {t('common.optional')}</span></Label>
+                      <Input id="regUrl" type="url" inputMode="url" placeholder="https://forms.gle/…" aria-invalid={!!errors.regUrl} {...register('regUrl')} />
+                      <p className="mt-1 text-xs text-muted-foreground">{t('wizard.kind.urlHint')}</p>
+                      <FieldError message={errors.regUrl?.message} />
+                    </div>
+                  )}
                   <div>
                     <Label>{t('wizard.languages')}</Label>
                     <div className="flex gap-2">
@@ -338,6 +368,7 @@ export default function CreateTournament() {
                       [t('wizard.level'), t(`level.${v.level}`)],
                       [t('wizard.dates'), v.startDate && v.endDate ? formatDateRange(v.startDate, v.endDate) : '—'],
                       [t('wizard.format'), formatOfTournament(v.format).name[lang]],
+                      [t('wizard.kind.label'), v.kind ? t(`tournamentKind.${v.kind}`) : '—'],
                       [t('wizard.maxTeams'), String(v.maxTeams)],
                       [t('wizard.languages'), [v.langKz && 'Қазақша', v.langRu && 'Русский'].filter(Boolean).join(', ')],
                     ].map(([k, val]) => (
@@ -367,8 +398,9 @@ export default function CreateTournament() {
         <div className="mt-6 flex justify-between gap-3">
           <Button type="button" variant="ghost" onClick={() => setStep(s => Math.min(s, steps.length - 1) - 1)} disabled={step === 0}><ArrowLeft className="size-4" />{t('common.back')}</Button>
           {current !== 'summary'
-            ? <Button type="button" onClick={next} disabled={current === 'payment' && !paymentReady}>{t('common.next')}<ArrowRight className="size-4" /></Button>
-            : <Button type="submit" variant="accent" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t('wizard.create')}</Button>}
+            // two elements (keys), not one that turns into "submit" under the click: that would send the form at once
+            ? <Button key="next" type="button" onClick={next} disabled={current === 'payment' && !paymentReady}>{t('common.next')}<ArrowRight className="size-4" /></Button>
+            : <Button key="submit" type="submit" variant="accent" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{t('wizard.create')}</Button>}
         </div>
       </form>
     </div>

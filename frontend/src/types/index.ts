@@ -2,6 +2,8 @@
 
 export type TournamentLevel = 'school' | 'university' | 'mixed' // mixed: school and university teams together
 export type TournamentStatus = 'registration' | 'ongoing' | 'finished'
+// open: teams apply with accounts and the results count in the rating; local: the organizer enters the teams
+export type TournamentKind = 'open' | 'local'
 export type TournamentFormat = 'WSDC' | 'APF' | 'POPPER' | 'BP' | 'LD' | 'PF' | 'ASIAN' | 'AUSTRALS'
 // WSDC, APF, Karl Popper: proposition / opposition; British Parliamentary adds the closing half
 export type Side = 'proposition' | 'opposition' | 'closingProposition' | 'closingOpposition'
@@ -29,6 +31,8 @@ export interface Tournament {
   breakSize: number
   // formats with reply speeches only: false = the tournament runs without them
   replySpeeches?: boolean
+  kind: TournamentKind
+  registrationUrl?: string // a local tournament's own sign-up page (a Google Form…)
   breakCategories?: BreakCategory[] // extra brackets (novices, juniors…)
   leagues?: League[] // leagues inside the tournament: each pairs and ranks on its own
   languages: Lang[]
@@ -229,6 +233,7 @@ export interface TournamentFilters {
   level?: TournamentLevel | 'all'
   status?: TournamentStatus | 'all'
   sort?: 'date-asc' | 'date-desc' | 'teams'
+  kind?: TournamentKind | 'all'
 }
 
 // ---------- Auth & roles ----------

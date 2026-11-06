@@ -90,6 +90,19 @@ enum RegistrationStatus {
 }
 
 // how the places are filled: the organizer one by one, first come, or a public lottery
+// open: teams come only from applications by accounts, results count in the site's rating;
+// local: the organizer enters the teams (no accounts needed), results stay inside the tournament
+enum TournamentKind {
+  open
+  local
+}
+
+enum ClaimStatus {
+  pending
+  approved
+  rejected
+}
+
 enum SelectionMode {
   manual
   first_come
@@ -146,6 +159,7 @@ model User {
   organizedTournaments TournamentOrganizer[]
   judgeProfiles        Judge[]
   speakerProfiles      Speaker[]
+  speakerClaims        SpeakerClaim[]
   registrations        TeamRegistration[]
   emailTokens          EmailToken[]
   createdInvites       TournamentInvite[]    @relation("InviteCreatedBy")
@@ -236,6 +250,9 @@ model Tournament {
   registrationOpen     Boolean          @default(true) @map("registration_open")
   // formats with reply speeches (WSDC, APF, Asian): the organizer may run the tournament without them
   replySpeeches        Boolean          @default(true) @map("reply_speeches")
+  kind                 TournamentKind   @default(local)
+  // a local tournament: where teams sign up instead of the site (a Google Form…)
+  registrationUrl      String?          @map("registration_url")
   requireApproval      Boolean          @default(true) @map("require_approval")
   registrationDeadline DateTime?        @map("registration_deadline") @db.Date
   moderation           ModerationStatus @default(pending) // public only after admin approval
@@ -366,6 +383,7 @@ model Speaker {
   user     User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   scores   SpeakerScore[]
   invites  SpeakerInvite[]
+  claims   SpeakerClaim[]
 
   @@index([teamId])
   @@map("speakers")
@@ -927,4 +945,21 @@ model ClubJoinRequest {
   @@index([clubId, status])
   @@index([userId, status])
   @@map("club_join_requests")
+}
+
+// "This is me" by a speaker's personal link: the person asks, an organizer of the tournament confirms
+model SpeakerClaim {
+  id        String      @id @default(cuid())
+  speakerId String      @map("speaker_id")
+  userId    String      @map("user_id")
+  status    ClaimStatus @default(pending)
+  decidedBy String?     @map("decided_by") // the organizer's name
+  createdAt DateTime    @default(now()) @map("created_at")
+  decidedAt DateTime?   @map("decided_at")
+  speaker   Speaker     @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([speakerId, userId])
+  @@index([status])
+  @@map("speaker_claims")
 }

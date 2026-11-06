@@ -40,6 +40,7 @@ export default function Tournaments() {
     region: params.get('region') ?? 'all',
     level: (params.get('level') as TournamentFilters['level']) ?? 'all',
     status: (params.get('status') as TournamentFilters['status']) ?? 'all',
+    kind: (params.get('kind') as TournamentFilters['kind']) ?? 'all',
     sort: (params.get('sort') as TournamentFilters['sort']) ?? 'date-asc',
   }
   const key = params.toString()
@@ -70,7 +71,8 @@ export default function Tournaments() {
     filters.region !== 'all' && { key: 'region', label: regionByCode(filters.region)?.[lang] ?? filters.region! },
     filters.level !== 'all' && { key: 'level', label: t(`level.${filters.level}`) },
     filters.status !== 'all' && { key: 'status', label: t(`status.${filters.status}`) },
-  ].filter(Boolean) as { key: 'region' | 'level' | 'status'; label: string }[]
+    filters.kind !== 'all' && { key: 'kind', label: t(`tournamentKind.${filters.kind}`) },
+  ].filter(Boolean) as { key: 'region' | 'level' | 'status' | 'kind'; label: string }[]
 
   const totalPages = Math.max(1, Math.ceil((data?.length ?? 0) / PAGE_SIZE))
   const pageItems = useMemo(() => data?.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) ?? [], [data, page])
@@ -157,6 +159,16 @@ export default function Tournaments() {
                     {(['all', 'registration', 'ongoing', 'finished'] as const).map(s => (
                       <Chip key={s} active={filters.status === s} onClick={() => setFilters({ ...filters, status: s })}>
                         {s === 'all' ? t('common.all') : t(`status.${s}`)}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <Label>{t('tournaments.kind')}</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {(['all', 'open', 'local'] as const).map(k => (
+                      <Chip key={k} active={filters.kind === k} onClick={() => setFilters({ ...filters, kind: k })}>
+                        {k === 'all' ? t('common.all') : t(`tournamentKind.${k}`)}
                       </Chip>
                     ))}
                   </div>

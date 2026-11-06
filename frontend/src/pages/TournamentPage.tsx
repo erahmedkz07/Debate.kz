@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, Share2, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award,
+  Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, Share2, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award, ExternalLink,
 } from 'lucide-react'
 import { getBracket, getSelection, getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
 import { useAuth } from '@/lib/auth'
@@ -104,6 +104,15 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
 
   // admins judge or organize, but never compete
   if (user?.role === 'admin') return null
+  // a local tournament: the organizer enters the teams; teams sign up through its own form, if it has one
+  if (tournament.kind === 'local') {
+    if (tournament.status !== 'registration' || !tournament.registrationUrl) return null
+    return (
+      <Button asChild size="lg" variant="accent">
+        <a href={tournament.registrationUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-5" />{t('tournament.registerExternal')}</a>
+      </Button>
+    )
+  }
   if (tournament.status !== 'registration') {
     return <Button size="lg" variant="white" disabled><Lock className="size-4" />{t('tournament.registrationClosed')}</Button>
   }
@@ -484,7 +493,7 @@ function RoundBanner({ round, leagues = [], league }: { round: Round; leagues?: 
   )
 }
 
-export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'myRole' | 'leagues'> }) {
+export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams' | 'speakers'; tournament?: Pick<TournamentDetails, 'status' | 'breakSize' | 'preliminaryRounds' | 'rounds' | 'format' | 'myRole' | 'leagues' | 'kind'> }) {
   const { t } = useTranslation()
   // leagues: each league has its own table (ranks start at 1 in each)
   const leagues = tournament?.leagues ?? []
@@ -494,6 +503,8 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
   // silent rounds: the public table stops before them (organizers see everything)
   const silent = tournament && !tournament.myRole ? silentRoundIds(tournament).size : 0
   const hiddenFromOthers = tournament && tournament.myRole ? silentRoundIds(tournament).size : 0
+  // a local tournament's ranking lives only here, not in the site's rating
+  const localNote = tournament?.kind === 'local' && <p className="mb-4 rounded-2xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">{t('tournament.localRanking')}</p>
   const silentNote = silent > 0 ? <p className="mb-4 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">{t('tournament.silentNote', { count: silent })}</p>
     : hiddenFromOthers > 0 && <p className="mb-4 flex items-start gap-2 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm"><Lock className="mt-0.5 size-4 shrink-0" />{t('tournament.silentTableOrganizer', { count: hiddenFromOthers })}</p>
   // the results as a file: Excel, or the printable report the browser saves as PDF
@@ -539,7 +550,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
       <>
       {exportBar}
       {leagueBar}
-      {silentNote}
+      {localNote}{silentNote}
       {places && (
         <>
           <h3 className="mb-3 flex items-center gap-2 text-lg font-extrabold"><Trophy className="size-5 text-accent-foreground dark:text-accent" />{t('report.places')}</h3>
@@ -618,7 +629,7 @@ export function ResultsTab({ id, kind, tournament }: { id: string; kind: 'teams'
   return (
     <>
     {leagueBar}
-    {silentNote}
+    {localNote}{silentNote}
     <Card className="overflow-x-auto">
       <table className="w-full min-w-[520px] text-sm">
         <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -718,6 +729,7 @@ export default function TournamentPage() {
             <Badge variant={statusVariant[data.status] === 'muted' ? 'glass' : statusVariant[data.status]}><StatusDot status={data.status} />{t(`status.${data.status}`)}</Badge>
             <Badge variant="accent">{formatOfTournament(data.format).short}</Badge>
             <Badge variant="glass">{t(`level.${data.level}`)}</Badge>
+            <Badge variant="glass" title={t(`tournamentKind.${data.kind}Hint`)}>{t(`tournamentKind.${data.kind}`)}</Badge>
           </div>
           <h1 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight sm:text-5xl">{data.name}</h1>
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-white/85">

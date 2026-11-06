@@ -825,7 +825,7 @@ ok((await client()('PATCH', '/admin/settings', { proPrice: 1 })).status === 401 
 const payer = client()
 r = await payer('POST', '/auth/register', { name: 'Плательщик Тестов', email: `payer.${uniq}@mail.kz`, phone: '+7 707 222 11 00', password: 'secret123', consent: true })
 await payer('POST', '/auth/verify-email', { token: r.data.devVerificationToken })
-const small = (await payer('POST', '/tournaments', { ...tBody(20), name: `Малый ${uniq}`, maxTeams: 30 })).data
+const small = (await payer('POST', '/tournaments', { ...tBody(20), name: `Малый ${uniq}`, maxTeams: 30, kind: 'open' })).data
 const smallD = (await payer('GET', `/tournaments/${small.id}`)).data
 ok(smallD.plan === 'free' && smallD.paid === true, 'a tournament of 30 teams is free')
 ok((await payer('GET', `/tournaments/${small.id}/payment`)).data.required === false, 'a free tournament needs no payment')
@@ -1390,7 +1390,10 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const school = (await client()('GET', '/tournaments?level=school&limit=100')).data
   const uni = (await client()('GET', '/tournaments?level=university&limit=100')).data
   ok((school.items ?? school).some(x => x.id === apf.id) && (uni.items ?? uni).some(x => x.id === apf.id), 'a mixed tournament shows up under both school and university')
-  r = await student('POST', `/tournaments/${apf.id}/registrations`, { teamName: 'Трое в APF', institution: 'Лицей', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
+  // applications are for open tournaments: an open APF one
+  const apfOpen = (await host.c('POST', '/tournaments', { ...base(4), format: 'APF', kind: 'open' })).data
+  await admin('PATCH', `/admin/tournaments/${apfOpen.id}`, { moderation: 'approved' })
+  r = await student('POST', `/tournaments/${apfOpen.id}/registrations`, { teamName: 'Трое в APF', institution: 'Лицей', speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'], phone: '+7 701 555 44 33', guardianConsent: true })
   ok(r.data?.error === 'wrong_speaker_count', 'an application to an APF tournament names two speakers')
 }
 // ---------- 39. British Parliamentary: four teams per room, places 1–4, the chair's agreed ballot ----------
@@ -1616,7 +1619,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
 {
   const host = await newAccount('Согласие Организатор')
   const mk = async (n, level) => {
-    const t = (await host.c('POST', '/tournaments', { ...tBody(100 + n), name: `Согласие ${n} ${jtag}`, level })).data
+    const t = (await host.c('POST', '/tournaments', { ...tBody(100 + n), name: `Согласие ${n} ${jtag}`, level, kind: 'open' })).data
     await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
     return t
   }
@@ -1862,7 +1865,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
 {
   const host = await newAccount('Отбор Организатор')
   const mk = async (n, extra) => {
-    const t = (await host.c('POST', '/tournaments', { ...tBody(180 + n), name: `Отбор ${n} ${jtag}`, maxTeams: 4, ...extra })).data
+    const t = (await host.c('POST', '/tournaments', { ...tBody(180 + n), name: `Отбор ${n} ${jtag}`, maxTeams: 4, kind: 'open', ...extra })).data
     await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
     return t
   }
@@ -2202,7 +2205,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(r.data?.error === 'start_in_past', 'a tournament cannot be created in the past')
 
   // B3–B5: the applicant's slot is linked even with the words swapped; a rename keeps the application; a replaced speaker is unlinked
-  const t = (await host.c('POST', '/tournaments', { ...tBody(402), name: `Аудит команды ${jtag}`, requireApproval: false })).data
+  const t = (await host.c('POST', '/tournaments', { ...tBody(402), name: `Аудит команды ${jtag}`, requireApproval: false, kind: 'open' })).data
   await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
   const cap = await newAccount('Аудит Капитанов')
   const club = (await cap.c('POST', '/clubs', { name: `Аудит клуб ${jtag}`, city: 'Астана' })).data
@@ -2224,12 +2227,15 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   await host.c('PATCH', `/teams/${team.id}`, { name: 'Аудит Тим 2', institution: 'Лицей', speakers: ['Капитанов Аудит', 'Совсем Другой', 'Третий Спикер'] })
   ok((await db.query('select user_id from speakers where team_id = $1 and position = 2', [team.id])).rows[0].user_id === null, 'a speaker replaced by another person is unlinked from the old account')
 
-  // B6: a round is drawn only after the earlier preliminary rounds are completed
-  for (const n of ['Аудит А', 'Аудит Б', 'Аудит В']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
-  for (let i = 1; i <= 2; i++) await addJudge(host.c, t.id, `Аудит Судья ${i}`)
-  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
-  const rounds = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds
-  ok((await host.c('POST', `/rounds/${rounds[0].id}/draw`, { addSwing: false })).status === 201, 'round 1 is drawn')
+  // B6: a round is drawn only after the earlier preliminary rounds are completed (a local tournament: teams by hand)
+  const t6 = (await host.c('POST', '/tournaments', { ...tBody(403), name: `Аудит раунды ${jtag}` })).data
+  await admin('PATCH', `/admin/tournaments/${t6.id}`, { moderation: 'approved' })
+  for (const n of ['Аудит А', 'Аудит Б', 'Аудит В', 'Аудит Г']) await host.c('POST', `/tournaments/${t6.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  for (let i = 1; i <= 2; i++) await addJudge(host.c, t6.id, `Аудит Судья ${i}`)
+  await host.c('PATCH', `/tournaments/${t6.id}`, { status: 'ongoing' })
+  const rounds = (await host.c('GET', `/tournaments/${t6.id}`)).data.rounds
+  r = await host.c('POST', `/rounds/${rounds[0].id}/draw`, { addSwing: false })
+  ok(r.status === 201, `round 1 is drawn ${r.status === 201 ? '' : JSON.stringify(r.data)}`)
   ok((await host.c('POST', `/rounds/${rounds[1].id}/draw`, { addSwing: false })).data?.error === 'previous_round_unfinished', 'round 2 waits until round 1 is completed')
 
   // B8: deleting a tournament removes the notifications that point into it
@@ -2900,11 +2906,36 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await client()('POST', `/speaker-link/${me.accessKey}/claim`)).status === 401, 'saving to a profile needs signing in')
   ok((await host.c('POST', `/speaker-link/${me.accessKey}/claim`)).data?.error === 'conflict_of_interest', 'the organizer cannot take a speaker\'s place')
   const student = await newAccount('Ссылки Спикер')
-  ok((await student.c('POST', `/speaker-link/${me.accessKey}/claim`)).status === 200, '"this is me": the speaker saves the results to their profile')
-  ok((await page()).claimed === true && (await inRating()), 'from then on the speaker is in the rating')
+  r = await student.c('POST', `/speaker-link/${me.accessKey}/claim`)
+  ok(r.status === 200 && r.data.status === 'pending', '"this is me" is a request: the link alone is not proof')
+  ok((await page()).claimed === false && (await student.c('GET', `/speaker-link/${me.accessKey}`)).data.myClaim === 'pending', 'the slot stays free until the organizer confirms; the person sees their request waiting')
+  ok((await student.c('POST', `/speaker-link/${me.accessKey}/claim`)).data?.status === 'pending', 'asking twice keeps one request')
+  // someone else with the forwarded link asks for the same speaker
+  r = await stranger.c('POST', `/speaker-link/${me.accessKey}/claim`)
+  ok(r.data?.status === 'pending', 'a second person may ask too (the organizer decides)')
+  // the notice goes out in the background: give it a moment
+  const told = async () => (await db.query("select count(*)::int as n from notifications where type = 'organizer.speakerClaim' and user_id = $1", [host.id])).rows[0].n
+  for (let i = 0; i < 20 && (await told()) < 2; i++) await new Promise(res => setTimeout(res, 100))
+  ok((await told()) === 2, 'the organizer is told about each request')
+  let claims = (await host.c('GET', `/tournaments/${t.id}/speaker-claims`)).data
+  ok(claims.length === 2 && claims.every(c => c.speaker.id === me.id), 'the organizer sees the requests')
+  ok((await student.c('GET', `/tournaments/${t.id}/speaker-claims`)).status === 403, 'only organizers see them')
+  const mine = claims.find(c => c.user.id === student.id), theirs = claims.find(c => c.user.id === stranger.id)
+  ok((await student.c('POST', `/speaker-claims/${mine.id}/approve`)).status === 403, 'a person cannot confirm their own request')
+  ok((await host.c('POST', `/speaker-claims/${mine.id}/approve`)).data?.status === 'approved', 'the organizer confirms the right person')
+  ok((await page()).claimed === true && (await student.c('GET', `/speaker-link/${me.accessKey}`)).data.myClaim === 'approved', 'the results are in the person\'s profile')
+  ok((await db.query('select status from speaker_claims where id = $1', [theirs.id])).rows[0].status === 'rejected', 'the other request for that speaker is refused')
+  ok((await host.c('POST', `/speaker-claims/${theirs.id}/approve`)).data?.error === 'claim_decided', 'a decided request is not decided again')
+  ok((await stranger.c('POST', `/speaker-link/${me.accessKey}/claim`)).data?.error === 'speaker_has_account', 'a confirmed place cannot be taken by someone else')
+  ok(!(await inRating()), 'a local tournament stays out of the site\'s rating even for a confirmed speaker')
   const other = links.find(x => x.teamName === 'Ссыл А').speakers[1]
   ok((await student.c('POST', `/speaker-link/${other.accessKey}/claim`)).data?.error === 'already_joined', 'one person is one speaker of a tournament')
-  ok((await stranger.c('POST', `/speaker-link/${me.accessKey}/claim`)).data?.error === 'speaker_has_account', 'a saved place cannot be taken by someone else')
+  // a refused request: the person is told and cannot ask again
+  const third = links.find(x => x.teamName === 'Ссыл Б').speakers[0]
+  await stranger.c('POST', `/speaker-link/${third.accessKey}/claim`)
+  claims = (await host.c('GET', `/tournaments/${t.id}/speaker-claims`)).data
+  ok((await host.c('POST', `/speaker-claims/${claims[0].id}/reject`)).data?.status === 'rejected', 'the organizer refuses a request')
+  ok((await stranger.c('POST', `/speaker-link/${third.accessKey}/claim`)).data?.error === 'claim_rejected' && (await client()('GET', `/speaker-link/${third.accessKey}`)).data.claimed === false, 'a refused request cannot be sent again; the slot stays free')
   // the certificate follows the profile
   await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })
   ok((await page()).certificate && (await student.c('GET', '/me/certificates')).data.some(c => c.tournament?.id === t.id), 'the certificate is on the link and in the profile')
@@ -3036,6 +3067,72 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(r.status === 201 && r.data.totals.proposition === 210 && rows.replies === 0, 'a reply score sent anyway is ignored')
   ok((await host.c('PATCH', `/tournaments/${t.id}`, { replySpeeches: true })).data?.error === 'ballots_already_sent', 'after the first ballot the setting is fixed: every debate is scored the same way')
   ok((await host.c('PATCH', `/tournaments/${t.id}`, { replySpeeches: false })).status === 200, 'saving the same value is fine')
+}
+
+// ---------- open and local tournaments: who enters the teams, what counts in the rating ----------
+{
+  const host = await newAccount('Типы Организатор')
+  ok((await host.c('POST', '/tournaments', { ...tBody(630), name: `Тип ссылка ${jtag}`, kind: 'open', registrationUrl: 'https://forms.gle/abc' })).status === 400, 'an own sign-up link is for local tournaments only')
+  ok((await host.c('POST', '/tournaments', { ...tBody(631), name: `Тип http ${jtag}`, kind: 'local', registrationUrl: 'http://forms.gle/abc' })).status === 400, 'the sign-up link must be https')
+  const open = (await host.c('POST', '/tournaments', { ...tBody(632), name: `Тип открытый ${jtag}`, kind: 'open' })).data
+  const local = (await host.c('POST', '/tournaments', { ...tBody(633), name: `Тип локальный ${jtag}`, kind: 'local', registrationUrl: 'https://forms.gle/debatekz' })).data
+  ok(open.kind === 'open' && !open.registrationUrl && local.kind === 'local' && local.registrationUrl === 'https://forms.gle/debatekz', 'the kind is chosen at creation; a local tournament keeps its form link')
+  for (const x of [open, local]) await admin('PATCH', `/admin/tournaments/${x.id}`, { moderation: 'approved' })
+  const team = n => ({ name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+
+  // open: teams only from applications by accounts
+  ok((await host.c('POST', `/tournaments/${open.id}/teams`, team('Ручная'))).data?.error === 'open_tournament_teams_by_application', 'an open tournament takes no team by hand')
+  ok((await host.c('POST', `/tournaments/${open.id}/teams/bulk`, { names: ['Список'] })).data?.error === 'open_tournament_teams_by_application', 'nor by a list of names')
+  ok((await host.c('POST', `/tournaments/${open.id}/teams/import`, { teams: [team('Таблица')] })).data?.error === 'open_tournament_teams_by_application', 'nor from a table')
+  ok((await host.c('PATCH', `/tournaments/${open.id}`, { registrationUrl: 'https://forms.gle/x' })).data?.error === 'registration_url_local_only', 'an open tournament has no outside sign-up link')
+  const cap = await newAccount('Типы Капитан')
+  const club = (await cap.c('POST', '/clubs', { name: `Типы клуб ${jtag}`, city: 'Астана' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+  await cap.c('POST', `/clubs/${club.id}/teams`, { name: 'Типы Тим', join: true })
+  const apply = id => cap.c('POST', `/tournaments/${id}/registrations`, { teamName: 'Типы Тим', institution: 'Лицей', speakers: ['Капитан Типов', 'Второй Типов', 'Третий Типов'], phone: '+7 701 555 44 33', guardianConsent: true })
+  ok((await apply(open.id)).status === 201, 'an open tournament takes applications by accounts')
+  ok((await apply(local.id)).data?.error === 'local_tournament', 'a local tournament takes none on the site')
+
+  // the kind changes only while there are no teams and no applications
+  ok((await host.c('PATCH', `/tournaments/${open.id}`, { kind: 'local' })).data?.error === 'kind_after_teams', 'an application fixes the kind')
+  const spare = (await host.c('POST', '/tournaments', { ...tBody(634), name: `Тип запасной ${jtag}`, kind: 'local', registrationUrl: 'https://forms.gle/spare' })).data
+  r = await host.c('PATCH', `/tournaments/${spare.id}`, { kind: 'open' })
+  ok(r.status === 200 && r.data.kind === 'open' && !r.data.registrationUrl, 'an empty tournament changes its kind; becoming open drops the form link')
+  await host.c('DELETE', `/tournaments/${spare.id}`)
+
+  // local: teams pasted from a table, with the speakers' real names
+  ok((await host.c('PATCH', `/tournaments/${local.id}`, { registrationUrl: 'https://docs.google.com/forms/d/e/x/viewform' })).data?.registrationUrl === 'https://docs.google.com/forms/d/e/x/viewform', 'the organizer changes the form link')
+  await host.c('POST', `/tournaments/${local.id}/teams`, team('Уже есть'))
+  r = await host.c('POST', `/tournaments/${local.id}/teams/import`, { teams: [team('Алаш'), { ...team('Двое'), speakers: ['Один Двоих', 'Два Двоих'] }] })
+  ok(r.status === 400 && r.data.error === 'wrong_speaker_count' && r.data.details?.team === 'Двое', 'a wrong row is named; nothing is added')
+  ok((await host.c('GET', `/tournaments/${local.id}`)).data.teams.length === 1, 'and no team of that paste was created')
+  r = await host.c('POST', `/tournaments/${local.id}/teams/import`, { teams: [team('Алаш'), team('Барыс'), team('уже есть')] })
+  const after = (await host.c('GET', `/tournaments/${local.id}`)).data.teams
+  ok(r.status === 201 && r.data.created.length === 2 && r.data.skipped === 1, 'the pasted teams are added; a name already in the tournament is skipped')
+  ok(after.find(x => x.name === 'Алаш')?.speakers.map(x => x.name).join() === 'Алаш Один,Алаш Два,Алаш Три' && after.find(x => x.name === 'Алаш').institution === 'Школа Алаш', 'with the real speakers and the school')
+  ok((await client()('POST', `/tournaments/${local.id}/teams/import`, { teams: [team('Чужие')] })).status === 401, 'only the organizer pastes teams')
+  ok((await host.c('POST', `/tournaments/${local.id}/teams/import`, { teams: Array.from({ length: 8 }, (_, i) => team(`Лишняя ${i}`)) })).data?.error === 'tournament_full', 'not above the team limit')
+
+  // public: the kind is shown and filtered; the form link is on the page
+  const shown = (await client()('GET', `/tournaments/${local.id}`)).data
+  ok(shown.kind === 'local' && shown.registrationUrl === 'https://docs.google.com/forms/d/e/x/viewform', 'the public page shows the kind and the form link')
+  const onlyOpen = (await client()('GET', '/tournaments?kind=open&limit=100')).data
+  const onlyLocal = (await client()('GET', '/tournaments?kind=local&limit=100')).data
+  ok(onlyOpen.every(x => x.kind === 'open') && onlyOpen.some(x => x.id === open.id) && !onlyOpen.some(x => x.id === local.id)
+    && onlyLocal.every(x => x.kind === 'local') && onlyLocal.some(x => x.id === local.id), 'the list filters by kind')
+
+  // the rating: open tournaments only; a local tournament's results stay on its page
+  await host.c('PATCH', `/tournaments/${local.id}`, { status: 'ongoing' })
+  await host.c('POST', `/tournaments/${local.id}/judges/bulk`, { names: ['Типы Судья', 'Типы Судья Два'] })
+  const d = (await host.c('GET', `/tournaments/${local.id}`)).data
+  await host.c('POST', `/rounds/${d.rounds[0].id}/draw`, { addSwing: true })
+  await host.c('PATCH', `/rounds/${d.rounds[0].id}`, { motion: 'ЭП разрешит телефоны', status: 'released' })
+  for (const x of (await host.c('GET', `/tournaments/${local.id}`)).data.debates) await host.c('POST', `/debates/${x.id}/forfeit`, { side: 'opposition' })
+  await host.c('PATCH', `/rounds/${d.rounds[0].id}`, { status: 'completed' })
+  const table = (await client()('GET', `/tournaments/${local.id}/standings`)).data
+  const rating = (await client()('GET', '/rating')).data
+  const winners = table.teams.filter(x => x.wins > 0).map(x => `${x.team.name}|${x.team.institution}`)
+  ok(winners.length > 0 && !rating.teams.some(x => winners.includes(`${x.name}|${x.institution}`)), "a local tournament's results are in its own table, not in the site's rating")
 }
 
 // ---------- errors are written down ----------

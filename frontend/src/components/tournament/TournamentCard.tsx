@@ -26,6 +26,7 @@ export function TournamentCard({ t: item }: { t: Tournament }) {
         <div className="absolute bottom-3 left-3 flex gap-1.5">
           <Badge variant="accent">{formatOfTournament(item.format).short}</Badge>
           <Badge variant="glass">{t(`level.${item.level}`)}</Badge>
+          {item.kind && <Badge variant="glass">{t(`tournamentKind.${item.kind}`)}</Badge>}
         </div>
         <span className="absolute right-3 top-3 grid size-9 translate-y-1 place-items-center rounded-full bg-white text-navy opacity-0 shadow transition-all group-hover:translate-y-0 group-hover:opacity-100">
           <ArrowUpRight className="size-4" />

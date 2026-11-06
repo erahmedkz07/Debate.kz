@@ -6,13 +6,15 @@ import { conflict, forbidden, notFound } from '../lib/errors.js'
 import { param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
 import { assertCanManage, leaguesOf, linkExpired, motionFor, participationIn } from '../services/tournaments.js'
+import { background, notify, organizersOf } from '../services/notify.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { ensureCertificates } from '../services/certificates.js'
 import { placeOf, sidesInDebate } from '../services/formats.js'
 
 // Personal links of speakers, for tournaments whose teams were entered by name (no accounts). By the link a speaker
-// sees their draw, results, scores and certificate; and saves all of it to their own profile in one step ("this is
-// me"), from then on it counts in the rating. The organizer prints the links as QR cards for the registration desk.
+// sees their draw, results, scores and certificate. "This is me" asks to add it all to their own profile; an organizer
+// of the tournament confirms it (a link can be forwarded or a card handed to the wrong person, so the link alone is
+// not proof). The organizer prints the links as QR cards for the registration desk.
 export const speakerLinksRouter = Router()
 
 const newKey = () => randomBytes(18).toString('base64url')
@@ -82,6 +84,8 @@ speakerLinksRouter.get('/speaker-link/:key', async (req, res) => {
     team: { id: s.team.id, name: s.team.name, ...(s.team.league && { league: leaguesOf(t).find(l => l.key === s.team.league)?.name }) },
     tournament: { id: t.id, name: t.name, city: t.city, status: t.status, format: t.format },
     claimed: !!s.userId,
+    // the signed-in visitor's own request, if any: pending, approved or rejected
+    ...(req.user && { myClaim: (await prisma.speakerClaim.findUnique({ where: { speakerId_userId: { speakerId: s.id, userId: req.user.id } }, select: { status: true } }))?.status ?? null }),
     ...(certificate && { certificate: certificate.code }),
     debates: debates.map(d => {
       const side = sidesInDebate(d).find(x => x.teamId === s.teamId)!.side
@@ -104,19 +108,73 @@ speakerLinksRouter.get('/speaker-link/:key', async (req, res) => {
   })
 })
 
-// "this is me": the signed-in person takes the slot; their certificate and results move to their profile
+// "this is me": the signed-in person asks for the slot; an organizer of the tournament confirms or refuses
 speakerLinksRouter.post('/speaker-link/:key/claim', requireAuth(), async (req, res) => {
   const s = await speakerByKey(param(req, 'key'))
   const me = req.user!.id
-  if (s.userId === me) return void res.json({ ok: true })
+  if (s.userId === me) return void res.json({ status: 'approved' })
   if (s.userId) throw conflict('speaker_has_account')
-  const role = await participationIn(me, s.team.tournament.id)
-  // one person is one speaker of a tournament, and never its judge or organizer as well
+  await assertCanClaim(me, s.team.tournament.id)
+  const before = await prisma.speakerClaim.findUnique({ where: { speakerId_userId: { speakerId: s.id, userId: me } } })
+  if (before?.status === 'rejected') throw forbidden('claim_rejected')
+  if (!before) {
+    await prisma.speakerClaim.create({ data: { speakerId: s.id, userId: me } })
+    background(notify(await organizersOf(s.team.tournament.id), 'organizer.speakerClaim',
+      { tournament: s.team.tournament.name, name: req.user!.name, speaker: s.name, team: s.team.name }, `/dashboard/tournaments/${s.team.tournament.id}/teams`))
+  }
+  res.json({ status: 'pending' })
+})
+
+// one person is one speaker of a tournament, and never its judge or organizer as well
+async function assertCanClaim(userId: string, tournamentId: string) {
+  const role = await participationIn(userId, tournamentId)
   if (role.competitor) throw conflict('already_joined')
   if (role.judge || role.organizer) throw forbidden('conflict_of_interest')
+}
+
+// the organizer: the open requests of the tournament
+speakerLinksRouter.get('/tournaments/:id/speaker-claims', requireAuth(), async (req, res) => {
+  const id = param(req, 'id')
+  await assertCanManage(req.user, id)
+  const claims = await prisma.speakerClaim.findMany({
+    where: { status: 'pending', speaker: { team: { tournamentId: id } } },
+    include: { user: { select: { id: true, name: true, institution: true, city: true } }, speaker: { include: { team: { select: { name: true } } } } },
+    orderBy: { createdAt: 'asc' },
+  })
+  res.json(claims.map(c => ({
+    id: c.id, at: c.createdAt.toISOString(),
+    user: { id: c.user.id, name: c.user.name, ...(c.user.institution && { institution: c.user.institution }), ...(c.user.city && { city: c.user.city }) },
+    speaker: { id: c.speaker.id, name: c.speaker.name, team: c.speaker.team.name },
+  })))
+})
+
+// confirm: the slot, its results and certificate go to the person's profile; other requests for it are refused
+speakerLinksRouter.post('/speaker-claims/:id/:decision', requireAuth(), async (req, res) => {
+  const decision = param(req, 'decision')
+  if (decision !== 'approve' && decision !== 'reject') throw notFound()
+  const c = await prisma.speakerClaim.findUnique({ where: { id: param(req, 'id') }, include: { speaker: { include: { team: { include: { tournament: { select: { id: true, name: true } } } } } } } })
+  if (!c) throw notFound('claim_not_found')
+  const t = c.speaker.team.tournament
+  await assertCanManage(req.user, t.id)
+  if (c.status !== 'pending') throw conflict('claim_decided')
+  const decided = { decidedBy: req.user!.name, decidedAt: new Date() }
+  if (decision === 'reject') {
+    await prisma.speakerClaim.update({ where: { id: c.id }, data: { status: 'rejected', ...decided } })
+    background(notify([c.userId], 'participant.claimRejected', { tournament: t.name, speaker: c.speaker.name }))
+    return void res.json({ status: 'rejected' })
+  }
+  if (c.speaker.userId) throw conflict('speaker_has_account')
+  await assertCanClaim(c.userId, t.id) // things may have changed since the request (they joined as a judge…)
+  const others = await prisma.speakerClaim.findMany({ where: { speakerId: c.speakerId, status: 'pending', id: { not: c.id } }, select: { userId: true } })
   await prisma.$transaction([
-    prisma.speaker.update({ where: { id: s.id }, data: { userId: me } }),
-    prisma.certificate.updateMany({ where: { speakerId: s.id }, data: { userId: me } }),
+    prisma.speaker.update({ where: { id: c.speakerId }, data: { userId: c.userId } }),
+    prisma.certificate.updateMany({ where: { speakerId: c.speakerId }, data: { userId: c.userId } }),
+    prisma.speakerClaim.update({ where: { id: c.id }, data: { status: 'approved', ...decided } }),
+    prisma.speakerClaim.updateMany({ where: { speakerId: c.speakerId, status: 'pending' }, data: { status: 'rejected', ...decided } }),
+    // the person's other requests in this tournament: one person is one speaker
+    prisma.speakerClaim.updateMany({ where: { userId: c.userId, status: 'pending', speaker: { team: { tournamentId: t.id } } }, data: { status: 'rejected', ...decided } }),
   ])
-  res.json({ ok: true })
+  background(notify([c.userId], 'participant.claimApproved', { tournament: t.name, speaker: c.speaker.name }, `/tournaments/${t.id}`))
+  if (others.length) background(notify(others.map(o => o.userId), 'participant.claimRejected', { tournament: t.name, speaker: c.speaker.name }))
+  res.json({ status: 'approved' })
 })

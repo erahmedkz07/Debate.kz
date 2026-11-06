@@ -174,6 +174,7 @@ If you really want to reset to demo data: npm run db:seed:force`)
         name: t.name, city: t.city, startDate: day(t.startDate), endDate: day(t.endDate), level: t.level, status: t.status,
         maxTeams: t.maxTeams, coverUrl: t.cover, organizerName: t.organizer, description: t.description,
         preliminaryRounds: t.prelims, breakSize: t.breakSize, languages: t.languages,
+        kind: 'open', // the demo shows the full platform: applications by accounts, results in the rating
         plan: pro ? 'pro' : 'free', paid: !pro || t.status !== 'registration',
         moderation: t.moderation ?? 'approved',
         scoringConfig: { create: {} },

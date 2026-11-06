@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { fromDay, isRealDay, toDay, todayKz } from '../lib/dates.js'
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
+import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth, requireVerified } from '../middleware/auth.js'
 import { assertCanManage, assertOwner, leaguesOf, motionFor, summaryInclude, teamInclude, toDebate, toSummary, toTeam } from '../services/tournaments.js'
@@ -76,8 +76,12 @@ const createSchema = z.object({
   registrationDeadline: day.optional(),
   languages: z.array(z.enum(['ru', 'kz'])).min(1),
   paymentReference: z.string().regex(/^DKZ-[A-Z2-9]{6}$/).optional(), // from GET /plans/quote, for tournaments above the free limit
+  // open: teams apply with accounts and the results count in the rating; local: the organizer enters the teams
+  kind: z.enum(['open', 'local']).default('local'),
+  registrationUrl: httpsUrl.optional(), // local only: a Google Form or another sign-up page
 }).refine(v => v.endDate >= v.startDate, { path: ['endDate'], message: 'end_before_start' })
   .refine(v => !v.registrationDeadline || v.registrationDeadline <= v.startDate, { path: ['registrationDeadline'], message: 'deadline_after_start' })
+  .refine(v => v.kind === 'local' || !v.registrationUrl, { path: ['registrationUrl'], message: 'registration_url_local_only' })
   // BP playoffs are rooms of four: the smallest break is one final room
   .refine(v => validBreak(v.breakSize, v.format === 'BP'), { path: ['breakSize'], message: 'break_too_small' })
 
@@ -104,6 +108,7 @@ organizerRouter.post('/tournaments', org, requireVerified, async (req, res) => {
       region: d.region ?? regionOfCity(d.city), district: d.district || null, venue: d.venue || null,
       registrationOpen: d.registrationOpen, requireApproval: d.requireApproval,
       registrationDeadline: d.registrationDeadline ? fromDay(d.registrationDeadline) : null,
+      kind: d.kind, registrationUrl: d.registrationUrl ?? null,
       languages: d.languages, organizerName: req.user!.institution ?? req.user!.name,
       // Pro plan is paid offline; admin marks it as paid manually
       plan: pro ? 'pro' : 'free', paid: !pro,
@@ -161,6 +166,9 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     breakSize: z.number().int().min(2).max(MAX_BREAK).optional(),
     // reply speeches on or off: before the first ballot, so every debate of the tournament is scored the same way
     replySpeeches: z.boolean().optional(),
+    // the kind: only while the tournament has no teams and no applications (else the rating would mix both)
+    kind: z.enum(['open', 'local']).optional(),
+    registrationUrl: httpsUrl.nullable().optional(), // null removes it
     // leagues inside the tournament (a Russian and a Kazakh league): set before the first draw
     leagues: z.array(z.object({ key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), breakSize: z.number().int().min(2).max(MAX_BREAK).optional(), language: z.enum(['kz', 'ru']).optional() })).max(4).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
@@ -236,6 +244,11 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     if (!rulesOf(cur.format).reply) throw badRequest('format_has_no_replies')
     if (await prisma.ballot.count({ where: { debate: { round: { tournamentId: cur.id } } } })) throw forbidden('ballots_already_sent')
   }
+  if (rest.kind !== undefined && rest.kind !== cur.kind) {
+    if (cur._count.teams || await prisma.teamRegistration.count({ where: { tournamentId: cur.id } })) throw forbidden('kind_after_teams')
+    if (rest.kind === 'open') data.registrationUrl = null
+  }
+  if (rest.registrationUrl && (rest.kind ?? cur.kind) !== 'local') throw badRequest('registration_url_local_only')
   if (rest.leagues) {
     const keys = rest.leagues.map(l => l.key)
     if (new Set(keys).size !== keys.length || rest.leagues.length === 1) throw badRequest('invalid_leagues')
@@ -373,8 +386,15 @@ export function assertSpeakers(format: string, speakers: string[]) {
 
 const institutionId = institutionIdFor
 
+// an open tournament's teams come only from applications by accounts (its results count in the rating)
+async function assertLocal(tournamentId: string) {
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { kind: true } })
+  if (t.kind === 'open') throw forbidden('open_tournament_teams_by_application')
+}
+
 organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
+  await assertLocal(param(req, 'id'))
   const d = body(req, teamSchema)
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { _count: { select: { teams: { where: { swing: false } } } } } })
   assertSpeakers(t.format, d.speakers)
@@ -389,6 +409,39 @@ organizerRouter.post('/tournaments/:id/teams', org, async (req, res) => {
     include: teamInclude,
   })
   res.status(201).json(toTeam(team))
+})
+
+// Teams pasted from a spreadsheet (the answers of a Google Form): name, school and the speakers' real names, all at once.
+// The page reads the rows and shows them first; here every team is checked like one added by hand. Names already in
+// the tournament are skipped; nothing is created if any row is wrong.
+organizerRouter.post('/tournaments/:id/teams/import', org, async (req, res) => {
+  const id = param(req, 'id')
+  await assertCanManage(req.user, id)
+  await assertLocal(id)
+  const d = body(req, z.object({ teams: z.array(teamSchema).min(1).max(128) }))
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id }, include: { teams: { select: { name: true, swing: true } } } })
+  const taken = new Set(t.teams.map(x => x.name.toLowerCase()))
+  const fresh = [...new Map(d.teams.map(x => [x.name.toLowerCase(), x])).values()].filter(x => !taken.has(x.name.toLowerCase()))
+  // a wrong row is named, so the organizer fixes that line of the table
+  fresh.forEach(x => {
+    try { assertSpeakers(t.format, x.speakers); leagueFor(t, x.league) } catch (e) {
+      if (e instanceof HttpError) throw badRequest(e.code, { ...(e.details as object | undefined), team: x.name })
+      throw e
+    }
+  })
+  const count = t.teams.filter(x => !x.swing).length
+  if (count + fresh.length > t.maxTeams) throw badRequest('tournament_full')
+  if (fresh.length) assertRoomForTeam(t, count + fresh.length - 1)
+  const institutions = new Map<string, string | null>()
+  for (const x of fresh) if (!institutions.has(x.institution)) institutions.set(x.institution, await institutionId(x.institution, t.level))
+  const created = await prisma.$transaction(fresh.map(x => prisma.team.create({
+    data: {
+      tournamentId: t.id, name: x.name, city: x.city, institutionId: institutions.get(x.institution) ?? null, league: leagueFor(t, x.league),
+      speakers: { create: x.speakers.map((name, i) => ({ name, position: i + 1 })) },
+    },
+    include: teamInclude,
+  })))
+  res.status(201).json({ created: created.map(toTeam), skipped: d.teams.length - fresh.length })
 })
 
 // Judges by name, without accounts (a tournament run on paper): the owner enters their ballots for them ("as" a judge),
@@ -410,6 +463,7 @@ organizerRouter.post('/tournaments/:id/judges/bulk', org, async (req, res) => {
 // speakers ("Speaker 1"…) to rename at the registration desk; names already in the tournament are skipped.
 organizerRouter.post('/tournaments/:id/teams/bulk', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
+  await assertLocal(param(req, 'id'))
   const d = body(req, z.object({
     names: z.array(z.string().trim().min(2).max(60)).min(1).max(128),
     institution: z.string().trim().min(2).max(150).optional(),
