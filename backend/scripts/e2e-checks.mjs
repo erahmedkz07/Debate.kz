@@ -3286,6 +3286,62 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await set({ speakerMin: 50, speakerMax: 80, replyMin: 25, replyMax: 40 })).status === 200, 'saving the same ranges is fine')
 }
 
+// ---------- changes during a running round: a judge renamed, a team leaves, a late team gets a room ----------
+{
+  const host = await newAccount('Живой Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(670), name: `Живой ${jtag}`, preliminaryRounds: 2, breakSize: 2, maxTeams: 12 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  for (const n of ['Жив А', 'Жив Б', 'Жив В', 'Жив Г']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Судья Опечатка', 'Судья Второй', 'Судья Третий'] })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const typo = d.judges.find(j => j.name === 'Судья Опечатка')
+  r = await host.c('PATCH', `/judges/${typo.id}`, { name: 'Судья Исправлена' })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  ok(r.status === 200 && d.judges.find(j => j.id === typo.id).name === 'Судья Исправлена' && d.judges.find(j => j.id === typo.id).accessKey === typo.accessKey, 'a judge\'s name is fixed in place; the link stays')
+  ok((await host.c('PATCH', `/judges/${typo.id}`, { name: 'Ай' })).status === 400, 'a name has at least 3 letters')
+  const withAcc = await addJudge(host.c, t.id, 'Судья С Аккаунтом')
+  ok((await host.c('PATCH', `/judges/${withAcc.data.id}`, { name: 'Другое Имя' })).data?.error === 'judge_has_account', 'a judge with an account keeps the account\'s name')
+
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const r1 = d.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: 'ЭП отменит оценки', status: 'released' })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const nameOf = id => d.teams.find(x => x.id === id).name
+  const [room1, room2] = d.debates.filter(x => x.roundId === r1.id)
+
+  // a team leaves in the middle of the round: its room goes to the opponent, the round can be completed
+  const leaver = d.teams.find(x => x.id === room1.oppositionTeamId)
+  r = await host.c('DELETE', `/teams/${leaver.id}`)
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const lost = d.debates.find(x => x.id === room1.id)
+  ok(r.data?.withdrawn && r.data.forfeited === 1 && lost.forfeit === 'opposition' && lost.winner === 'proposition', 'a team that leaves loses its room of the running round (a technical loss)')
+
+  // a late team: added during the round, takes the place of a team; the replaced team plays the swing team
+  r = await host.c('POST', `/tournaments/${t.id}/teams`, { name: 'Жив Поздняя', institution: 'Школа Поздняя', speakers: ['Поздний Один', 'Поздний Два', 'Поздний Три'] })
+  ok(r.status === 201, 'a team is added while a round is running')
+  const late = r.data
+  const moved = room2.oppositionTeamId
+  r = await host.c('POST', `/rounds/${r1.id}/swap-teams`, { a: { debateId: room2.id, side: 'opposition' }, b: { teamId: late.id } })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  ok(r.status === 200 && d.debates.find(x => x.id === room2.id).oppositionTeamId === late.id, 'the late team takes the place of a team in a room')
+  ok((await host.c('POST', `/rounds/${r1.id}/swap-teams`, { a: { debateId: room2.id, side: 'proposition' }, b: { teamId: late.id } })).data?.error === 'team_in_round', 'a team already in the round cannot take a second place')
+  ok((await host.c('POST', `/rounds/${r1.id}/swap-teams`, { a: { debateId: room2.id, side: 'proposition' }, b: { teamId: leaver.id } })).data?.error === 'team_withdrawn', 'a team that left does not come back into a room')
+  r = await host.c('POST', `/rounds/${r1.id}/rooms`, { propositionTeamId: moved, oppositionTeamId: null, room: 'Swing', technicalWin: true })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const swingRoom = d.debates.find(x => x.id === r.data?.id)
+  const swing = d.teams.find(x => x.id === swingRoom?.oppositionTeamId)
+  ok(r.status === 201 && swing?.swing && swing.name === 'Swing' && swingRoom.winner === 'proposition' && swingRoom.forfeit === 'opposition', `${nameOf(moved)} gets a room against the swing team and a technical win`)
+  ok((await host.c('POST', `/rounds/${r1.id}/rooms`, { propositionTeamId: moved, oppositionTeamId: null, room: 'Swing 2' })).data?.error === 'team_in_round', 'a team gets one room per round')
+  const other = await host.c('POST', `/tournaments/${t.id}/teams`, { name: 'Жив Ещё', institution: 'Школа Ещё', speakers: ['Ещё Один', 'Ещё Два', 'Ещё Три'] })
+  const late2 = await host.c('POST', `/tournaments/${t.id}/teams`, { name: 'Жив Ещё Два', institution: 'Школа Ещё Два', speakers: ['Ещё Четыре', 'Ещё Пять', 'Ещё Шесть'] })
+  ok((await host.c('POST', `/rounds/${r1.id}/rooms`, { propositionTeamId: other.data.id, oppositionTeamId: late2.data.id, room: 'Каб. 9', technicalWin: true })).data?.error === 'technical_win_against_swing_only', 'a technical win only against a swing team')
+  const free = d.judges.find(j => j.name === 'Судья Третий' && !d.debates.some(x => x.roundId === r1.id && x.judgeIds.includes(j.id)))
+  r = await host.c('POST', `/rounds/${r1.id}/rooms`, { propositionTeamId: other.data.id, oppositionTeamId: late2.data.id, room: 'Каб. 9', ...(free && { chairJudgeId: free.id }) })
+  ok(r.status === 201 && r.data.ballotStatus === 'pending' && (!free || r.data.judgeIds[0] === free.id), 'two late teams get a room of their own, with a free judge')
+  ok((await client()('POST', `/rounds/${r1.id}/rooms`, { propositionTeamId: other.data.id, oppositionTeamId: null, room: 'X' })).status === 401, 'only the organizer adds rooms')
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')

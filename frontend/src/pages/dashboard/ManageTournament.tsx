@@ -7,7 +7,7 @@ import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClo
 import {
   type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, returnJudge, returnTeam, setForfeit, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
-  importTeams, type ImportTeam, getSpeakerClaims, decideSpeakerClaim, swapTeams, type TeamSlot,
+  importTeams, type ImportTeam, getSpeakerClaims, decideSpeakerClaim, swapTeams, type TeamSlot, renameJudge, addRoom,
 } from '@/api'
 import { leagueMotion, type Debate, type Judge, type League, type Round, type ScheduleItem, type Side, type Team, type TournamentDetails, type TournamentStatus } from '@/types'
 import { useAsync, shownInUrl } from '@/lib/hooks'
@@ -346,7 +346,11 @@ function Teams({ data, reload }: SectionProps) {
   // a team already in a draw is withdrawn (its results stay), else deleted
   const played = (team: Team | null) => !!team && data.debates.some(d => sidesOf(data.format).some(side => teamIdOn(d, side) === team.id))
   const remove = async () => {
-    if (await run('delete', () => deleteTeam(toDelete!.id), t(played(toDelete) ? 'dashboard.teams.withdrawnDone' : 'dashboard.teams.deleted'))) { setToDelete(null); reload() }
+    let r: Awaited<ReturnType<typeof deleteTeam>>
+    if (await run('delete', async () => { r = await deleteTeam(toDelete!.id) })) {
+      toast.success(t(played(toDelete) ? 'dashboard.teams.withdrawnDone' : 'dashboard.teams.deleted'), r?.forfeited ? { description: t('dashboard.teams.forfeitedRooms', { count: r.forfeited }) } : undefined)
+      setToDelete(null); reload()
+    }
   }
 
   return (
@@ -967,6 +971,10 @@ function Judges({ data, reload }: SectionProps) {
     if (await run('delete', () => deleteJudge(toDelete!.id), t('dashboard.judges.deleted'))) { setToDelete(null); reload() }
   }
   const comeBack = async (j: Judge) => { if (await run(`ret-${j.id}`, () => returnJudge(j.id), t('dashboard.judges.returned'))) reload() }
+  // a typo in a judge's name (a judge without an account): fixed in place, their link, rooms and ballots stay
+  const [renaming, setRenaming] = useState<Judge | null>(null)
+  const [newName, setNewName] = useState('')
+  const rename = async () => { if (await run('rename', () => renameJudge(renaming!.id, newName.trim()), t('common.saved'))) { setRenaming(null); reload() } }
   const sendLink = async () => {
     if (!linkFor || !email.trim()) return
     const ok = await run('link', () => inviteByEmail(data.id, email.trim(), 'judge', linkFor.id), t('dashboard.judges.linkSent', { email: email.trim() }))
@@ -1023,6 +1031,12 @@ function Judges({ data, reload }: SectionProps) {
               <Button variant="ghost" size="sm" className="shrink-0 px-2" onClick={() => setConflictsOf(j)} title={t('dashboard.conflicts.title', { name: j.name })} aria-label={t('dashboard.conflicts.title', { name: j.name })}>
                 <ShieldAlert className="size-4" />{j.conflictTeamIds?.length ? j.conflictTeamIds.length : ''}
               </Button>
+              {j.hasAccount === false && (
+                <Button variant="ghost" size="icon" className="shrink-0" aria-label={t('dashboard.judges.rename', { name: j.name })} title={t('dashboard.judges.rename', { name: j.name })}
+                  onClick={() => { setRenaming(j); setNewName(j.name) }}>
+                  <Pencil className="size-4" />
+                </Button>
+              )}
               {j.left ? (
                 <Button variant="ghost" size="icon" aria-label={t('dashboard.judges.return')} title={t('dashboard.judges.return')} className="shrink-0" disabled={busy === `ret-${j.id}`} onClick={() => comeBack(j)}>
                   <Undo2 className="size-4" />
@@ -1061,6 +1075,17 @@ function Judges({ data, reload }: SectionProps) {
         </DialogContent>
       </Dialog>
       <ConflictsDialog judge={conflictsOf} data={data} onClose={() => setConflictsOf(null)} onSaved={() => { setConflictsOf(null); reload() }} />
+      <Dialog open={!!renaming} onOpenChange={o => !o && setRenaming(null)}>
+        <DialogContent heading={t('dashboard.judges.renameTitle')} description={t('dashboard.judges.renameText')}>
+          <form className="space-y-4" onSubmit={e => { e.preventDefault(); void rename() }}>
+            <div><Label htmlFor="jr">{t('dashboard.judges.name')}</Label><Input id="jr" autoFocus maxLength={100} value={newName} onChange={e => setNewName(e.target.value)} /></div>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
+              <Button type="submit" disabled={busy === 'rename' || newName.trim().length < 3 || newName.trim() === renaming?.name}>{t('common.save')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <JudgeFeedbackDialog name={readFeedback?.name ?? ''} summary={readFeedback ? (feedbackOf(readFeedback.id) as JudgeFeedbackSummary) : null} onClose={() => setReadFeedback(null)} />
       <Dialog open={!!toDelete} onOpenChange={o => !o && setToDelete(null)}>
         <DialogContent heading={t('dashboard.judges.confirmDelete', { name: toDelete?.name })} description={t('dashboard.judges.deleteHint')}>
@@ -1417,6 +1442,8 @@ function Draw({ data, reload }: SectionProps) {
   const [leagueTab, setLeagueTab] = useState(() => leagueOfRound(defaultRound))
   // moving teams: the first click picks a team, the second one swaps the two (preliminary rounds, before ballots)
   const [picked, setPicked] = useState<TeamSlot | null>(null)
+  // a late team's own room: the dialog is open for this team
+  const [roomFor, setRoomFor] = useState<string | null>(null)
   useEffect(() => setPicked(null), [roundId])
   const round = data.rounds.find(r => r.id === roundId)
   if (!round) return <EmptyState title={t('common.empty')} />
@@ -1487,6 +1514,15 @@ function Draw({ data, reload }: SectionProps) {
     reload()
   }
   const pickedName = picked && team(teamIdOn(data.debates.find(x => x.id === picked.debateId)!, picked.side) ?? '')?.name
+  // teams with no room in this round (added late, or replaced by a late team): they take a place or get a room of their own
+  const inRound = new Set(allRooms.flatMap(d => sideList.map(side => teamIdOn(d, side)).filter(Boolean)))
+  const outside = data.teams.filter(x => !x.swing && !x.withdrawn && !inRound.has(x.id) && (!leagueTab || x.league === leagueTab))
+  const placeOutside = async (teamId: string) => {
+    if (!picked) return
+    const ok = await run('move', () => swapTeams(round.id, picked, { teamId }), t('dashboard.draw.move.done'))
+    setPicked(null)
+    if (ok) reload()
+  }
   // a team's name: a button while teams can be moved
   const teamCell = (d: Debate, side: Side) => {
     const name = team(teamIdOn(d, side) ?? '')?.name
@@ -1569,6 +1605,22 @@ function Draw({ data, reload }: SectionProps) {
       ) : (
         <>
           {editable && !picked && <p className="mb-3 text-sm text-muted-foreground">{t(playoff ? 'dashboard.draw.hint' : 'dashboard.draw.move.hint')}</p>}
+          {editable && !playoff && outside.length > 0 && (
+            <div className="mb-3 rounded-2xl border border-accent bg-accent-soft px-4 py-3 text-sm">
+              <p className="font-semibold">{t('dashboard.draw.outside.title', { count: outside.length })}</p>
+              <p className="mt-0.5 text-muted-foreground">{t(picked ? 'dashboard.draw.outside.place' : 'dashboard.draw.outside.text')}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {outside.map(x => (
+                  <span key={x.id} className="inline-flex items-center gap-1 rounded-xl border border-border bg-card py-1 pl-3 pr-1">
+                    {picked ? (
+                      <button type="button" className="cursor-pointer font-bold text-primary hover:underline" disabled={busy === 'move'} onClick={() => placeOutside(x.id)}>{x.name}</button>
+                    ) : <span className="font-bold">{x.name}</span>}
+                    {!picked && <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setRoomFor(x.id)}><Plus className="size-3.5" />{t('dashboard.draw.outside.addRoom')}</Button>}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {picked && (
             <div className="sticky top-16 z-10 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-primary bg-primary-soft px-4 py-3 text-sm">
               <p className="font-semibold">{t('dashboard.draw.move.picked', { team: pickedName })}</p>
@@ -1646,6 +1698,7 @@ function Draw({ data, reload }: SectionProps) {
           </Card>
         </>
       )}
+      {roomFor && <AddRoomDialog data={data} round={round} teamId={roomFor} outside={outside} rooms={rooms} onClose={() => setRoomFor(null)} onDone={() => { setRoomFor(null); reload() }} />}
       <WingsDialog debate={wingsFor} data={data} status={status} saving={!!wingsFor && busy === wingsFor.id} onClose={() => setWingsFor(null)}
         onSave={async ids => { if (await run(wingsFor!.id, () => updateDebate(wingsFor!.id, { wingJudgeIds: ids }), t('dashboard.draw.wingsSaved'))) { setWingsFor(null); reload() } }} />
     </>
@@ -1657,6 +1710,62 @@ function Draw({ data, reload }: SectionProps) {
 // league first and free judges before busy ones.
 type JudgeState = { kind: 'free' | 'move' | 'busy' | 'other' | 'here'; where?: string }
 type JudgeStatus = ReturnType<typeof judgeStatusOf>
+// A room for a late team: against another team without a room in this round, or against the league's swing team
+// (then, if the swing team does not really play, a technical win at once).
+function AddRoomDialog({ data, round, teamId, outside, rooms, onClose, onDone }: { data: TournamentDetails; round: Round; teamId: string; outside: Team[]; rooms: string[]; onClose: () => void; onDone: () => void }) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const me = data.teams.find(x => x.id === teamId)!
+  const rivals = outside.filter(x => x.id !== teamId && (!(data.leagues ?? []).length || x.league === me.league))
+  const [opponent, setOpponent] = useState(rivals[0]?.id ?? 'swing')
+  const [room, setRoom] = useState('')
+  const [chair, setChair] = useState('none')
+  const [win, setWin] = useState(false)
+  const busyJudges = new Set(data.debates.filter(d => d.roundId === round.id).flatMap(d => d.judgeIds))
+  const judges = data.judges.filter(j => !j.left && !busyJudges.has(j.id) && (!j.league || j.league === me.league))
+  const submit = async () => {
+    const ok = await run('room', () => addRoom(round.id, {
+      propositionTeamId: me.id, oppositionTeamId: opponent === 'swing' ? null : opponent, room: room.trim(),
+      ...(chair !== 'none' && { chairJudgeId: chair }), ...(opponent === 'swing' && win && { technicalWin: true }),
+    }), t('dashboard.draw.outside.added'))
+    if (ok) onDone()
+  }
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent heading={t('dashboard.draw.outside.roomTitle', { team: me.name })} description={t('dashboard.draw.outside.roomText')}>
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="ar-opp">{t('dashboard.draw.outside.opponent')}</Label>
+            <Select id="ar-opp" value={opponent} onValueChange={v => { setOpponent(v); if (v !== 'swing') setWin(false) }}
+              options={[...rivals.map(x => ({ value: x.id, label: x.name })), { value: 'swing', label: t('dashboard.draw.outside.swing') }]} />
+          </div>
+          {opponent === 'swing' && (
+            <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-0.5 size-4 accent-[var(--primary)]" checked={win} onChange={e => setWin(e.target.checked)} />
+              {t('dashboard.draw.outside.technicalWin', { team: me.name })}
+            </label>
+          )}
+          <div>
+            <Label htmlFor="ar-room">{t('tournament.room')}</Label>
+            <Input id="ar-room" list="ar-rooms" value={room} onChange={e => setRoom(e.target.value)} placeholder={win ? 'Swing' : 'Каб. 101'} />
+            <datalist id="ar-rooms">{rooms.map(r => <option key={r} value={r} />)}</datalist>
+          </div>
+          {!win && (
+            <div>
+              <Label htmlFor="ar-chair">{t('tournament.chair')}</Label>
+              <Select id="ar-chair" value={chair} onValueChange={setChair} options={[{ value: 'none', label: t('dashboard.draw.outside.noJudge') }, ...judges.map(j => ({ value: j.id, label: j.name }))]} />
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
+            <Button disabled={!room.trim() || busy === 'room'} onClick={submit}>{busy === 'room' && <Loader2 className="size-4 animate-spin" />}{t('dashboard.draw.outside.create')}</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function judgeStatusOf(data: TournamentDetails, round: Round, roundName: (r: Round) => string, t: TFunction) {
   const leagues = data.leagues ?? []
   const leagueOfDebate = (d: Debate) => data.teams.find(x => x.id === d.propositionTeamId)?.league

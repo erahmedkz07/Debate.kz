@@ -15,7 +15,7 @@ async function send(page: Page) {
   await expect(page.getByText('Бюллетень принят')).toBeVisible()
 }
 
-test('a judge by the personal link: the flow is saved, the ballot is sent with a reason', async ({ page }) => {
+test('a judge by the personal link: the ballot is sent with a reason (no flow: judges keep notes on paper)', async ({ page }) => {
   const t = await leagueTournament()
   const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)
   const judge = t.details.judges.find((j: { id: string }) => j.id === room.judgeIds[0])
@@ -23,14 +23,7 @@ test('a judge by the personal link: the flow is saved, the ballot is sent with a
   await page.goto(`/j/${judge.accessKey}`)
   await expect(page.getByRole('heading', { name: judge.name })).toBeVisible()
   await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
-
-  // the flow: a note in the first speech, saved by itself, there after a reload
-  const note = page.getByPlaceholder('Коротко: что сказал спикер').first()
-  await note.fill('Телефоны отвлекают от уроков')
-  await note.press('Enter')
-  await expect(page.getByText('Сохранено', { exact: true })).toBeVisible()
-  await page.reload()
-  await expect(page.getByText('Телефоны отвлекают от уроков')).toBeVisible()
+  await expect(page.getByText('Флоу — мои записи по речам')).toHaveCount(0)
 
   await fillBallot(page, prop)
   await page.locator('#reason').fill('Правительство лучше доказало вред')

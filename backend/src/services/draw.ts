@@ -291,6 +291,15 @@ async function seatJudgesAndSave(round: RoundWithTournament, pairs: string[][], 
 // the tournament's stand-in teams (each created once): placeholder speakers so judges can score them; never ranked.
 // Two-team formats need at most one ("Swing"), BP up to three ("Swing", "Swing 2", "Swing 3"). With leagues each league
 // has its own ("Swing", "Swing B" … by the league's place in the list), kept in that league.
+// the league's swing team, named as the draw names it (Swing, Swing B, Swing C… by the league's place): one for all
+// the rooms added by hand and for the draws
+export async function swingTeamFor(tournamentId: string, league: string | null) {
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { leagues: true } })
+  const index = league ? Math.max(0, leaguesOf(t).findIndex(l => l.key === league)) : 0
+  const { id } = await swingTeam(tournamentId, 0, league, index)
+  return prisma.team.findUniqueOrThrow({ where: { id } })
+}
+
 async function swingTeam(tournamentId: string, index = 0, league: string | null = null, leagueIndex = 0) {
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id: tournamentId }, select: { format: true } })
   const suffix = leagueIndex ? ` ${String.fromCharCode(65 + leagueIndex)}` : ''
