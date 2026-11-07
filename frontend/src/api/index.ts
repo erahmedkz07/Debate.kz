@@ -286,6 +286,7 @@ export interface SpeakerLinkTeam { teamId: string; teamName: string; institution
 export const getSpeakerLinks = (tournamentId: string) => http<SpeakerLinkTeam[]>('POST', `/tournaments/${encodeURIComponent(tournamentId)}/speaker-links`, {})
 export const getJudgeLink = (key: string) => http<JudgeLinkData>('GET', '/judge-link', undefined, key)
 export const setJudgeLeague = (judgeId: string, league: string | null) => http<{ id: string; league: string | null }>('PATCH', `/judges/${judgeId}`, { league })
+export const renameJudge = (judgeId: string, name: string) => http<{ id: string; name: string }>('PATCH', `/judges/${judgeId}`, { name })
 export const newJudgeLink = (judgeId: string) => http<{ accessKey: string }>('POST', `/judges/${judgeId}/link`, {})
 
 export interface BallotPayload {
@@ -301,9 +302,6 @@ export interface BallotPayload {
 }
 export const submitBallot = (debateId: string, payload: BallotPayload, judgeKey?: string) =>
   http<{ ok: true }>('POST', `/ballots/${encodeURIComponent(debateId)}`, payload, judgeKey)
-export const saveFlow = (debateId: string, flow: FlowNotes, judgeKey?: string, asJudgeId?: string) =>
-  http<{ ok: true }>('PUT', `/ballots/${encodeURIComponent(debateId)}/flow${asJudgeId ? `?as=${encodeURIComponent(asJudgeId)}` : ''}`, { flow }, judgeKey)
-
 // ---------- organizer ----------
 
 export const getMyTournaments = () => http<MyTournament[]>('GET', '/organizer/tournaments')
@@ -354,7 +352,7 @@ export const importTeams = (tournamentId: string, teams: ImportTeam[]) =>
   http<{ created: Team[]; skipped: number }>('POST', `/tournaments/${tournamentId}/teams/import`, { teams })
 export const addTeam = (tournamentId: string, data: TeamInput) => http<Team>('POST', `/tournaments/${tournamentId}/teams`, data)
 export const updateTeam = (teamId: string, data: TeamInput) => http<Team>('PATCH', `/teams/${teamId}`, data)
-export const deleteTeam = (teamId: string) => http<{ withdrawn?: boolean } | undefined>('DELETE', `/teams/${teamId}`)
+export const deleteTeam = (teamId: string) => http<{ withdrawn?: boolean; forfeited?: number } | undefined>('DELETE', `/teams/${teamId}`)
 export const returnTeam = (teamId: string) => http<void>('POST', `/teams/${teamId}/return`)
 
 export const deleteJudge = (judgeId: string) => http<{ left: boolean }>('DELETE', `/judges/${judgeId}`)
@@ -390,8 +388,11 @@ export const generateDraw = (roundId: string, opts: { presentOnly?: boolean; add
   http<{ debates: Debate[]; report: DrawReport }>('POST', `/rounds/${roundId}/draw`, opts)
 // two teams change places in a round (between rooms or inside one); the answer warns of rematches and clubmates
 export type TeamSlot = { debateId: string; side: Side }
-export const swapTeams = (roundId: string, a: TeamSlot, b: TeamSlot) =>
+export const swapTeams = (roundId: string, a: TeamSlot, b: TeamSlot | { teamId: string }) =>
   http<{ warnings: { kind: 'rematch' | 'same_club'; teams: string[] }[] }>('POST', `/rounds/${encodeURIComponent(roundId)}/swap-teams`, { a, b })
+// a room added by hand to a running round (a late team); opponent null = the league's swing team
+export const addRoom = (roundId: string, data: { propositionTeamId: string; oppositionTeamId: string | null; room: string; chairJudgeId?: string; technicalWin?: boolean }) =>
+  http<Debate>('POST', `/rounds/${encodeURIComponent(roundId)}/rooms`, data)
 export const updateDebate = (debateId: string, data: Partial<{ room: string; onlineUrl: string | null; swapSides: boolean; chairJudgeId: string; wingJudgeIds: string[] }>) =>
   http<Debate>('PATCH', `/debates/${debateId}`, data)
 

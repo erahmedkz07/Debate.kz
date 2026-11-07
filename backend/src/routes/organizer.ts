@@ -9,6 +9,7 @@ import { assertCanManage, assertOwner, leaguesOf, motionFor, summaryInclude, tea
 import { generateDraw } from '../services/draw.js'
 import { announceBreak, cancelBreak, categoriesOf, MAX_BREAK, validBreak } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
+import { swingTeamFor } from '../services/draw.js'
 import { institutionIdFor } from '../services/institutions.js'
 import { confirmRegistration, fillFromWaitlist, runLottery } from '../services/selection.js'
 import { awardCandidates, issueAwardCertificates, setAward } from '../services/awards.js'
@@ -32,7 +33,7 @@ import sharp from 'sharp'
 import { randomBytes } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { FORMAT_CODES, rulesOf, scoringDefaults } from '../services/formats.js'
+import { FORMAT_CODES, isBP, rulesOf, scoringDefaults } from '../services/formats.js'
 import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
 import { bareMotion } from '../lib/motion.js'
 import { sameName } from '../lib/names.js'
@@ -580,7 +581,18 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
   // a team already in a draw is withdrawn: its rounds and results stay, the next draws leave it out
   if (played) {
     await prisma.team.update({ where: { id: team.id }, data: { withdrawnAt: new Date(), checkedInAt: null } })
-    return void res.json({ withdrawn: true })
+    // a running round: the room without ballots goes to the opponent (a technical loss), so the round can be completed
+    const open = await prisma.debate.findMany({
+      where: {
+        round: { tournamentId: team.tournamentId, status: 'released' }, forfeit: null, ballots: { none: {} }, closingPropositionTeamId: null,
+        OR: [{ propositionTeamId: team.id }, { oppositionTeamId: team.id }],
+      },
+    })
+    for (const d of open) {
+      const side = d.propositionTeamId === team.id ? 'proposition' : 'opposition'
+      await prisma.debate.update({ where: { id: d.id }, data: { forfeit: side, winner: side === 'proposition' ? 'opposition' : 'proposition', ballotStatus: 'confirmed' } })
+    }
+    return void res.json({ withdrawn: true, forfeited: open.length })
   }
   await prisma.team.delete({ where: { id: team.id } })
   // the team's application no longer holds a place; the waitlist moves up
@@ -632,10 +644,12 @@ organizerRouter.patch('/judges/:judgeId', org, async (req, res) => {
   const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') }, include: { tournament: { select: { leagues: true } } } })
   if (!judge) throw notFound('judge_not_found')
   await assertCanManage(req.user, judge.tournamentId)
-  const { league } = body(req, z.object({ league: z.string().max(24).nullable() }))
+  const { league, name } = body(req, z.object({ league: z.string().max(24).nullable().optional(), name: z.string().trim().min(3).max(100).optional() }))
   if (league && !leaguesOf(judge.tournament).some(l => l.key === league)) throw badRequest('invalid_league')
-  await prisma.judge.update({ where: { id: judge.id }, data: { league } })
-  res.json({ id: judge.id, league })
+  // a judge with an account goes by the account's name; one without is named by the organizer (a typo is fixed here)
+  if (name !== undefined && judge.userId) throw forbidden('judge_has_account')
+  const x = await prisma.judge.update({ where: { id: judge.id }, data: { ...(league !== undefined && { league }), ...(name !== undefined && { name }) } })
+  res.json({ id: x.id, league: x.league, name: x.name })
 })
 
 // a judge's personal link (no account needed): a new one each time, the old one stops working
@@ -832,16 +846,20 @@ organizerRouter.patch('/debates/:debateId', org, async (req, res) => {
 const SIDE_COLUMN = { proposition: 'propositionTeamId', opposition: 'oppositionTeamId', closingProposition: 'closingPropositionTeamId', closingOpposition: 'closingOppositionTeamId' } as const
 type SlotSide = keyof typeof SIDE_COLUMN
 const slotSchema = z.object({ debateId: z.string(), side: z.enum(['proposition', 'opposition', 'closingProposition', 'closingOpposition']) })
+// a team that has no room in this round (a late team): it takes the place of the team at slot a
+const outsideSchema = z.object({ teamId: z.string() })
 organizerRouter.post('/rounds/:roundId/swap-teams', org, async (req, res) => {
-  const d = body(req, z.object({ a: slotSchema, b: slotSchema }))
+  const d = body(req, z.object({ a: slotSchema, b: z.union([slotSchema, outsideSchema]) }))
   const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') }, include: { tournament: { select: { leagues: true } }, debates: { include: { judges: true } } } })
   if (!round) throw notFound('round_not_found')
   await assertCanManage(req.user, round.tournamentId)
   if (round.kind === 'elimination') throw forbidden('playoffs_follow_bracket')
   if (round.status === 'completed') throw forbidden('round_completed')
-  const da = round.debates.find(x => x.id === d.a.debateId), db = round.debates.find(x => x.id === d.b.debateId)
+  if ('teamId' in d.b) return void res.json(await replaceWithOutside(round, d.a, d.b.teamId))
+  const b = d.b
+  const da = round.debates.find(x => x.id === d.a.debateId), db = round.debates.find(x => x.id === b.debateId)
   if (!da || !db) throw notFound('debate_not_found')
-  const ta = da[SIDE_COLUMN[d.a.side]], tb = db[SIDE_COLUMN[d.b.side]]
+  const ta = da[SIDE_COLUMN[d.a.side]], tb = db[SIDE_COLUMN[b.side]]
   if (!ta || !tb) throw badRequest('no_team_on_side')
   if (ta === tb) return void res.json({ warnings: [] })
   if (da.forfeit || db.forfeit) throw forbidden('debate_forfeited')
@@ -854,7 +872,7 @@ organizerRouter.post('/rounds/:roundId/swap-teams', org, async (req, res) => {
   const roomOf = (x: typeof da) => Object.fromEntries((Object.keys(SIDE_COLUMN) as SlotSide[]).map(side => [side, x[SIDE_COLUMN[side]]])) as Record<SlotSide, string | null>
   const rooms = new Map([[da.id, roomOf(da)], [db.id, roomOf(db)]])
   rooms.get(da.id)![d.a.side] = tb
-  rooms.get(db.id)![d.b.side] = ta
+  rooms.get(db.id)![b.side] = ta
   const idsOf = (id: string) => Object.values(rooms.get(id)!).filter((x): x is string => !!x)
   const clash = await conflictChecker(round.tournamentId)
   for (const x of [da, db]) {
@@ -883,6 +901,70 @@ organizerRouter.post('/rounds/:roundId/swap-teams', org, async (req, res) => {
   const columns = (id: string) => Object.fromEntries((Object.keys(SIDE_COLUMN) as SlotSide[]).map(side => [SIDE_COLUMN[side], rooms.get(id)![side]]))
   await prisma.$transaction([...new Set([da.id, db.id])].map(id => prisma.debate.update({ where: { id }, data: columns(id) })))
   res.json({ warnings })
+})
+
+type RoundWithDebates = { id: string; tournamentId: string; tournament: { leagues: unknown }; debates: ({ id: string; forfeit: string | null; judges: { judgeId: string }[] } & Record<(typeof SIDE_COLUMN)[SlotSide], string | null>)[] }
+const teamsInRound = (round: RoundWithDebates) => new Set(round.debates.flatMap(x => Object.values(SIDE_COLUMN).map(c => x[c]).filter((y): y is string => !!y)))
+
+// a team outside the round takes the place of a team in a room (that team is then outside, for another room)
+async function replaceWithOutside(round: RoundWithDebates, a: { debateId: string; side: SlotSide }, teamId: string) {
+  const da = round.debates.find(x => x.id === a.debateId)
+  if (!da) throw notFound('debate_not_found')
+  const ta = da[SIDE_COLUMN[a.side]]
+  if (!ta) throw badRequest('no_team_on_side')
+  if (da.forfeit) throw forbidden('debate_forfeited')
+  if (await prisma.ballot.count({ where: { debateId: da.id } })) throw forbidden('ballots_in_room')
+  const [out, inRoom] = await Promise.all([prisma.team.findUnique({ where: { id: teamId } }), prisma.team.findUniqueOrThrow({ where: { id: ta } })])
+  if (!out || out.tournamentId !== round.tournamentId) throw notFound('team_not_found')
+  if (out.withdrawnAt) throw badRequest('team_withdrawn')
+  if (teamsInRound(round).has(out.id)) throw badRequest('team_in_round')
+  if (leaguesOf(round.tournament).length && out.league !== inRoom.league) throw badRequest('different_leagues')
+  const ids = [...Object.values(SIDE_COLUMN).map(c => da[c]).filter((y): y is string => !!y && y !== ta), out.id]
+  const clash = await conflictChecker(round.tournamentId)
+  const bad = da.judges.find(j => clash(j.judgeId, ids))
+  if (bad) throw badRequest('swap_judge_conflict', { judgeId: bad.judgeId, debateId: da.id })
+  await prisma.debate.update({ where: { id: da.id }, data: { [SIDE_COLUMN[a.side]]: out.id } })
+  return { warnings: [] }
+}
+
+// A room added by hand to a running round: a late team against another team that has no room (one replaced by it,
+// or a swing team). With a swing team the room may be won at once (a technical win: the swing side "did not come").
+organizerRouter.post('/rounds/:roundId/rooms', org, async (req, res) => {
+  const d = body(req, z.object({
+    propositionTeamId: z.string(), oppositionTeamId: z.string().nullable(), // null: a swing team of the league
+    room: z.string().trim().min(1).max(60), chairJudgeId: z.string().optional(), technicalWin: z.boolean().optional(),
+  }))
+  const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') }, include: { tournament: { select: { leagues: true, format: true } }, debates: { include: { judges: true } } } })
+  if (!round) throw notFound('round_not_found')
+  await assertCanManage(req.user, round.tournamentId)
+  if (round.kind === 'elimination') throw forbidden('playoffs_follow_bracket')
+  if (round.status === 'completed') throw forbidden('round_completed')
+  if (isBP(round.tournament.format)) throw badRequest('two_team_rooms_only')
+  const prop = await prisma.team.findUnique({ where: { id: d.propositionTeamId } })
+  if (!prop || prop.tournamentId !== round.tournamentId) throw notFound('team_not_found')
+  const opp = d.oppositionTeamId ? await prisma.team.findUnique({ where: { id: d.oppositionTeamId } }) : await swingTeamFor(round.tournamentId, prop.league)
+  if (!opp || opp.tournamentId !== round.tournamentId || opp.id === prop.id) throw notFound('team_not_found')
+  if (prop.withdrawnAt || opp.withdrawnAt) throw badRequest('team_withdrawn')
+  const busy = teamsInRound(round)
+  if (busy.has(prop.id) || busy.has(opp.id)) throw badRequest('team_in_round')
+  if (leaguesOf(round.tournament).length && prop.league !== opp.league) throw badRequest('different_leagues')
+  if (d.technicalWin && !opp.swing) throw badRequest('technical_win_against_swing_only')
+  if (d.chairJudgeId) {
+    const judge = await prisma.judge.findUnique({ where: { id: d.chairJudgeId } })
+    if (!judge || judge.tournamentId !== round.tournamentId || judge.leftAt) throw badRequest('invalid_judge')
+    if (round.debates.some(x => x.judges.some(j => j.judgeId === judge.id))) throw conflict('judge_busy_in_round')
+    if ((await conflictChecker(round.tournamentId))(judge.id, [prop.id, opp.id])) throw badRequest('judge_conflict', { judgeId: judge.id })
+  }
+  const links = (await prisma.tournament.findUniqueOrThrow({ where: { id: round.tournamentId }, select: { roomLinks: true } })).roomLinks as Record<string, string>
+  const x = await prisma.debate.create({
+    data: {
+      roundId: round.id, room: d.room, onlineUrl: links[d.room] ?? null, propositionTeamId: prop.id, oppositionTeamId: opp.id,
+      ...(d.technicalWin && { forfeit: 'opposition', winner: 'proposition', ballotStatus: 'confirmed' as const }),
+      ...(d.chairJudgeId && { judges: { create: { judgeId: d.chairJudgeId, isChair: true } } }),
+    },
+    include: { judges: { orderBy: { isChair: 'desc' } } },
+  })
+  res.status(201).json(toDebate(x, true))
 })
 
 // ---------- registrations ----------

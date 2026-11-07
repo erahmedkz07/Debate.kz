@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Medal, Minus, Plus, Timer, Trophy, Users, X } from 'lucide-react'
-import { getBallot, NotFoundError, saveFlow, submitBallot } from '@/api'
+import { getBallot, NotFoundError, submitBallot } from '@/api'
 import type { Side, Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
@@ -27,7 +27,6 @@ import { formatOfTournament } from '@/content/formats'
 import { BP_POINTS, BP_SIDES, TWO_SIDES } from '@/lib/formats'
 import NotFound from './NotFound'
 import { quoted } from '@/lib/motion'
-import { FlowSheet } from '@/components/ballot/FlowSheet'
 
 type Range = { min: number; max: number; step: number }
 
@@ -352,9 +351,7 @@ function BallotForm() {
         <p className="mt-4 flex items-start gap-2 rounded-2xl bg-primary-soft p-4 text-sm"><Users className="mt-0.5 size-4 shrink-0 text-primary" />{t('ballot.bpChair')}</p>
       )}
 
-      {/* the flow: notes speech by speech while the debate goes on, saved by itself */}
-      <FlowSheet formatCode={rules.format} replies={!!rules.reply} initial={data.flow} debateId={debateId} uid={uid}
-        onSave={flow => saveFlow(debateId, flow, judgeKey, judgeKey ? undefined : asJudge)} />
+
 
       <div className={cn('mt-6', bp ? 'grid gap-5 sm:grid-cols-2' : 'space-y-5')}>
         {sides.map(side => teamCard(side, teamOf(side)))}

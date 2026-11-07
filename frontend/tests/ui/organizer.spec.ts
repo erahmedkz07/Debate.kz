@@ -145,3 +145,42 @@ test('draw: two teams of different rooms change places with two clicks', async (
   // the table shows the new rooms
   await expect(page.locator('tbody tr').filter({ hasText: name(one.propositionTeamId) }).getByRole('button', { name: b, exact: true })).toBeVisible()
 })
+
+test('a late team: added during the round, takes a place; the replaced team gets a room against the swing team', async ({ page }) => {
+  const t = await leagueTournament()
+  const late = (await t.org('POST', `/tournaments/${t.id}/teams`, { name: 'Рус Поздняя', institution: 'Лицей Поздний', speakers: ['Поздний Один', 'Поздний Два', 'Поздний Три'], league: 'ru' })).data
+  const name = (id: string) => t.details.teams.find((x: { id: string }) => x.id === id).name as string
+  const room = t.details.debates.find((d: { propositionTeamId: string }) => t.details.teams.find((x: { id: string; league: string }) => x.id === d.propositionTeamId)?.league === 'ru')
+  const replaced = name(room.oppositionTeamId)
+  await signIn(page, t.org.email, t.org.password)
+  await page.goto(`/dashboard/tournaments/${t.id}/draw`)
+  await expect(page.getByText('Без комнаты в этом раунде: 1')).toBeVisible()
+  // the late team takes the place of a team in a room
+  await page.getByRole('button', { name: replaced, exact: true }).click()
+  await page.getByRole('button', { name: late.name, exact: true }).click()
+  await expect(page.getByText('Команды поменялись местами')).toBeVisible()
+  // the replaced team gets a room against the swing team, won at once
+  await page.locator('span', { hasText: replaced }).getByRole('button', { name: 'Комната' }).click()
+  await page.locator('#ar-opp').click()
+  await page.getByRole('option', { name: 'Swing-команда лиги' }).click()
+  await page.getByText(`засчитать «${replaced}» техническую победу`).click()
+  await page.locator('#ar-room').fill('Swing')
+  await page.getByRole('button', { name: 'Создать комнату' }).click()
+  await expect(page.getByText('Комната добавлена')).toBeVisible()
+  const after = (await t.org('GET', `/tournaments/${t.id}`)).data
+  const swingRoom = after.debates.find((d: { room: string }) => d.room === 'Swing')
+  expect(swingRoom.winner).toBe('proposition')
+  expect(after.teams.find((x: { id: string }) => x.id === swingRoom.oppositionTeamId).swing).toBe(true)
+})
+
+test('a judge\'s name is fixed in place', async ({ page }) => {
+  const t = await leagueTournament()
+  const judge = t.details.judges[0]
+  await signIn(page, t.org.email, t.org.password)
+  await page.goto(`/dashboard/tournaments/${t.id}/judges`)
+  await page.getByRole('button', { name: `Исправить имя: ${judge.name}` }).click()
+  await page.locator('#jr').fill('Судья Исправленная')
+  await page.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(page.getByText('Судья Исправленная')).toBeVisible()
+  expect((await t.org('GET', `/tournaments/${t.id}`)).data.judges.find((j: { id: string }) => j.id === judge.id).name).toBe('Судья Исправленная')
+})

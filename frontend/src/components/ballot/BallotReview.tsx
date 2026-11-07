@@ -9,7 +9,6 @@ import { Card } from '@/components/ui/card'
 import { BackButton } from '@/components/layout/BackButton'
 import { BP_POINTS, sidesOf, useSides } from '@/lib/formats'
 import { quoted } from '@/lib/motion'
-import { FlowView } from './FlowSheet'
 
 // What organizers and admins see instead of the form: every judge's ballot as it was sent, read-only.
 // Tournament rules: only the judges decide; the organizer follows who has voted and reads the scores.
@@ -149,15 +148,9 @@ function JudgeBallot({ p, data }: { p: PanelBallot; data: BallotData }) {
           })}
         </div>
       )}
-      {(p.reason || (p.flow && Object.values(p.flow).some(x => x.length))) && (
-        <div className="space-y-3 border-t border-border px-5 py-4">
-          {p.reason && <div><p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t('flow.reason')}</p><p className="mt-1 whitespace-pre-line text-sm">{p.reason}</p></div>}
-          {p.flow && Object.values(p.flow).some(x => x.length) && (
-            <details>
-              <summary className="cursor-pointer text-sm font-semibold text-primary">{t('flow.show')}</summary>
-              <div className="mt-3"><FlowView formatCode={data.rules?.format ?? 'WSDC'} flow={p.flow} /></div>
-            </details>
-          )}
+      {p.reason && (
+        <div className="border-t border-border px-5 py-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{t('flow.reason')}</p><p className="mt-1 whitespace-pre-line text-sm">{p.reason}</p>
         </div>
       )}
     </Card>
