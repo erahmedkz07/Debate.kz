@@ -338,10 +338,14 @@ organizerRouter.get('/tournaments/:id/awards', org, async (req, res) => {
 
 organizerRouter.put('/tournaments/:id/awards', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  const d = body(req, z.object({ kind: z.enum(['best_speaker', 'best_judge']), personId: z.string().nullable() }))
-  const person = await setAward(param(req, 'id'), d.kind, d.personId)
+  const d = body(req, z.object({ kind: z.enum(['best_speaker', 'best_judge']), personId: z.string().nullable(), league: z.string().max(24).nullable().optional() }))
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, select: { leagues: true } })
+  // with leagues every award belongs to a league
+  const keys = leaguesOf(t).map(l => l.key)
+  if (keys.length ? !d.league || !keys.includes(d.league) : d.league) throw badRequest('invalid_league')
+  const person = await setAward(param(req, 'id'), d.kind, d.personId, d.league ?? null)
   if (person === undefined) throw badRequest('award_person_not_found')
-  res.json({ kind: d.kind, name: person?.name ?? null })
+  res.json({ kind: d.kind, league: d.league ?? null, name: person?.name ?? null })
 })
 
 // the selection lottery: a public random order of the applications; places go in that order

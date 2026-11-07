@@ -167,7 +167,7 @@ export interface TournamentDetails extends Tournament {
   rooms?: string[]
   roomLinks?: Record<string, string> // room name -> video call link
   roomLeagues?: Record<string, string> // with leagues: room name -> the league it is for
-  awards?: { kind: 'best_speaker' | 'best_judge'; name: string }[] // best speaker / best judge (public after the finish)
+  awards?: { kind: 'best_speaker' | 'best_judge'; name: string; league?: string }[] // best speaker / best judge (of each league; public after the finish)
   selectionMode?: 'manual' | 'first_come' | 'lottery' // how the places are filled
   clubQuota?: number // at most this many teams per club
   lotteryAt?: string // when the selection lottery was drawn
@@ -320,6 +320,7 @@ export interface Certificate {
   code: string
   kind: 'speaker' | 'judge' | 'award'
   award?: 'best_speaker' | 'best_judge' // an award diploma
+  league?: string // the league of an award diploma (its name)
   language?: 'ru' | 'kz' | 'en' // the language it is printed in (the holder's league); none = the reader's
   name: string
   teamName?: string

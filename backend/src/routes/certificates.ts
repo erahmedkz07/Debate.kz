@@ -28,11 +28,12 @@ async function languagesOf(rows: Row[]): Promise<Map<string, Lang>> {
   ])
   for (const c of rows) {
     const t = tournaments.find(x => x.id === c.tournamentId)
-    const key = c.speakerId ? speakers.find(s => s.id === c.speakerId)?.team.league : c.judgeId ? judges.find(j => j.id === c.judgeId)?.league : null
+    const key = c.league ?? (c.speakerId ? speakers.find(s => s.id === c.speakerId)?.team.league : c.judgeId ? judges.find(j => j.id === c.judgeId)?.league : null)
     const league = t && key ? leaguesOf(t).find(l => l.key === key) : undefined
     const only = t?.languages.filter(l => l === 'ru' || l === 'kz') ?? []
     const lang: Lang | undefined = league ? leagueLanguage(league) : only.length === 1 ? (only[0] as Lang) : undefined
-    if (lang && c.kind !== 'award') out.set(c.code, lang)
+    // an award diploma of a league is in the league's language; a tournament-wide one follows the reader
+    if (lang && (c.kind !== 'award' || c.league)) out.set(c.code, lang)
   }
   return out
 }
@@ -42,6 +43,7 @@ const shape = (c: Row, lang?: Lang) => ({
   teamPlace: c.teamPlace ?? undefined, inBreak: c.inBreak, speakerPlace: c.speakerPlace ?? undefined, issuedAt: toDay(c.issuedAt),
   ...(c.breakCategory && { breakCategory: c.breakCategory, categoryPlace: c.categoryPlace ?? undefined }),
   ...(c.award && { award: c.award }),
+  ...(c.league && { league: leaguesOf(c.tournament).find(l => l.key === c.league)?.name ?? c.league }),
   ...(lang && { language: lang }),
   tournament: {
     id: c.tournament.id, name: c.tournament.name, city: c.tournament.city, level: c.tournament.level, organizer: c.tournament.organizerName,

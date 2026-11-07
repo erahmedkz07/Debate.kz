@@ -237,9 +237,9 @@ function Overview({ data }: { data: TournamentDetails }) {
             <h2 className="flex items-center gap-2 text-xl font-bold"><Award className="size-5 text-primary" />{t('awards.title')}</h2>
             <ul className="mt-4 grid gap-3 sm:grid-cols-2">
               {data.awards.map(a => (
-                <li key={a.kind} className="flex items-center gap-3 rounded-xl bg-accent-soft px-4 py-3">
+                <li key={`${a.kind}-${a.league ?? ''}`} className="flex items-center gap-3 rounded-xl bg-accent-soft px-4 py-3">
                   <Medal className="size-6 shrink-0 text-navy dark:text-accent" />
-                  <span><span className="block text-xs font-semibold text-muted-foreground">{t(a.kind === 'best_judge' ? 'awards.bestJudge' : 'awards.bestSpeaker')}</span><span className="font-bold">{a.name}</span></span>
+                  <span><span className="block text-xs font-semibold text-muted-foreground">{t(a.kind === 'best_judge' ? 'awards.bestJudge' : 'awards.bestSpeaker')}{a.league ? ` · ${a.league}` : ''}</span><span className="font-bold">{a.name}</span></span>
                 </li>
               ))}
             </ul>

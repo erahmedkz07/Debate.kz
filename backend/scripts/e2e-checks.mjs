@@ -1972,7 +1972,9 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     await db.query('update speakers set user_id = $1 where id = $2', [a.id, sp.id])
     await a.c('POST', `/debates/${deb.id}/feedback`, { judgeId: deb.judge_id, score: 5 - (i === 2 ? 1 : 0) })
   }
-  const cand = (await host('GET', `/tournaments/${done}/awards`)).data
+  // a tournament without leagues: one group of candidates
+  const candAll = (await host('GET', `/tournaments/${done}/awards`)).data
+  const cand = { ...candAll.groups[0], preliminaryRounds: candAll.preliminaryRounds }
   ok(cand.speakers.length === 3 && cand.speakers.every(s => s.rounds >= cand.preliminaryRounds) && cand.speakers[0].total >= cand.speakers[1].total, 'the site suggests the top speakers who spoke in every preliminary round')
   ok(cand.judges[0]?.id === deb.judge_id && cand.judges[0].reviews === 3 && cand.judges[0].average === 4.7, 'and the judge with the best rating from the speakers (3+ reviews)')
   ok((await host('PUT', `/tournaments/${done}/awards`, { kind: 'best_speaker', personId: 'nobody' })).data?.error === 'award_person_not_found', 'an award goes to someone of this tournament')
@@ -3340,6 +3342,58 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   r = await host.c('POST', `/rounds/${r1.id}/rooms`, { propositionTeamId: other.data.id, oppositionTeamId: late2.data.id, room: 'Каб. 9', ...(free && { chairJudgeId: free.id }) })
   ok(r.status === 201 && r.data.ballotStatus === 'pending' && (!free || r.data.judgeIds[0] === free.id), 'two late teams get a room of their own, with a free judge')
   ok((await client()('POST', `/rounds/${r1.id}/rooms`, { propositionTeamId: other.data.id, oppositionTeamId: null, room: 'X' })).status === 401, 'only the organizer adds rooms')
+}
+
+// ---------- with leagues: a best speaker and a best judge in every league ----------
+{
+  const host = await newAccount('Награды Лиги Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(690), name: `Награды лиги ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'kz', name: 'Қазақ лигасы', language: 'kz' }, { key: 'en', name: 'English League', language: 'en' }] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'kz', names: ['НЛ Қаз 1', 'НЛ Қаз 2'] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'en', names: ['AL Eng 1', 'AL Eng 2'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['НЛ Судья Қаз'], league: 'kz' })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['AL Judge En'], league: 'en' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const r1 = d.rounds[0]
+  await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: 'ЭП отменит оценки', status: 'released' })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  for (const x of d.debates) {
+    const j = await judgeAs(x.judgeIds[0])
+    const sheet = (await j('GET', `/ballots/${x.id}`)).data
+    const scores = {}
+    sheet.proposition.speakers.forEach((s, i) => (scores[s.id] = 74 - i)); sheet.opposition.speakers.forEach(s => (scores[s.id] = 68))
+    await j('POST', `/ballots/${x.id}`, { winner: 'proposition', scores, reply: { proposition: 36, opposition: 34 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } })
+  }
+  await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })
+  const cand = (await host.c('GET', `/tournaments/${t.id}/awards`)).data
+  const kz = cand.groups.find(g => g.league === 'kz'), en = cand.groups.find(g => g.league === 'en')
+  const leagueOfTeam = name => d.teams.find(x => x.name === name).league
+  ok(cand.groups.length === 2 && kz.name === 'Қазақ лигасы' && kz.speakers.every(s => leagueOfTeam(s.team) === 'kz') && en.speakers.every(s => leagueOfTeam(s.team) === 'en'), 'every league has its own candidates, from its own table')
+  ok(en.otherJudges.every(j => j.name !== 'НЛ Судья Қаз'), "a league's judges are its own (or of any league)")
+  ok((await host.c('PUT', `/tournaments/${t.id}/awards`, { kind: 'best_speaker', personId: kz.speakers[0].id })).data?.error === 'invalid_league', 'with leagues an award names its league')
+  ok((await host.c('PUT', `/tournaments/${t.id}/awards`, { kind: 'best_speaker', personId: en.speakers[0].id, league: 'kz' })).data?.error === 'award_person_not_found', "a league's best speaker is from that league")
+  ok((await host.c('PUT', `/tournaments/${t.id}/awards`, { kind: 'best_speaker', personId: kz.speakers[0].id, league: 'kz' })).status === 200
+    && (await host.c('PUT', `/tournaments/${t.id}/awards`, { kind: 'best_speaker', personId: en.speakers[0].id, league: 'en' })).status === 200, 'each league gets its own best speaker')
+  const judgeEn = en.otherJudges.find(j => j.name === 'AL Judge En')
+  ok((await host.c('PUT', `/tournaments/${t.id}/awards`, { kind: 'best_judge', personId: judgeEn.id, league: 'en' })).status === 200, 'and its own best judge')
+  const chosen = (await host.c('GET', `/tournaments/${t.id}/awards`)).data.groups
+  ok(chosen.find(g => g.league === 'kz').chosen.best_speaker?.speakerId === kz.speakers[0].id && chosen.find(g => g.league === 'en').chosen.best_speaker?.speakerId === en.speakers[0].id, 'both choices are kept side by side')
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })
+  // the diplomas are issued in the background right after the finish: give it a moment
+  let certs = []
+  for (let i = 0; i < 30 && certs.length < 3; i++) {
+    certs = (await host.c('GET', `/tournaments/${t.id}/certificates`)).data.filter(c => c.kind === 'award')
+    if (certs.length < 3) await new Promise(res => setTimeout(res, 100))
+  }
+  const kzDiploma = certs.find(c => c.award === 'best_speaker' && c.league === 'Қазақ лигасы'), enDiploma = certs.find(c => c.award === 'best_speaker' && c.league === 'English League')
+  ok(certs.length === 3 && kzDiploma?.language === 'kz' && enDiploma?.language === 'en' && certs.some(c => c.award === 'best_judge' && c.league === 'English League'), `three diplomas: each names its league and is in its language ${certs.length === 3 && kzDiploma?.language === 'kz' ? '' : JSON.stringify(certs.map(c => [c.award, c.league, c.language]))}`)
+  const pub = (await client()('GET', `/tournaments/${t.id}`)).data.awards
+  ok(pub.length === 3 && pub.some(a => a.kind === 'best_speaker' && a.league === 'English League'), 'the tournament page lists every league\'s winners')
+  ok((await host.c('PUT', `/tournaments/${t.id}/awards`, { kind: 'best_judge', personId: null, league: 'en' })).status === 200
+    && !(await host.c('GET', `/tournaments/${t.id}/certificates`)).data.some(c => c.award === 'best_judge'), 'an award of one league is taken back with its diploma')
 }
 
 // ---------- errors are written down ----------

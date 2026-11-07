@@ -179,7 +179,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
     }),
     // best speaker / best judge: public once the tournament is finished, organizers see their choice before
-    ...((t.status === 'finished' || manager) && t.awards.length && { awards: t.awards.map(a => ({ kind: a.kind, name: a.name })) }),
+    ...((t.status === 'finished' || manager) && t.awards.length && { awards: t.awards.map(a => ({ kind: a.kind, name: a.name, ...(a.league && { league: leaguesOf(t).find(l => l.key === a.league)?.name ?? a.league }) })) }),
     // the selection lottery is public: its order is shown on the tournament page
     ...(t.lotteryAt && { lotteryAt: t.lotteryAt.toISOString() }),
     schedule: t.schedule.map(s => ({ day: s.day, time: s.time, title: s.title })),
