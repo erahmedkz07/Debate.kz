@@ -31,6 +31,8 @@ export interface Tournament {
   breakSize: number
   // formats with reply speeches only: false = the tournament runs without them
   replySpeeches?: boolean
+  // organizers only: the ballots' score ranges (the format's, or the tournament's own)
+  scoring?: { speakerMin: number; speakerMax: number; step: number; replyMin?: number; replyMax?: number }
   kind: TournamentKind
   registrationUrl?: string // a local tournament's own sign-up page (a Google Form…)
   breakCategories?: BreakCategory[] // extra brackets (novices, juniors…)

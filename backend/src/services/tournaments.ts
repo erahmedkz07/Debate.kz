@@ -136,6 +136,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
         orderBy: [{ rating: 'desc' }, { name: 'asc' }],
       },
       registrations: { where: { status: 'pending' }, select: { id: true } },
+      scoringConfig: true,
       awards: true,
     },
   })
@@ -171,6 +172,8 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       registrationOpen: t.registrationOpen,
       registrationDeadline: t.registrationDeadline ? toDay(t.registrationDeadline) : undefined,
       rooms: t.rooms, roomLinks: t.roomLinks as Record<string, string>, roomLeagues: (t.roomLeagues ?? {}) as Record<string, string>, pendingRegistrations: t.registrations.length,
+      // the score ranges of the ballots (the format's, or the organizer's own)
+      scoring: scoringOf(t),
       selectionMode: t.selectionMode, clubQuota: t.clubQuota ?? undefined,
       ...(t.drawOptions && { drawOptions: t.drawOptions as Record<string, unknown> }),
       myRole: link?.role ?? (viewer?.role === 'admin' ? 'admin' : undefined),
@@ -195,6 +198,15 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       // organizers: conflicts the draw respects (personal ones and the judge's club)
       ...(manager && { conflictTeamIds: j.conflicts.map(c => c.teamId), clubId: j.user?.clubMembership?.clubId ?? undefined, institutionId: j.institutionId ?? undefined }),
     })),
+  }
+}
+
+// the ballots' score ranges: the tournament's own, else its format's
+export function scoringOf(t: { format: string; scoringConfig: { speakerMin: unknown; speakerMax: unknown; replyMin: unknown; replyMax: unknown; step: unknown } | null }) {
+  const r = rulesOf(t.format), c = t.scoringConfig
+  return {
+    speakerMin: Number(c?.speakerMin ?? r.speaker[0]), speakerMax: Number(c?.speakerMax ?? r.speaker[1]), step: Number(c?.step ?? r.step),
+    ...(r.reply && { replyMin: Number(c?.replyMin ?? r.reply.range[0]), replyMax: Number(c?.replyMax ?? r.reply.range[1]) }),
   }
 }
 
