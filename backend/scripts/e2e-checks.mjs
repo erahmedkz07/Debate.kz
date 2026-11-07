@@ -3249,6 +3249,43 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(of('Eng One').length === 3 && of('Eng One').every(c => c.language === 'en') && of('Ағыл Қаз 1').every(c => c.language === 'kz'), "the English league's certificates are in English, the Kazakh league's in Kazakh")
 }
 
+// ---------- score ranges set by the organizer (a league that scores 50–80) ----------
+{
+  const host = await newAccount('Баллы Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(660), name: `Баллы ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const sc = (await host.c('GET', `/tournaments/${t.id}`)).data.scoring
+  ok(sc?.speakerMin === 60 && sc.speakerMax === 80 && sc.replyMin === 30 && sc.replyMax === 40 && sc.step === 0.5, 'the organizer sees the format\'s ranges (WSDC 60–80, reply 30–40)')
+  ok((await client()('GET', `/tournaments/${t.id}`)).data.scoring === undefined, 'visitors do not get the settings')
+  const set = scoring => host.c('PATCH', `/tournaments/${t.id}`, { scoring })
+  ok((await set({ speakerMin: 80, speakerMax: 60 })).data?.error === 'invalid_score_range', 'the lowest score is below the highest')
+  ok((await set({ speakerMin: 50.3, speakerMax: 80 })).data?.error === 'score_off_step', 'scores follow the step (0.5)')
+  ok((await client()('PATCH', `/tournaments/${t.id}`, { scoring: { speakerMin: 50, speakerMax: 80 } })).status === 401, 'only the organizer changes them')
+  r = await set({ speakerMin: 50, speakerMax: 80, replyMin: 25, replyMax: 40 })
+  const after = (await host.c('GET', `/tournaments/${t.id}`)).data.scoring
+  ok(r.status === 200 && after.speakerMin === 50 && after.replyMin === 25, 'the organizer sets 50–80 (reply 25–40)')
+
+  for (const n of ['Балл А', 'Балл Б']) await host.c('POST', `/tournaments/${t.id}/teams`, { name: n, institution: `Школа ${n}`, speakers: [`${n} Один`, `${n} Два`, `${n} Три`] })
+  await addJudge(host.c, t.id, 'Балл Судья')
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  const round = (await host.c('GET', `/tournaments/${t.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП отменит экзамены', status: 'released' })
+  const debate = (await host.c('GET', `/tournaments/${t.id}`)).data.debates.find(x => x.roundId === round.id)
+  const j = await judgeAs((await db.query('select judge_id from debate_judges where debate_id = $1', [debate.id])).rows[0].judge_id)
+  const sheet = (await j('GET', `/ballots/${debate.id}`)).data
+  ok(sheet.rules.speaker.join() === '50,80' && sheet.rules.reply.range.join() === '25,40', 'the ballot shows the new ranges')
+  const ballot = low => {
+    const scores = {}
+    sheet.proposition.speakers.forEach(x => (scores[x.id] = 60)); sheet.opposition.speakers.forEach(x => (scores[x.id] = low))
+    return { winner: 'proposition', scores, reply: { proposition: 30, opposition: 26 }, replySpeakers: { proposition: sheet.proposition.speakers[0].id, opposition: sheet.opposition.speakers[0].id } }
+  }
+  ok((await j('POST', `/ballots/${debate.id}`, ballot(49.5))).data?.error === 'speaker_score_out_of_range', 'a score below the new minimum is refused')
+  ok((await j('POST', `/ballots/${debate.id}`, ballot(52))).status === 201, 'a score of 52, below the format\'s 60, is accepted')
+  ok((await set({ speakerMin: 60, speakerMax: 80 })).data?.error === 'ballots_already_sent', 'after the first ballot the ranges are fixed')
+  ok((await set({ speakerMin: 50, speakerMax: 80, replyMin: 25, replyMax: 40 })).status === 200, 'saving the same ranges is fine')
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')

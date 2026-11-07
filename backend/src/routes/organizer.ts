@@ -166,6 +166,11 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     breakSize: z.number().int().min(2).max(MAX_BREAK).optional(),
     // reply speeches on or off: before the first ballot, so every debate of the tournament is scored the same way
     replySpeeches: z.boolean().optional(),
+    // the score ranges (a league that scores 50–80, not 60–80): before the first ballot, like the reply speeches
+    scoring: z.object({
+      speakerMin: z.number().min(0).max(100), speakerMax: z.number().min(1).max(100),
+      replyMin: z.number().min(0).max(100).optional(), replyMax: z.number().min(1).max(100).optional(),
+    }).optional(),
     // the kind: only while the tournament has no teams and no applications (else the rating would mix both)
     kind: z.enum(['open', 'local']).optional(),
     registrationUrl: httpsUrl.nullable().optional(), // null removes it
@@ -175,7 +180,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   }))
   const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })
   if (d.status) await assertStageChange(cur.id, d.status)
-  const { startDate, endDate, registrationDeadline, maxTeams, rooms, roomLinks, coverUrl, ...rest } = d
+  const { startDate, endDate, registrationDeadline, maxTeams, rooms, roomLinks, coverUrl, scoring, ...rest } = d
   const data: Prisma.TournamentUpdateInput = { ...rest }
 
   // dates: a finished tournament is history and stays as it was
@@ -239,6 +244,17 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   if (rest.breakSize !== undefined && rest.breakSize !== cur.breakSize) {
     if (elimination) throw forbidden('break_already_announced')
     if (!validBreak(rest.breakSize, cur.format === 'BP')) throw badRequest('break_too_small')
+  }
+  if (scoring) {
+    const sc = scoring
+    if (sc.speakerMin >= sc.speakerMax || (sc.replyMin !== undefined && sc.replyMax !== undefined && sc.replyMin >= sc.replyMax)) throw badRequest('invalid_score_range')
+    const cfg = await prisma.scoringConfig.findUnique({ where: { tournamentId: cur.id } }) ?? await prisma.scoringConfig.create({ data: { tournamentId: cur.id, ...scoringDefaults(cur.format) } })
+    const step = Number(cfg.step), onStep = (v: number) => Math.abs(v / step - Math.round(v / step)) < 1e-9
+    if (![sc.speakerMin, sc.speakerMax, sc.replyMin, sc.replyMax].every(v => v === undefined || onStep(v))) throw badRequest('score_off_step', { step })
+    const changed = Number(cfg.speakerMin) !== sc.speakerMin || Number(cfg.speakerMax) !== sc.speakerMax
+      || (sc.replyMin !== undefined && Number(cfg.replyMin) !== sc.replyMin) || (sc.replyMax !== undefined && Number(cfg.replyMax) !== sc.replyMax)
+    if (changed && await prisma.ballot.count({ where: { debate: { round: { tournamentId: cur.id } } } })) throw forbidden('ballots_already_sent')
+    if (changed) await prisma.scoringConfig.update({ where: { tournamentId: cur.id }, data: { speakerMin: sc.speakerMin, speakerMax: sc.speakerMax, ...(sc.replyMin !== undefined && { replyMin: sc.replyMin }), ...(sc.replyMax !== undefined && { replyMax: sc.replyMax }) } })
   }
   if (rest.replySpeeches !== undefined && rest.replySpeeches !== cur.replySpeeches) {
     if (!rulesOf(cur.format).reply) throw badRequest('format_has_no_replies')

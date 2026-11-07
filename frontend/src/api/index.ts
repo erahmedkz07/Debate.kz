@@ -330,6 +330,7 @@ export const updateTournament = (id: string, data: Partial<{
   preliminaryRounds: number
   breakSize: number
   replySpeeches: boolean
+  scoring: { speakerMin: number; speakerMax: number; replyMin?: number; replyMax?: number }
   kind: TournamentKind
   registrationUrl: string | null
   selectionMode: 'manual' | 'first_come' | 'lottery'

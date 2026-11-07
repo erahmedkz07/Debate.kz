@@ -85,3 +85,18 @@ test('the organizer enters a panel\'s ballots one after another: each judge gets
   await expect(page.getByRole('button', { name: 'Отправить бюллетень' })).toBeVisible()
   await expect(page.getByText('Бюллетень принят')).toHaveCount(0)
 })
+
+test('score ranges in the settings: 50–80, and the ballot follows them', async ({ page }) => {
+  const t = await leagueTournament()
+  await signIn(page, t.org.email, t.org.password)
+  await page.goto(`/dashboard/tournaments/${t.id}/settings?part=conduct`)
+  await page.locator('#sc-speakerMin').fill('50')
+  // the only enabled "Save": the card with a change
+  await page.locator('button:enabled', { hasText: 'Сохранить' }).click()
+  await expect(page.getByText('Сохранено', { exact: true }).first()).toBeVisible()
+  expect((await t.org('GET', `/tournaments/${t.id}`)).data.scoring.speakerMin).toBe(50)
+  const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)
+  const judge = t.details.judges.find((j: { id: string }) => j.id === room.judgeIds[0])
+  await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
+  await expect(page.locator('input[inputmode="decimal"]').first()).toHaveAttribute('placeholder', '50–80')
+})

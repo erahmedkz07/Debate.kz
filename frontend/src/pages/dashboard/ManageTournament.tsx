@@ -611,6 +611,58 @@ function KindCard({ data, reload }: SectionProps) {
   )
 }
 
+/* ---------- Score ranges ---------- */
+// The lowest and highest score of a speech (and of a reply): the format's by default (WSDC 60–80), a league may score
+// 50–80. Changed only before the first ballot, so every debate of the tournament is scored the same way.
+function ScoringCard({ data, reload }: SectionProps) {
+  const { t } = useTranslation()
+  const { busy, run } = useAction()
+  const s = data.scoring!
+  const replies = s.replyMin !== undefined && data.replySpeeches !== false
+  const saved = () => ({ speakerMin: String(s.speakerMin), speakerMax: String(s.speakerMax), replyMin: String(s.replyMin ?? ''), replyMax: String(s.replyMax ?? '') })
+  const [form, setForm] = useState(saved)
+  useEffect(() => setForm(saved()), [s.speakerMin, s.speakerMax, s.replyMin, s.replyMax]) // eslint-disable-line react-hooks/exhaustive-deps
+  const locked = data.debates.some(d => d.ballotStatus && d.ballotStatus !== 'pending')
+  const n = (v: string) => Number(v.replace(',', '.'))
+  const onStep = (v: string) => v.trim() !== '' && Number.isFinite(n(v)) && Math.abs(n(v) / s.step - Math.round(n(v) / s.step)) < 1e-9
+  const valid = onStep(form.speakerMin) && onStep(form.speakerMax) && n(form.speakerMin) < n(form.speakerMax) && n(form.speakerMax) <= 100
+    && (!replies || (onStep(form.replyMin) && onStep(form.replyMax) && n(form.replyMin) < n(form.replyMax)))
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved())
+  const save = async () => {
+    const scoring = { speakerMin: n(form.speakerMin), speakerMax: n(form.speakerMax), ...(replies && { replyMin: n(form.replyMin), replyMax: n(form.replyMax) }) }
+    if (await run('scoring', () => updateTournament(data.id, { scoring }), t('common.saved'))) reload()
+  }
+  const field = (k: keyof ReturnType<typeof saved>, label: string) => (
+    <div>
+      <Label htmlFor={`sc-${k}`}>{label}</Label>
+      {locked ? <p className="text-sm font-semibold">{form[k]}</p> : (
+        <Input id={`sc-${k}`} inputMode="decimal" value={form[k]} aria-invalid={!onStep(form[k])} onChange={e => setForm({ ...form, [k]: e.target.value })} />
+      )}
+    </div>
+  )
+  return (
+    <Card className="space-y-4 p-6">
+      <div>
+        <h3 className="flex items-center gap-2 font-bold"><Scale className="size-4 text-primary" />{t('dashboard.scoring.title')}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{t(locked ? 'dashboard.scoring.locked' : 'dashboard.scoring.text', { step: s.step })}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {field('speakerMin', t('dashboard.scoring.speakerMin'))}
+        {field('speakerMax', t('dashboard.scoring.speakerMax'))}
+        {replies && field('replyMin', t('dashboard.scoring.replyMin'))}
+        {replies && field('replyMax', t('dashboard.scoring.replyMax'))}
+      </div>
+      {!locked && (
+        <div className="flex items-center justify-end gap-2">
+          {dirty && !valid && <p className="mr-auto text-xs text-danger">{t('dashboard.scoring.invalid', { step: s.step })}</p>}
+          {dirty && <Button variant="ghost" onClick={() => setForm(saved())}>{t('common.cancel')}</Button>}
+          <Button disabled={!dirty || !valid || busy === 'scoring'} onClick={save}>{t('common.save')}</Button>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 /* ---------- Reply speeches ---------- */
 // WSDC, APF and Asian have reply speeches; a league may run without them. Changed only before the first ballot, so every
 // debate of the tournament is scored the same way (the server checks it too).
@@ -2095,6 +2147,7 @@ function SettingsSection({ data, reload }: SectionProps) {
             <TabsContent value="conduct" className="space-y-5">
               <RoundsBreakCard data={data} reload={reload} />
               {data.replySpeeches !== undefined && <RepliesCard data={data} reload={reload} />}
+              {data.scoring && <ScoringCard data={data} reload={reload} />}
               <RoomsCard data={data} reload={reload} />
               <LeaguesCard data={data} reload={reload} />
               {!data.rounds.some(r => r.kind === 'elimination') && <CategoriesCard data={data} reload={reload} />}
