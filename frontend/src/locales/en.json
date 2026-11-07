@@ -1,0 +1,22 @@
+{
+  "certificate": {
+    "diploma": "Diploma",
+    "certificate": "Certificate",
+    "awardedTo": "is awarded to",
+    "judge": "For adjudicating the tournament",
+    "teamPlace": "{{n}} place in the team standings as a member of team «{{team}}»",
+    "break": "Reached the playoffs (break) as a member of team «{{team}}»",
+    "participant": "For taking part as a member of team «{{team}}»",
+    "speakerPlace": "{{n}} place in the speaker standings",
+    "categoryPlace": "{{n}} place — {{category}}, as a member of team «{{team}}»",
+    "awardTitle": {
+      "best_speaker": "Best speaker of the tournament",
+      "best_judge": "Best adjudicator of the tournament"
+    },
+    "ofTeam": "Team «{{team}}»",
+    "organizer": "Organizer",
+    "issued": "Date of issue",
+    "verify": "Verify:",
+    "number": "Certificate number"
+  }
+}

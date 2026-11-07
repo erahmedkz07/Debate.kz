@@ -170,7 +170,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     kind: z.enum(['open', 'local']).optional(),
     registrationUrl: httpsUrl.nullable().optional(), // null removes it
     // leagues inside the tournament (a Russian and a Kazakh league): set before the first draw
-    leagues: z.array(z.object({ key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), breakSize: z.number().int().min(2).max(MAX_BREAK).optional(), language: z.enum(['kz', 'ru']).optional() })).max(4).optional(),
+    leagues: z.array(z.object({ key: z.string().regex(/^[a-z0-9-]{1,24}$/), name: z.string().trim().min(2).max(40), breakSize: z.number().int().min(2).max(MAX_BREAK).optional(), language: z.enum(['kz', 'ru', 'en']).optional() })).max(4).optional(),
     coverUrl: z.string().max(500).refine(isAllowedCover, 'cover').nullable().optional(), // null = back to the default template
   }))
   const cur = await prisma.tournament.findUniqueOrThrow({ where: { id: param(req, 'id') }, include: { rounds: true, _count: { select: { teams: { where: { swing: false } } } } } })

@@ -3225,6 +3225,30 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(r.data?.error === 'different_leagues', 'with leagues a team never moves into another league\'s room')
 }
 
+// ---------- an English league: its certificates are printed in English ----------
+{
+  const host = await newAccount('Ағылшын Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(650), name: `Ағылшын ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  r = await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'kz', name: 'Қазақ лигасы', language: 'kz' }, { key: 'en', name: 'English League', language: 'en' }] })
+  ok(r.status === 200 && r.data.leagues.find(l => l.key === 'en')?.language === 'en', 'a league may be English')
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { leagues: [{ key: 'kz', name: 'Қазақ лигасы', language: 'de' }, { key: 'en', name: 'English League', language: 'en' }] })).status === 400, 'only Kazakh, Russian or English')
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'kz', names: ['Ағыл Қаз 1', 'Ағыл Қаз 2'] })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { league: 'en', names: ['Eng One', 'Eng Two'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Ағыл Судья 1', 'Ағыл Судья 2'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  await host.c('POST', `/rounds/${d.rounds[0].id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${d.rounds[0].id}`, { motion: 'This House would ban homework', status: 'released' })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  for (const x of d.debates) await host.c('POST', `/debates/${x.id}/forfeit`, { side: 'opposition' })
+  await host.c('PATCH', `/rounds/${d.rounds[0].id}`, { status: 'completed' })
+  ok((await host.c('PATCH', `/tournaments/${t.id}`, { status: 'finished' })).status === 200, 'the tournament is finished')
+  const certs = (await host.c('GET', `/tournaments/${t.id}/certificates`)).data
+  const of = team => certs.filter(c => c.teamName === team)
+  ok(of('Eng One').length === 3 && of('Eng One').every(c => c.language === 'en') && of('Ағыл Қаз 1').every(c => c.language === 'kz'), "the English league's certificates are in English, the Kazakh league's in Kazakh")
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')

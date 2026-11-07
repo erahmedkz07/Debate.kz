@@ -38,7 +38,7 @@ export interface Tournament {
   languages: Lang[]
 }
 
-export interface League { key: string; name: string; breakSize?: number; language?: 'kz' | 'ru' } // breakSize: the league's own break (else the tournament's); language: its certificates' and order's language
+export interface League { key: string; name: string; breakSize?: number; language?: 'kz' | 'ru' | 'en' } // breakSize: the league's own break (else the tournament's); language: its certificates' and order's language
 
 export interface Speaker {
   id: string
@@ -318,7 +318,7 @@ export interface Certificate {
   code: string
   kind: 'speaker' | 'judge' | 'award'
   award?: 'best_speaker' | 'best_judge' // an award diploma
-  language?: 'ru' | 'kz' // the language it is printed in (the holder's league); none = the reader's
+  language?: 'ru' | 'kz' | 'en' // the language it is printed in (the holder's league); none = the reader's
   name: string
   teamName?: string
   institution?: string
