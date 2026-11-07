@@ -31,6 +31,11 @@ i18n.use(initReactI18next).init({
 })
 
 async function loadLanguage(lng: string) {
+  // English: only what a certificate of an English league prints (the site itself is Kazakh and Russian)
+  if (lng === 'en') {
+    if (!i18n.hasResourceBundle('en', 'translation')) i18n.addResourceBundle('en', 'translation', (await import('@/locales/en.json')).default)
+    return
+  }
   if (lng !== 'kz' || i18n.hasResourceBundle('kz', 'translation')) return
   const kz = (await import('@/locales/kz.json')).default
   i18n.addResourceBundle('kz', 'translation', withRussianPluralForms(kz as Tree))

@@ -12,7 +12,7 @@ import { certificateInclude, ensureCertificates } from '../services/certificates
 export const certificatesRouter = Router()
 
 type Row = Prisma.CertificateGetPayload<{ include: typeof certificateInclude }>
-type Lang = 'ru' | 'kz'
+type Lang = 'ru' | 'kz' | 'en' // an English league's certificates are printed in English
 
 // A certificate speaks its holder's language: a speaker of the Kazakh league gets it in Kazakh, of the Russian league
 // in Russian, and a judge of a league likewise (the league's language: chosen by the organizer, else from its name).

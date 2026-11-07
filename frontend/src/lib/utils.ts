@@ -30,7 +30,7 @@ function formatKz(d: Date, o: Intl.DateTimeFormatOptions) {
 
 // one place for every date on the site, in the current language (or a given one: a certificate in its own language)
 export function formatDateObj(d: Date, opts: Intl.DateTimeFormatOptions, lang: string = i18n.language) {
-  return lang === 'kz' ? formatKz(d, opts) : new Intl.DateTimeFormat('ru-RU', opts).format(d)
+  return lang === 'kz' ? formatKz(d, opts) : new Intl.DateTimeFormat(lang === 'en' ? 'en-GB' : 'ru-RU', opts).format(d)
 }
 
 export function formatDate(iso: string, opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long' }, lang?: string) {

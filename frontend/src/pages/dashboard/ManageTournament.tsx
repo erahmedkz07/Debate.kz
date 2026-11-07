@@ -709,8 +709,8 @@ function LeaguesCard({ data, reload }: SectionProps) {
               <Input value={l.name} maxLength={40} aria-label={t('leagues.name', { n: i + 1 })} onChange={e => setList(list.map(x => (x.key === l.key ? { ...x, name: e.target.value } : x)))} />
               {/* the league's language: its certificates are printed in it; a Kazakh league comes first everywhere */}
               <Select size="sm" className="w-32 shrink-0" aria-label={t('leagues.language', { n: i + 1 })} value={l.language ?? (/[әғқңөұүһі]/i.test(l.name) ? 'kz' : 'ru')}
-                onValueChange={v => setList(list.map(x => (x.key === l.key ? { ...x, language: v as 'kz' | 'ru' } : x)))}
-                options={[{ value: 'kz', label: t('leagues.langKz') }, { value: 'ru', label: t('leagues.langRu') }]} />
+                onValueChange={v => setList(list.map(x => (x.key === l.key ? { ...x, language: v as 'kz' | 'ru' | 'en' } : x)))}
+                options={[{ value: 'kz', label: t('leagues.langKz') }, { value: 'ru', label: t('leagues.langRu') }, { value: 'en', label: 'English' }]} />
               {!drawn && (
                 <Button variant="ghost" size="icon" aria-label={t('common.delete')} onClick={() => setList(list.filter(x => x.key !== l.key))}><Trash2 className="size-4" /></Button>
               )}
