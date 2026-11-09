@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
@@ -17,6 +17,7 @@ import { motionFor, participationIn, publicWhere, summaryInclude, toSummary } fr
 import { placeOf, sideLabel, sidesInDebate } from '../services/formats.js'
 import { hiddenRoundIds } from '../services/silent.js'
 import { onApplication } from '../services/selection.js'
+import { withLock } from '../lib/lock.js'
 import { STRIKE_LIMIT } from '../services/watchdog.js'
 
 export const meRouter = Router()
@@ -189,7 +190,10 @@ const registrationSchema = z.object({
 
 // any verified user can register a team; the organizer confirms later.
 // Judges and organizers of this tournament cannot compete in it (conflict of interest).
-meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, async (req, res) => {
+// one application at a time per tournament: two teams sending at once for the last place (or a double click) are
+// handled one after the other, never both given that place
+meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, (req, res) => withLock(`places:${param(req, 'id')}`, () => apply(req, res)))
+async function apply(req: Request, res: Response) {
   const data = body(req, registrationSchema)
   const t = await prisma.tournament.findFirst({ where: { id: param(req, 'id'), ...publicWhere }, include: { _count: { select: { teams: { where: { swing: false } } } } } })
   if (!t) throw notFound('tournament_not_found')
@@ -223,4 +227,4 @@ meRouter.post('/tournaments/:id/registrations', requireAuth(), requireVerified, 
   // applications are unlimited; first come (or after a lottery) a place is given at once while places last
   const status = await onApplication(reg.id)
   res.status(201).json({ ...reg, status, createdAt: toDay(reg.createdAt) })
-})
+}

@@ -1920,6 +1920,25 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await host.c('POST', `/tournaments/${lt.id}/selection/lottery`)).data?.error === 'lottery_done', 'the lottery is drawn once')
   r = await apply(people[5], lt, 5)
   ok(r.data?.status === 'waitlisted' && (await client()('GET', `/tournaments/${lt.id}/selection`)).data.lottery.find(x => x.team === 'Отбор 5')?.rank === 6, 'a late application joins the end of the waitlist')
+
+  // at the same moment: two teams for the last place, an application sent twice, the lottery drawn twice
+  const race = await mk(3)
+  await host.c('PATCH', `/tournaments/${race.id}`, { selectionMode: 'first_come', clubQuota: 3 })
+  for (const i of [0, 1, 3]) await apply(people[i], race, i)
+  const last = await Promise.all([apply(people[4], race, 4), apply(people[5], race, 5)])
+  ok(last.every(x => x.status === 201) && last.map(x => x.data.status).sort().join() === 'confirmed,waitlisted', `two teams at once for the last place: one gets it, the other waits (${last.map(x => x.data?.status)})`)
+  ok((await host.c('GET', `/tournaments/${race.id}`)).data.teams.filter(x => !x.swing).length === 4, 'the limit of 4 teams holds')
+  const dbl = await Promise.all([apply(people[2], race, 2), apply(people[2], race, 2)])
+  const rows = Number((await db.query('select count(*) from team_registrations where tournament_id = $1 and team_name = $2', [race.id, 'Отбор 2'])).rows[0].count)
+  ok(dbl.every(x => x.status < 500) && rows === 1, `an application sent twice at once is kept once (${dbl.map(x => x.status)})`)
+  // (another organizer: the first one has reached the limit of active tournaments)
+  const host2 = await newAccount('Отбор Организатор Два')
+  const lt2 = (await host2.c('POST', '/tournaments', { ...tBody(184), name: `Отбор 4 ${jtag}`, maxTeams: 4, kind: 'open', selectionMode: 'lottery' })).data
+  await admin('PATCH', `/admin/tournaments/${lt2.id}`, { moderation: 'approved' })
+  await host2.c('PATCH', `/tournaments/${lt2.id}`, { selectionMode: 'lottery' })
+  for (const [i, p] of people.slice(0, 5).entries()) await apply(p, lt2, i)
+  const draws = await Promise.all([host2.c('POST', `/tournaments/${lt2.id}/selection/lottery`), host2.c('POST', `/tournaments/${lt2.id}/selection/lottery`)])
+  ok(draws.map(x => x.status).sort().join() === '201,400' && (await host2.c('GET', `/tournaments/${lt2.id}`)).data.teams.filter(x => !x.swing).length === 4, `the lottery pressed twice at once is drawn once (${draws.map(x => x.status)})`)
 }
 // ---------- 50. tournament reviews: everyone who took part rates a finished tournament ----------
 {
@@ -3553,6 +3572,76 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     if (certs.length < people) problems.push(`certificates ${certs.length} of ${people}`)
     ok(problems.length === 0, `${format}: a whole tournament — no-show (BP: 4th, three placed), tie refused, team leaves mid-round, late team, break, playoffs, champion, certificates${problems.length ? ` ✗ ${problems.slice(0, 4).join(' | ')}` : ''}`)
   }
+}
+
+// ---------- at the same moment: double clicks and a whole panel at once ----------
+{
+  const host = await newAccount('Одновременно Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(770), name: `Одновременно ${jtag}`, preliminaryRounds: 2, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { names: ['Одн 1', 'Одн 2', 'Одн 3', 'Одн 4'] })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Одн Судья 1', 'Одн Судья 2', 'Одн Судья 3', 'Одн Судья 4', 'Одн Судья 5', 'Одн Судья 6'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const r1 = d.rounds[0]
+  // "generate" pressed twice: one draw, no team twice
+  const twice = await Promise.all([host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false }), host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })])
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const rooms = d.debates.filter(x => x.roundId === r1.id)
+  const seated = rooms.flatMap(x => [x.propositionTeamId, x.oppositionTeamId])
+  ok(twice.every(x => x.status < 500) && rooms.length === 2 && new Set(seated).size === 4, `a draw generated twice at once leaves one draw (${twice.map(x => x.status)} → ${rooms.length} rooms)`)
+  // a panel of three in a room
+  const [roomA, roomB] = rooms
+  // a panel of three in room A: its chair and two judges who are not in room B (the draw may have seated them already)
+  const wings = d.judges.filter(j => j.id !== roomA.judgeIds[0] && !roomB.judgeIds.includes(j.id)).slice(0, 2).map(j => j.id)
+  await host.c('PATCH', `/debates/${roomA.id}`, { wingJudgeIds: wings })
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: 'ЭП отменит оценки', status: 'released' })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const panelA = d.debates.find(x => x.id === roomA.id).judgeIds
+  const keyOf = id => d.judges.find(j => j.id === id).accessKey
+  const asKey = key => (method, path, body) => fetch(A + path, { method, headers: { 'X-Judge-Key': key, ...(body && { 'Content-Type': 'application/json' }) }, body: body && JSON.stringify(body) }).then(async r => ({ status: r.status, data: await r.json().catch(() => null) }))
+  const sheetA = (await asKey(keyOf(panelA[0]))('GET', `/ballots/${roomA.id}`)).data
+  const ballot = win => {
+    const scores = {}, lo = win === 'proposition' ? 'opposition' : 'proposition'
+    sheetA[win].speakers.forEach(x => (scores[x.id] = 74)); sheetA[lo].speakers.forEach(x => (scores[x.id] = 70))
+    return { winner: win, scores, reply: { [win]: 37, [lo]: 34 }, replySpeakers: { proposition: sheetA.proposition.speakers[0].id, opposition: sheetA.opposition.speakers[0].id } }
+  }
+  // the same judge presses "send" twice: one ballot
+  const dbl = await Promise.all([asKey(keyOf(panelA[0]))('POST', `/ballots/${roomA.id}`, ballot('proposition')), asKey(keyOf(panelA[0]))('POST', `/ballots/${roomA.id}`, ballot('proposition'))])
+  const count = Number((await db.query('select count(*) from ballots where debate_id = $1 and judge_id = $2', [roomA.id, panelA[0]])).rows[0].count)
+  ok(dbl.every(x => x.status < 500) && dbl.some(x => x.status === 201) && count === 1, `a ballot sent twice at once is kept once (${dbl.map(x => x.status)})`)
+  // the rest of the panel at the same second (2:1 for the proposition)
+  const rest = await Promise.all([asKey(keyOf(panelA[1]))('POST', `/ballots/${roomA.id}`, ballot('proposition')), asKey(keyOf(panelA[2]))('POST', `/ballots/${roomA.id}`, ballot('opposition'))])
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  ok(rest.every(x => x.status === 201) && d.debates.find(x => x.id === roomA.id).winner === 'proposition', 'a whole panel voting at once: every ballot counts, the majority decides')
+  // the last ballot and "complete" at the same moment: either the round closes with the result or it is refused cleanly
+  const sheetB = (await asKey(keyOf(roomB.judgeIds[0]))('GET', `/ballots/${roomB.id}`)).data
+  const scoresB = {}
+  sheetB.proposition.speakers.forEach(x => (scoresB[x.id] = 75)); sheetB.opposition.speakers.forEach(x => (scoresB[x.id] = 71))
+  const ballotB = { winner: 'proposition', scores: scoresB, reply: { proposition: 36, opposition: 33 }, replySpeakers: { proposition: sheetB.proposition.speakers[0].id, opposition: sheetB.opposition.speakers[0].id } }
+  // every judge of room B but the last has voted; the last one's ballot and "complete" come together
+  const panelB = d.debates.find(x => x.id === roomB.id).judgeIds
+  for (const jid of panelB.slice(0, -1)) await asKey(keyOf(jid))('POST', `/ballots/${roomB.id}`, ballotB)
+  const race = await Promise.all([
+    asKey(keyOf(panelB.at(-1)))('POST', `/ballots/${roomB.id}`, ballotB),
+    host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' }),
+  ])
+  ok(race.every(x => x.status < 500), `the last ballot and "complete round" at once: no server error (${race.map(x => x.status)})`)
+  if (race[1].status !== 200) await host.c('PATCH', `/rounds/${r1.id}`, { status: 'completed' })
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  ok(d.rounds[0].status === 'completed' && d.debates.filter(x => x.roundId === r1.id).every(x => x.winner), 'the round ends complete, every room with its result')
+  // the second round by technical results, then "announce the break" pressed twice: one set of play-off rounds
+  const r2 = d.rounds[1]
+  await host.c('POST', `/rounds/${r2.id}/draw`, { addSwing: false })
+  // "publish" pressed twice: published once (the news goes out once), the second press is told it is done already
+  const pub = await Promise.all([host.c('PATCH', `/rounds/${r2.id}`, { motion: 'ЭП отменит оценки', status: 'released' }), host.c('PATCH', `/rounds/${r2.id}`, { motion: 'ЭП отменит оценки', status: 'released' })])
+  ok(pub.map(x => x.status).sort().join() === '200,400' && pub.some(x => x.data?.error === 'invalid_status_transition'), `a round published twice at once is published once (${pub.map(x => x.status)})`)
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  for (const x of d.debates.filter(y => y.roundId === r2.id)) await host.c('POST', `/debates/${x.id}/forfeit`, { side: 'opposition' })
+  await host.c('PATCH', `/rounds/${r2.id}`, { status: 'completed' })
+  const brk = await Promise.all([host.c('POST', `/tournaments/${t.id}/break`), host.c('POST', `/tournaments/${t.id}/break`)])
+  d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  ok(brk.every(x => x.status < 500) && brk.some(x => x.status === 201) && d.rounds.filter(x => x.kind === 'elimination').length === 1, `the break announced twice at once is announced once (${brk.map(x => x.status)} → ${d.rounds.filter(x => x.kind === 'elimination').length} play-off round)`)
 }
 
 // ---------- errors are written down ----------

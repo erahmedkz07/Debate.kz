@@ -30,6 +30,13 @@ export function scoreState(s: string, r: ScoreRange): 'done' | 'maybe' | 'no' {
 export function focusNextScore(from: HTMLInputElement) {
   const fields = [...document.querySelectorAll<HTMLInputElement>('input[data-score]')]
   const next = fields[fields.indexOf(from) + 1]
-  if (next) { next.focus(); next.select() }
-  return !!next
+  if (!next) return false
+  next.focus({ preventScroll: true })
+  next.select()
+  // on a phone the sticky totals (top) and the send bar (bottom) cover part of the screen, and the on-screen keyboard
+  // covers more: a field outside the free middle part is brought to the middle
+  const height = window.visualViewport?.height ?? window.innerHeight
+  const r = next.getBoundingClientRect()
+  if (r.top < 140 || r.bottom > height - 120) next.scrollIntoView({ block: 'center' })
+  return true
 }

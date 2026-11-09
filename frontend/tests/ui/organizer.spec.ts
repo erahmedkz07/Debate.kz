@@ -85,7 +85,7 @@ test('a local tournament: teams pasted from a Google Form table, with real names
   ]
   await page.locator('#pt').fill(rows.map(r => r.join('\t')).join('\n'))
   await expect(page.getByText('Готово к добавлению: 2')).toBeVisible()
-  await expect(page.getByText('Нужно 3 спикер(а), имя и фамилия каждого')).toBeVisible()
+  await expect(page.getByText('Спикеров нужно: 3, имя и фамилия каждого')).toBeVisible()
   await page.getByRole('button', { name: /^Добавить 2/ }).click()
   await expect(page.getByRole('cell', { name: 'Айгерім Сапарова, Данияр Ержанов, Мадина Ахметова' })).toBeVisible()
   await expect(page.getByRole('cell', { name: 'Иван Петров, Анна Ким, Олжас Нуров' })).toBeVisible()
