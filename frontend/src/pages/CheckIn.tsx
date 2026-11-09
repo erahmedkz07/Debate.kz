@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, Loader2, QrCode, XCircle } from 'lucide-react'
@@ -30,7 +30,13 @@ export default function CheckIn() {
     }
   }
   // the QR already carries the code: no typing needed
-  useEffect(() => { if (params.get('code')) void submit(params.get('code')!) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // once: sent twice (a remount), the second answer "already checked in" would hide the first one
+  const sent = useRef(false)
+  useEffect(() => {
+    if (sent.current || !params.get('code')) return
+    sent.current = true
+    void submit(params.get('code')!)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="container-page flex justify-center py-12">

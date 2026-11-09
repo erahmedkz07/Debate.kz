@@ -75,7 +75,8 @@ export function AvatarEditor({ className }: { className?: string }) {
           <Trash2 className="size-3.5" />
         </button>
       )}
-      <input ref={input} type="file" accept={TYPES.join(',')} className="sr-only" onChange={e => pick(e.target.files?.[0])} />
+      {/* opened by the photo button above: kept out of the Tab order, and named for screen readers all the same */}
+      <input ref={input} type="file" accept={TYPES.join(',')} className="sr-only" tabIndex={-1} aria-label={t('profile.avatar.change')} onChange={e => pick(e.target.files?.[0])} />
     </div>
   )
 }

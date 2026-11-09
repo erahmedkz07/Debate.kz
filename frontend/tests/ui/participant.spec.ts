@@ -80,3 +80,33 @@ test('a participant on a phone: sign-up, email, club, team, application', async 
   expect(regs.map((r: { teamName: string; status: string }) => [r.teamName, r.status])).toEqual([['Ақ Сұңқар', 'confirmed']])
   expect(errors, errors.join('\n')).toEqual([])
 })
+
+// the morning of the tournament: a team member scans the venue QR on a phone that is not signed in; after signing in
+// the phone comes back to the check-in with the code and the team is marked present
+test('check-in by the venue QR: signed out → sign in → back, the team is present', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const host = await newAccount('UI Хозяин Отметки')
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const t = (await host.c('POST', '/tournaments', { name: `UI отметка ${tag()}`, city: 'Астана', startDate: day, endDate: day, level: 'university', description: '', preliminaryRounds: 2, breakSize: 2, maxTeams: 8, registrationOpen: true, requireApproval: false, languages: ['ru'], kind: 'open' })).data
+  const ad = await admin()
+  await ad('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('PATCH', `/tournaments/${t.id}`, { selectionMode: 'first_come' })
+  // a participant with a club and a team, applied and given a place
+  const p = await newAccount('Ернар Отмеченный')
+  const club = (await p.c('POST', '/clubs', { name: `UI клуб ${tag()}`, city: 'Астана' })).data
+  await ad('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+  await p.c('POST', `/clubs/${club.id}/teams`, { name: 'Көкжал', join: true })
+  const reg = await p.c('POST', `/tournaments/${t.id}/registrations`, { teamName: 'Көкжал', institution: 'ЕНУ', speakers: ['Ернар Отмеченный', 'Бота Ахмет', 'Ілияс Қали'], phone: '+7 701 555 44 33' })
+  expect(reg.data?.status).toBe('confirmed')
+  const code = (await host.c('POST', `/tournaments/${t.id}/checkin/code`)).data.code
+
+  await page.goto(`/checkin/${t.id}?code=${code}`)
+  await expect(page).toHaveURL(/\/login/)
+  await page.locator('#email').fill(p.email)
+  await page.locator('#password').fill(p.password)
+  await page.getByRole('button', { name: 'Войти', exact: true }).click()
+  await expect(page.getByText('Команда отмечена!')).toBeVisible()
+  await expect(page.getByText(/«Көкжал» — вы на месте/)).toBeVisible()
+  const teams = (await host.c('GET', `/tournaments/${t.id}`)).data.teams
+  expect(teams.find((x: { name: string }) => x.name === 'Көкжал').checkedIn ?? teams.find((x: { name: string }) => x.name === 'Көкжал').checkedInAt).toBeTruthy()
+})
