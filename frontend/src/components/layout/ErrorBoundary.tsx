@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { RefreshCw, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { reportError } from '@/lib/reportError'
+import { isStaleBuild, reloadForNewBuild } from '@/lib/staleBuild'
 
 // A crash while drawing one page must not leave a white screen: the visitor gets a message and a way out.
 // A new page (another address) starts clean. A failed lazy chunk (the site was updated) is fixed by a reload.
@@ -13,6 +14,8 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
     return { failed: true }
   }
   componentDidCatch(error: unknown) {
+    // a new version of the site came out while the tab was open: load it instead of showing the crash
+    if (isStaleBuild(error) && reloadForNewBuild()) return
     console.error(error)
     reportError(error)
   }

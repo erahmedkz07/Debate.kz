@@ -14,7 +14,7 @@ const PAGE = 24
 const schema = z.object({
   search: z.string().trim().max(100).optional(),
   level: z.enum(['school', 'university']).optional(),
-  lang: z.enum(['ru', 'kz']).optional(),
+  lang: z.enum(['ru', 'kz', 'en']).optional(),
   topic: z.enum(TOPICS).optional(),
   page: z.coerce.number().int().min(1).max(500).default(1),
 })

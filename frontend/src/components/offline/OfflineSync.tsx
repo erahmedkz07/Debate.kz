@@ -17,13 +17,13 @@ export function OfflineSync() {
   const [waiting, setWaiting] = useState(0)
   const [busy, setBusy] = useState(false)
 
-  const count = useCallback(() => setWaiting(user ? pendingBallots(user.id).length : 0), [user])
+  const count = useCallback(() => setWaiting(pendingBallots(user?.id ?? null).length), [user])
 
   const flush = useCallback(async (manual = false) => {
-    if (!user || !pendingBallots(user.id).length) return
+    if (!pendingBallots(user?.id ?? null).length) return
     setBusy(true)
     try {
-      const r = await flushBallots(user.id)
+      const r = await flushBallots(user?.id ?? null)
       if (r.sent.length) toast.success(t('offline.sent', { count: r.sent.length }))
       for (const { ballot, code } of r.rejected) toast.error(t('offline.rejected', { label: ballot.label, reason: apiErrorText(code, t) }), { duration: 15_000 })
       if (manual && r.waiting) toast.info(t('offline.stillOffline'))

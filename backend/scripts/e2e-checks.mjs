@@ -3268,6 +3268,10 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const certs = (await host.c('GET', `/tournaments/${t.id}/certificates`)).data
   const of = team => certs.filter(c => c.teamName === team)
   ok(of('Eng One').length === 3 && of('Eng One').every(c => c.language === 'en') && of('Ағыл Қаз 1').every(c => c.language === 'kz'), "the English league's certificates are in English, the Kazakh league's in Kazakh")
+  // the motion bank knows English motions: their own language filter and topics
+  const enBank = (await client()('GET', '/motions?lang=en&search=homework')).data.items.filter(m => m.tournament.id === t.id)
+  ok(enBank.length === 1 && enBank[0].language === 'en' && enBank[0].topics.includes('education'), 'an English motion is filed as English, with its topic')
+  ok(!(await client()('GET', '/motions?lang=ru&search=homework')).data.items.some(m => m.tournament.id === t.id), 'and is not shown among the Russian ones')
 }
 
 // ---------- score ranges set by the organizer (a league that scores 50–80) ----------

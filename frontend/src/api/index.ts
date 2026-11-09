@@ -493,7 +493,7 @@ export const checkIn = (tournamentId: string, code: string) =>
 export const getProgress = () => http<SpeakerProgress>('GET', '/me/progress')
 
 // ---------- motion bank ----------
-export const getMotions = (f: { search?: string; level?: 'school' | 'university'; lang?: 'ru' | 'kz'; topic?: MotionTopic; page?: number }) =>
+export const getMotions = (f: { search?: string; level?: 'school' | 'university'; lang?: 'ru' | 'kz' | 'en'; topic?: MotionTopic; page?: number }) =>
   http<{ items: MotionItem[]; total: number; page: number; pages: number; topicCounts: Record<MotionTopic, number> }>('GET', `/motions${qs(f)}`)
 
 // ---------- find a teammate ----------

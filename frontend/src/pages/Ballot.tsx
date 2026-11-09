@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Medal, Timer, Trophy, Users, X } from 'lucide-react'
-import { getBallot, NotFoundError, submitBallot } from '@/api'
+import { ApiError, getBallot, NotFoundError, submitBallot } from '@/api'
 import type { Side, Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
 import { useAuth } from '@/lib/auth'
@@ -30,6 +30,8 @@ import NotFound from './NotFound'
 import { quoted } from '@/lib/motion'
 
 type Range = { min: number; max: number; step: number }
+// answers after which sending again cannot help: the room has a technical result, the round is closed, another judge
+const FINAL = ['debate_forfeited', 'ballot_locked', 'round_completed', 'not_on_panel', 'judge_not_on_panel']
 
 // the sheet comes from the API; without a network the copy saved on the last visit is used
 async function loadSheet(debateId: string, userId: string, asJudgeId?: string, judgeKey?: string) {
@@ -94,6 +96,8 @@ function BallotForm() {
   const [tried, setTried] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [sending, setSending] = useState(false)
+  // why the last send failed, shown in the confirm window itself; "final": the ballot can no longer be sent at all
+  const [sendError, setSendError] = useState<{ text: string; final: boolean } | null>(null)
   const [done, setDone] = useState<false | 'sent' | 'queued'>(false)
   const [queued, setQueued] = useState(() => queuedBallot(debateId, uid))
   // the ballot already sent opens filled in (no draft on this device): the judge's own, or the one an organizer corrects
@@ -184,6 +188,7 @@ function BallotForm() {
   const onSubmit = () => {
     setTried(true)
     if (errors.length) return
+    setSendError(null)
     setConfirm(true)
   }
   const send = async () => {
@@ -211,13 +216,15 @@ function BallotForm() {
       setDone('sent')
       toast.success(t('ballot.success'))
     } catch (e) {
-      if (isRetryable(e) && user && !asJudge && !judgeKey) {
+      if (isRetryable(e) && (user || judgeKey) && !asJudge) {
         // no connection: keep it on the device, OfflineSync sends it when the network is back
-        queueBallot({ debateId, userId: user.id, label: `${data.tournament.name} · ${t('ballot.round', { n: data.round.number })} · ${data.debate.room}`, payload })
+        queueBallot({ debateId, userId: uid, ...(judgeKey && { judgeKey }), label: `${data.tournament.name} · ${t('ballot.round', { n: data.round.number })} · ${data.debate.room}`, payload })
         setConfirm(false)
         setDone('queued')
       } else {
-        // the server re-validates every WSDC rule; show its verdict
+        // the server re-validates every rule; its verdict is shown in the window (and as a toast)
+        const code = e instanceof ApiError ? e.code : ''
+        setSendError({ text: errorMessage(e, t), final: FINAL.includes(code) })
         toast.error(errorMessage(e, t))
       }
     } finally {
@@ -233,7 +240,7 @@ function BallotForm() {
             <>
               <span className="mx-auto grid size-20 place-items-center rounded-full bg-accent-soft text-navy dark:text-accent"><CloudUpload className="size-10" /></span>
               <h1 className="mt-6 text-3xl font-extrabold">{t('offline.queuedTitle')}</h1>
-              <p className="mt-2 text-muted-foreground">{t('offline.queuedText')}</p>
+              <p className="mt-2 text-muted-foreground">{t(judgeKey ? 'offline.queuedTextLink' : 'offline.queuedText')}</p>
             </>
           ) : (
             <>
@@ -448,9 +455,10 @@ function BallotForm() {
               </>
             )}
           </div>
+          {sendError && <p role="alert" className="mt-4 flex items-start gap-2 rounded-xl bg-danger/10 p-3 text-sm font-medium text-danger"><AlertCircle className="mt-0.5 size-4 shrink-0" />{sendError.text}</p>}
           <div className="mt-5 flex justify-end gap-2">
-            <DialogClose asChild><Button variant="ghost">{t('common.cancel')}</Button></DialogClose>
-            <Button onClick={send} disabled={sending}>{sending && <Loader2 className="size-4 animate-spin" />}{t('ballot.confirm')}</Button>
+            <DialogClose asChild><Button variant="ghost">{sendError?.final ? t('common.close') : t('common.cancel')}</Button></DialogClose>
+            <Button onClick={send} disabled={sending || !!sendError?.final}>{sending && <Loader2 className="size-4 animate-spin" />}{t('ballot.confirm')}</Button>
           </div>
         </DialogContent>
       </Dialog>
