@@ -44,8 +44,9 @@ export function formatDateTime(iso: string) {
 
 export function formatDateRange(start: string, end: string, lang?: string) {
   if (start === end) return formatDate(start, { day: 'numeric', month: 'long', year: 'numeric' }, lang)
-  const s = new Date(start), e = new Date(end)
-  if (s.getMonth() === e.getMonth()) {
+  // a calendar day, read as local midnight (as "2026-12-12" alone it is UTC: a day earlier west of Greenwich)
+  const s = new Date(start.slice(0, 10) + 'T00:00:00'), e = new Date(end.slice(0, 10) + 'T00:00:00')
+  if (s.getMonth() === e.getMonth() && s.getFullYear() === e.getFullYear()) {
     return `${s.getDate()}–${formatDate(end, { day: 'numeric', month: 'long', year: 'numeric' }, lang)}`
   }
   return `${formatDate(start, undefined, lang)} – ${formatDate(end, { day: 'numeric', month: 'long', year: 'numeric' }, lang)}`

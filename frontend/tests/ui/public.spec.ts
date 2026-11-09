@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { leagueTournament, newAccount } from './helpers'
+import { admin, leagueTournament, newAccount } from './helpers'
 
 test('home: the pricing shows the real free limit (≤ 30 / 31+)', async ({ page }) => {
   await page.goto('/')
@@ -157,4 +157,17 @@ test('a part of the site missing after an update: the page reloads by itself', a
   await expect(page).toHaveURL(/\/calculator/)
   expect(await page.evaluate(() => (window as unknown as { oldTab?: boolean }).oldTab)).toBeUndefined() // it was reloaded
   await expect(page.getByText('Что-то пошло не так')).toHaveCount(0)
+})
+
+// a visitor whose phone is set to another time zone (west of Greenwich) sees the tournament's own dates
+test.describe('dates in another time zone', () => {
+  test.use({ timezoneId: 'America/Los_Angeles' })
+  test('the dates of a tournament are its own, not a day earlier', async ({ page }) => {
+    const host = await newAccount('UI Даты')
+    const t = (await host.c('POST', '/tournaments', { name: `UI даты ${Math.random().toString(36).slice(2, 7)}`, city: 'Астана', startDate: '2027-03-12', endDate: '2027-03-13', level: 'school', description: '', preliminaryRounds: 2, breakSize: 2, maxTeams: 8, registrationOpen: true, requireApproval: true, languages: ['ru'] })).data
+    await (await admin())('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+    await page.goto(`/tournaments/${t.id}`)
+    await expect(page.getByText('12–13 марта 2027').first()).toBeVisible()
+    await expect(page.getByText('11–13 марта 2027')).toHaveCount(0)
+  })
 })
