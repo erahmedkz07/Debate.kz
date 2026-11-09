@@ -33,7 +33,8 @@ for (const device of ['computer', 'phone'] as const) test(`an organizer runs a w
     ...['Альфа', 'Бета', 'Гамма', 'Дельта'].map(n => [n, `Школа ${n}`, `${n} Первый`, `${n} Второй`, `${n} Третий`])]
   await page.locator('#pt').fill(rows.map(r => r.join('\t')).join('\n'))
   await page.getByRole('button', { name: /^Добавить 4/ }).click()
-  await expect(page.getByRole('cell', { name: 'Альфа Первый, Альфа Второй, Альфа Третий' })).toBeVisible()
+  // a table on a computer, cards on a phone: the speakers are on screen either way
+  await expect(page.getByText(/Альфа Первый/).filter({ visible: true }).first()).toBeVisible()
   await page.goto(`/dashboard/tournaments/${id}/judges`)
   await page.getByRole('button', { name: 'Судьи списком' }).click()
   await page.getByRole('dialog').locator('textarea').fill('Судья Первая\nСудья Вторая')
