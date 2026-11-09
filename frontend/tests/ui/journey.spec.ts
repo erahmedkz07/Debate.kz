@@ -5,8 +5,9 @@ import { admin, newAccount, signIn } from './helpers'
 // teams pasted from a table, judges by a list, the start, two rounds (draw, motion, publish, the judges' ballots typed
 // key by key, completion), the break, the final, the finish, the best speaker, the certificates. No script error and
 // no failed request on the way.
-test('an organizer runs a whole tournament through the site', async ({ page }) => {
+for (const device of ['computer', 'phone'] as const) test(`an organizer runs a whole tournament through the site (${device})`, async ({ page }) => {
   test.setTimeout(420_000)
+  if (device === 'phone') await page.setViewportSize({ width: 390, height: 844 })
   const errors: string[] = []
   page.on('pageerror', e => errors.push(`script: ${e.message}`))
   page.on('response', r => { if (r.url().includes('/api/') && r.status() >= 500) errors.push(`HTTP ${r.status()} ${r.url()}`) })
@@ -32,7 +33,8 @@ test('an organizer runs a whole tournament through the site', async ({ page }) =
     ...['Альфа', 'Бета', 'Гамма', 'Дельта'].map(n => [n, `Школа ${n}`, `${n} Первый`, `${n} Второй`, `${n} Третий`])]
   await page.locator('#pt').fill(rows.map(r => r.join('\t')).join('\n'))
   await page.getByRole('button', { name: /^Добавить 4/ }).click()
-  await expect(page.getByRole('cell', { name: 'Альфа Первый, Альфа Второй, Альфа Третий' })).toBeVisible()
+  // a table on a computer, cards on a phone: the speakers are on screen either way
+  await expect(page.getByText(/Альфа Первый/).filter({ visible: true }).first()).toBeVisible()
   await page.goto(`/dashboard/tournaments/${id}/judges`)
   await page.getByRole('button', { name: 'Судьи списком' }).click()
   await page.getByRole('dialog').locator('textarea').fill('Судья Первая\nСудья Вторая')
