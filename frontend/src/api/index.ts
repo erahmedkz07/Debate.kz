@@ -238,6 +238,7 @@ export type FlowNotes = Record<string, FlowEntry[]>
 // the ballot sheet's rules come from the tournament's format (and its score ranges)
 export interface BallotRules { format: string; teams?: 2 | 4; speakers: number; step: number; speaker: [number, number]; reply?: { range: [number, number]; by: number[] } }
 export interface BallotData {
+  absent?: Side // BP: the team that did not come (4th, 0 points); the chair places the other three
   rules?: BallotRules
   canSubmit?: boolean // true for a judge who sends the ballot (BP: the chair); others get `panel` instead
   canCorrect?: boolean // organizers may enter or correct a judge's ballot until the tournament is over
@@ -361,7 +362,7 @@ export const returnTeam = (teamId: string) => http<void>('POST', `/teams/${teamI
 export const deleteJudge = (judgeId: string) => http<{ left: boolean }>('DELETE', `/judges/${judgeId}`)
 export const returnJudge = (judgeId: string) => http<void>('POST', `/judges/${judgeId}/return`)
 // a technical loss: the side that did not come (null undoes it)
-export const setForfeit = (debateId: string, side: 'proposition' | 'opposition' | null) => http<{ ok: true }>('POST', `/debates/${debateId}/forfeit`, { side })
+export const setForfeit = (debateId: string, side: Side | null) => http<{ ok: true }>('POST', `/debates/${debateId}/forfeit`, { side })
 export const setJudgeConflicts = (judgeId: string, teamIds: string[]) => http<{ judgeId: string; teamIds: string[] }>('PUT', `/judges/${judgeId}/conflicts`, { teamIds })
 
 export const updateRound = (roundId: string, data: Partial<{ motion: string; infoSlide: string; leagueMotions: Record<string, { motion: string; infoSlide?: string }>; status: 'released' | 'completed'; silent: boolean }>) =>

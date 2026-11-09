@@ -120,3 +120,38 @@ test('typing scores: a slip never lands on the sheet, and a finished score moves
   await page.keyboard.press('Enter')
   await expect(inputs.nth(4)).toBeFocused()
 })
+
+test('BP: a team that did not come is 4th; the chair scores and places the other three', async ({ page }) => {
+  const { newAccount, admin } = await import('./helpers')
+  const org = await newAccount('UI BP Организатор')
+  const t = (await org.c('POST', '/tournaments', { name: `UI BP ${Math.random().toString(36).slice(2, 7)}`, city: 'Астана', startDate: '2026-12-20', endDate: '2026-12-20', level: 'university', description: '', preliminaryRounds: 1, breakSize: 4, maxTeams: 12, registrationOpen: true, requireApproval: true, languages: ['ru'], format: 'BP' })).data
+  await (await admin())('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await org.c('POST', `/tournaments/${t.id}/teams/bulk`, { names: ['BP Один', 'BP Два', 'BP Три', 'BP Четыре'] })
+  await org.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['BP Судья'] })
+  await org.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await org.c('GET', `/tournaments/${t.id}`)).data
+  await org.c('POST', `/rounds/${d.rounds[0].id}/draw`, { addSwing: false })
+  await org.c('PATCH', `/rounds/${d.rounds[0].id}`, { motion: 'ЭП', status: 'released' })
+  d = (await org.c('GET', `/tournaments/${t.id}`)).data
+  const room = d.debates[0]
+  const absentName = d.teams.find((x: { id: string }) => x.id === room.closingOppositionTeamId).name
+  // the organizer marks the team that did not come
+  const { signIn } = await import('./helpers')
+  await signIn(page, org.email, org.password)
+  await page.goto(`/dashboard/tournaments/${t.id}/ballots`)
+  await page.getByRole('button', { name: 'Техническое поражение' }).filter({ visible: true }).first().click()
+  await page.getByRole('dialog').getByRole('button', { name: new RegExp(absentName) }).click()
+  await expect.poll(async () => (await org.c('GET', `/tournaments/${t.id}`)).data.debates[0].forfeit).toBe('closingOpposition')
+  // the chair: three teams to score, the absent one named
+  const judge = d.judges.find((j: { id: string }) => j.id === room.judgeIds[0])
+  await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
+  await expect(page.getByText(`«${absentName}»`)).toBeVisible()
+  const inputs = page.locator('input[data-score]')
+  await expect(inputs).toHaveCount(6)
+  for (const [i, v] of ['80', '80', '75', '75', '70', '70'].entries()) await inputs.nth(i).fill(v)
+  await page.getByRole('button', { name: 'Отправить бюллетень' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Да, отправить' }).click()
+  await expect(page.getByText('Бюллетень принят')).toBeVisible()
+  const after = (await org.c('GET', `/tournaments/${t.id}`)).data.debates[0]
+  expect(after.ranking.at(-1)).toBe('closingOpposition')
+})

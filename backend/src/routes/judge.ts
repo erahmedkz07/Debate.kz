@@ -176,6 +176,8 @@ judgeRouter.get('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
     },
     ...(panel && { panel }),
     tournament: { id: d.round.tournament.id, name: d.round.tournament.name },
+    // BP: a team that did not come (it is 4th; the chair places the other three)
+    ...(d.forfeit && rules.teams === 4 && { absent: d.forfeit }),
     round: { id: d.round.id, tournamentId: d.round.tournamentId, number: d.round.number, name: d.round.name, motion: motionFor(d.round, d.proposition.league), status: d.round.status, date: toDay(d.round.date) },
     debate: toDebate(d, true),
     proposition: toTeam(d.proposition),
@@ -213,7 +215,7 @@ const sideEnum = z.enum(BP_SIDES)
 const ballotSchema = z.object({
   // two-team formats: the winner; BP: optionally the ranking 1st–4th the judge saw (checked against the scores)
   winner: sideEnum.optional(),
-  ranking: z.array(sideEnum).length(4).optional(),
+  ranking: z.array(sideEnum).min(3).max(4).optional(), // BP: the four places, or the three teams that played (one did not come)
   scores: z.record(z.string(), z.number()), // speakerId -> substantive score
   // formats without reply speeches (Karl Popper) send neither
   reply: z.object({ proposition: z.number(), opposition: z.number() }).optional(),
@@ -233,7 +235,10 @@ judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
   // BP: the panel agrees and the chair sends the one ballot
   if (!canSubmit) throw forbidden('chair_only')
   if (d.round.status === 'draft') throw badRequest('round_not_released')
-  if (d.forfeit) throw forbidden('debate_forfeited')
+  // two teams: a technical loss decides the room, no ballot. BP: the absent team is 4th (0 points); the chair scores
+  // and places the three teams that played
+  if (d.forfeit && rules.teams === 2) throw forbidden('debate_forfeited')
+  const playing = d.forfeit ? sides.filter(x => x !== d.forfeit) : sides
   if (onBehalf) {
     // an organizer corrects ballots until the tournament is over; in the playoffs, until the next stage is drawn
     if (d.round.tournament.status === 'finished') throw forbidden('tournament_finished')
@@ -249,11 +254,11 @@ judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
     ? [cfg.speakerMin, cfg.speakerMax, cfg.replyMin, cfg.replyMax, cfg.step].map(Number)
     : [rules.speaker[0], rules.speaker[1], rules.reply?.range[0] ?? 0, rules.reply?.range[1] ?? 0, rules.step]
   const onStep = (v: number) => Math.abs(v / step - Math.round(v / step)) < 1e-9
-  const totals = Object.fromEntries(sides.map(side => [side, 0])) as Record<SideCode, number>
+  const totals = Object.fromEntries(playing.map(side => [side, 0])) as Record<SideCode, number>
   const rows: { speakerId: string; side: SideCode; position: number; score: number; feedback: string | null }[] = []
   const note = (key: string) => data.feedback?.[key] || null
 
-  for (const side of sides) {
+  for (const side of playing) {
     const team = teams[side]!
     if (team.speakers.length !== rules.speakers) throw badRequest('team_incomplete')
     for (const s of team.speakers) {
@@ -272,9 +277,10 @@ judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
     rows.push({ speakerId: replyBy!, side, position: 4, score: r, feedback: note(`reply:${side}`) })
   }
   // no ties: the places follow the team totals (in BP too — the higher total takes the higher place)
-  if (new Set(sides.map(side => totals[side])).size !== sides.length) throw badRequest('tie_not_allowed')
-  const ranking = [...sides].sort((a, b) => totals[b] - totals[a])
-  if (rules.teams === 4 && data.ranking && data.ranking.join() !== ranking.join()) throw badRequest('ranking_mismatch')
+  if (new Set(playing.map(side => totals[side])).size !== playing.length) throw badRequest('tie_not_allowed')
+  const ranking = [...playing].sort((a, b) => totals[b] - totals[a]).concat(d.forfeit ? [d.forfeit as SideCode] : [])
+  // the chair may send the places of the three that played (the absent team is last anyway)
+  if (rules.teams === 4 && data.ranking && data.ranking.join() !== ranking.slice(0, data.ranking.length).join()) throw badRequest('ranking_mismatch')
   if ((rules.teams === 2 || data.winner) && data.winner !== ranking[0]) throw badRequest('winner_mismatch')
   const winner = ranking[0]
 

@@ -572,16 +572,22 @@ organizerRouter.post('/debates/:debateId/forfeit', org, async (req, res) => {
   await assertCanManage(req.user, debate.round.tournamentId)
   if (debate.round.status === 'completed') throw forbidden('round_completed')
   if (debate.round.status === 'draft') throw badRequest('round_not_released')
-  if (debate.closingPropositionTeamId) throw badRequest('forfeit_two_teams_only')
-  const { side } = body(req, z.object({ side: z.enum(['proposition', 'opposition']).nullable() }))
+  const bp = !!debate.closingPropositionTeamId
+  const { side } = body(req, z.object({ side: z.enum(['proposition', 'opposition', 'closingProposition', 'closingOpposition']).nullable() }))
+  if (side && !bp && side !== 'proposition' && side !== 'opposition') throw badRequest('invalid_side')
   if (side === null) {
     // undo: the debate waits for its ballots again
     if (!debate.forfeit) return void res.json({ ok: true })
-    await prisma.debate.update({ where: { id: debate.id }, data: { forfeit: null, winner: null, ballotStatus: 'pending' } })
+    if (bp && await prisma.ballot.count({ where: { debateId: debate.id } })) throw forbidden('ballots_already_submitted')
+    await prisma.debate.update({ where: { id: debate.id }, data: { forfeit: null, winner: null, ranking: [], ballotStatus: 'pending' } })
     return void res.json({ ok: true })
   }
   if (await prisma.ballot.count({ where: { debateId: debate.id } })) throw forbidden('ballots_already_submitted')
-  await prisma.debate.update({ where: { id: debate.id }, data: { forfeit: side, winner: side === 'proposition' ? 'opposition' : 'proposition', ballotStatus: 'confirmed' } })
+  // two teams: the other side wins at once. BP: the absent team will be 4th; the chair still places the other three
+  await prisma.debate.update({
+    where: { id: debate.id },
+    data: bp ? { forfeit: side } : { forfeit: side, winner: side === 'proposition' ? 'opposition' : 'proposition', ballotStatus: 'confirmed' },
+  })
   res.json({ ok: true })
 })
 
@@ -609,13 +615,14 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
     // a running round: the room without ballots goes to the opponent (a technical loss), so the round can be completed
     const open = await prisma.debate.findMany({
       where: {
-        round: { tournamentId: team.tournamentId, status: 'released' }, forfeit: null, ballots: { none: {} }, closingPropositionTeamId: null,
-        OR: [{ propositionTeamId: team.id }, { oppositionTeamId: team.id }],
+        round: { tournamentId: team.tournamentId, status: 'released' }, forfeit: null, ballots: { none: {} },
+        OR: [{ propositionTeamId: team.id }, { oppositionTeamId: team.id }, { closingPropositionTeamId: team.id }, { closingOppositionTeamId: team.id }],
       },
     })
     for (const d of open) {
-      const side = d.propositionTeamId === team.id ? 'proposition' : 'opposition'
-      await prisma.debate.update({ where: { id: d.id }, data: { forfeit: side, winner: side === 'proposition' ? 'opposition' : 'proposition', ballotStatus: 'confirmed' } })
+      const side = d.propositionTeamId === team.id ? 'proposition' : d.oppositionTeamId === team.id ? 'opposition' : d.closingPropositionTeamId === team.id ? 'closingProposition' : 'closingOpposition'
+      // two teams: the opponent wins at once; BP: the team is marked absent (4th), the chair places the other three
+      await prisma.debate.update({ where: { id: d.id }, data: d.closingPropositionTeamId ? { forfeit: side } : { forfeit: side, winner: side === 'proposition' ? 'opposition' : 'proposition', ballotStatus: 'confirmed' } })
     }
     return void res.json({ withdrawn: true, forfeited: open.length })
   }
@@ -749,7 +756,9 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
     const next = { motion: d.motion ?? round.motion, leagueMotions: d.leagueMotions ?? round.leagueMotions }
     const missing = leagueKeys.length ? leagueKeys.some(k => !motionFor(next, k).trim()) : !next.motion.trim()
     if (d.status === 'released' && (missing || round.debates.length === 0)) throw badRequest('need_motion_and_draw')
-    if (d.status === 'completed' && round.debates.some(x => !x.winner)) throw badRequest('ballots_missing')
+    // the organizer is told where to look: the rooms still without a result
+    const open = round.debates.filter(x => !x.winner)
+    if (d.status === 'completed' && open.length) throw badRequest('ballots_missing', { rooms: open.map(x => x.room).join(', '), count: open.length })
   }
   const updated = await prisma.$transaction(async tx => {
     // completing a round locks all its ballots

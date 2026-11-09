@@ -201,11 +201,14 @@ function BallotForm() {
   const format = formatOfTournament(rules.format)
   const bp = sides.length === 4
   const sideName = (side: Side) => format.sides[BP_SIDES.indexOf(side)]?.[lang] ?? ''
-  const allSpeakers = sides.flatMap(side => teamOf(side).speakers)
+  // BP: a team that did not come is not scored; it is 4th
+  const absent = bp ? data.absent : undefined
+  const playing = absent ? sides.filter(side => side !== absent) : sides
+  const allSpeakers = playing.flatMap(side => teamOf(side).speakers)
   const complete = allSpeakers.every(s => inRange(scores[s.id] ?? '', SPEAKER)) && (!REPLY || (inRange(reply.proposition, REPLY) && inRange(reply.opposition, REPLY)))
   // the places follow the totals: two teams cannot share a place (BP) or draw (two-team formats)
-  const ranking = [...sides].sort((a, b) => totals[b] - totals[a])
-  const tied = new Set(sides.map(side => totals[side])).size !== sides.length
+  const ranking = [...playing].sort((a, b) => totals[b] - totals[a])
+  const tied = new Set(playing.map(side => totals[side])).size !== playing.length
   const higher: Side | null = tied ? null : ranking[0]
   const errors: string[] = []
   if (!complete) errors.push(t('ballot.errors.incomplete'))
@@ -371,7 +374,7 @@ function BallotForm() {
 
       {/* phones: the teams are one under the other, so their totals stay in sight while scrolling */}
       <div className="sticky top-16 z-20 -mx-4 mt-4 flex gap-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur md:hidden">
-        {sides.map(side => (
+        {playing.map(side => (
           <div key={side} className={cn('min-w-0 flex-1 rounded-lg px-2 py-1 text-center', side === 'proposition' || side === 'closingProposition' ? 'bg-primary-soft' : 'bg-muted')}>
             <p className="truncate text-[11px] font-semibold text-muted-foreground">{teamOf(side).name}</p>
             <p className="text-base font-extrabold tabular-nums">{fmt(totals[side])}</p>
@@ -381,7 +384,12 @@ function BallotForm() {
 
       {/* wider screens: the teams side by side, scored without scrolling up and down */}
       <div className="mt-6 grid items-start gap-5 md:grid-cols-2">
-        {sides.map(side => teamCard(side, teamOf(side)))}
+        {playing.map(side => teamCard(side, teamOf(side)))}
+        {absent && (
+          <Card className="flex items-center gap-3 border-dashed p-5 text-sm text-muted-foreground">
+            <AlertCircle className="size-5 shrink-0" />{t('ballot.absent', { team: teamOf(absent).name, side: sideName(absent) })}
+          </Card>
+        )}
       </div>
 
       <div className="grid items-start gap-5 lg:grid-cols-2">
