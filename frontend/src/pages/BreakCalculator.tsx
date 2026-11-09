@@ -5,7 +5,8 @@ import { Calculator, CheckCircle2, CircleHelp, ShieldCheck, Trophy, XCircle } fr
 import { calculateBreak, type CalcFormat } from '@/lib/breakCalculator'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
-import { Input, Label } from '@/components/ui/input'
+import { Label } from '@/components/ui/input'
+import { NumberField } from '@/components/ui/number-field'
 import { BackButton } from '@/components/layout/BackButton'
 import { FormatPicker } from '@/components/tools/FormatPicker'
 import { formatById } from '@/content/formats'
@@ -48,8 +49,7 @@ export default function BreakCalculator() {
           {([['teams', teams], ['rounds', rounds], ['breakSize', breakSize]] as const).map(([k, v]) => (
             <div key={k}>
               <Label htmlFor={`bc-${k}`}>{t(`breakCalc.${k}`)}</Label>
-              <Input id={`bc-${k}`} type="number" inputMode="numeric" min={limits[k][0]} max={k === 'breakSize' ? teams : limits[k][1]} value={v}
-                onChange={e => e.target.value && set(k, e.target.value)} />
+              <NumberField id={`bc-${k}`} min={limits[k][0]} max={k === 'breakSize' ? teams : limits[k][1]} value={v} onChange={n => set(k, String(n))} />
             </div>
           ))}
           <p className="self-end text-xs text-muted-foreground">

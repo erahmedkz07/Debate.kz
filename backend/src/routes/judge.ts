@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { User } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
+import { withLock } from '../lib/lock.js'
 import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js'
 import { body, param } from '../middleware/validate.js'
 import { requireAuth } from '../middleware/auth.js'
@@ -226,7 +227,10 @@ const ballotSchema = z.object({
   reason: z.string().trim().max(1500).optional(), // why this side won (optional), for the teams after the round
 })
 
-judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
+// one ballot of a room at a time: a double click (or a resend) replaces the first copy instead of colliding with it
+judgeRouter.post('/ballots/:debateId', userOrJudgeKey, (req, res) => withLock(`ballot:${param(req, 'debateId')}`, () => submitBallot(req, res)))
+
+async function submitBallot(req: Request, res: Response) {
   const data = body(req, ballotSchema)
   const keyJudge = res.locals.keyJudge as KeyJudge | null
   const { d, myJudge, rules, teams, sides, canSubmit, onBehalf } = await loadBallotContext(param(req, 'debateId'), keyJudge ? null : req.user!, keyJudge ? undefined : data.asJudgeId, keyJudge)
@@ -312,4 +316,4 @@ judgeRouter.post('/ballots/:debateId', userOrJudgeKey, async (req, res) => {
     background(notify([myJudge.userId], 'judge.ballotEdited', { tournament: d.round.tournament.name, round: d.round.name, room: d.room, by: req.user!.name }, `/ballot/${d.id}`))
   }
   res.status(201).json({ ok: true, totals, ...(rules.teams === 4 && { ranking }) })
-})
+}

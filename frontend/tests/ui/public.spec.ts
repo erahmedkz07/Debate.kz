@@ -65,3 +65,54 @@ test.describe('a tournament page', () => {
     await expect(page.getByText(/председатель: \d/).first()).toBeVisible()
   })
 })
+
+// the score calculator types like a ballot: a wrong key is not taken, a finished score moves on, an Enter out of habit
+// after an automatic move does not skip a speaker
+for (const [format, values, total] of [
+  ['wsdc', ['75', '75', '75', '38', '70', '70', '70', '35'], ['263', '245']],
+  ['bp', ['75', '74', '70', '71', '80', '79', '60', '61'], ['149', '141', '159', '121']],
+] as const) {
+  test(`the score calculator: typing with the keyboard (${format})`, async ({ page }) => {
+    await page.goto(`/calculator?format=${format}`)
+    const fields = page.locator('input[data-score]')
+    await expect(fields).toHaveCount(values.length)
+    await fields.first().click()
+    await page.keyboard.type('2') // no score starts with 2 (WSDC 60–80, BP 50–100)
+    await expect(fields.first()).toHaveValue('')
+    for (const v of values) { await page.keyboard.type(v); await page.keyboard.press('Enter') }
+    expect(await fields.evaluateAll(els => els.map(e => (e as HTMLInputElement).value))).toEqual([...values])
+    for (const x of total) await expect(page.getByText(x, { exact: true }).first()).toBeVisible()
+    await expect(page.getByText(format === 'bp' ? /3 балл/ : /Побеждает:/).first()).toBeVisible()
+  })
+}
+
+// the break calculator: a number is erased and typed again the way people do it on a phone
+test('the break calculator: the number of teams is erased and typed again', async ({ page }) => {
+  await page.goto('/break-calculator?teams=16')
+  const teams = page.locator('#bc-teams')
+  await teams.click()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.type('24')
+  await expect(teams).toHaveValue('24')
+  await expect(page).toHaveURL(/teams=24/)
+  // a number out of range is not taken; leaving the field brings the last good one back
+  await teams.fill('2')
+  await teams.blur()
+  await expect(teams).toHaveValue('24')
+})
+
+test('the timer: the preparation minutes are erased and typed again', async ({ page }) => {
+  await page.goto('/timer')
+  await page.getByRole('button', { name: 'Подготовка' }).click()
+  const minutes = page.getByRole('textbox', { name: 'Своё время подготовки' })
+  await minutes.click()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.type('20')
+  await minutes.blur()
+  await expect(minutes).toHaveValue('20')
+  await expect(page.getByText('20:00').first()).toBeVisible()
+})

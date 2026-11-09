@@ -17,6 +17,11 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'file_too_large' : 'invalid_image' })
     return
   }
+  // a unique row written twice at the same moment (a double click that slipped past the locks): the first one won
+  if (err?.code === 'P2002') {
+    res.status(409).json({ error: 'already_exists' })
+    return
+  }
   // malformed JSON body
   if (err?.type === 'entity.parse.failed') {
     res.status(400).json({ error: 'invalid_json' })

@@ -25,3 +25,32 @@ test('phone: a tournament page and its tabs fit the screen', async ({ page }) =>
     expect(await overflowing(page), tab).toEqual([])
   }
 })
+
+test('phone: a judge types the whole ballot with the keyboard, each next field is in view and not under the bars', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 664 }) // a phone with the on-screen keyboard open
+  const t = await leagueTournament()
+  const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)
+  const judge = t.details.judges.find((j: { id: string }) => j.id === room.judgeIds[0])
+  await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
+  const fields = page.locator('input[data-score]')
+  await expect(fields).toHaveCount(8)
+  await fields.first().click()
+  const covered: string[] = []
+  for (const [i, v] of ['75', '75', '75', '38', '70', '70', '70', '35'].entries()) {
+    await page.keyboard.type(v)
+    await page.keyboard.press('Enter')
+    if (i === 7) break
+    // the field that has the focus now is the one under its own centre (nothing sticky lies over it) once the
+    // page has scrolled (the site scrolls smoothly)
+    const free = () => page.evaluate(() => {
+      const el = document.activeElement as HTMLElement
+      const r = el.getBoundingClientRect()
+      return el.hasAttribute('data-score') && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === el
+    })
+    let ok = false
+    for (let k = 0; k < 15 && !ok; k++) { ok = await free(); if (!ok) await page.waitForTimeout(100) }
+    if (!ok) covered.push(`after field ${i + 1}`)
+  }
+  expect(covered).toEqual([])
+  expect(await fields.evaluateAll(els => els.map(e => (e as HTMLInputElement).value))).toEqual(['75', '75', '75', '38', '70', '70', '70', '35'])
+})

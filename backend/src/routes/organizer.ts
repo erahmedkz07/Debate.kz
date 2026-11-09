@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { fromDay, isRealDay, toDay, todayKz } from '../lib/dates.js'
@@ -10,6 +10,7 @@ import { generateDraw } from '../services/draw.js'
 import { announceBreak, cancelBreak, categoriesOf, MAX_BREAK, validBreak } from '../services/playoffs.js'
 import { conflictChecker } from '../services/conflicts.js'
 import { swingTeamFor } from '../services/draw.js'
+import { withLock } from '../lib/lock.js'
 import { institutionIdFor } from '../services/institutions.js'
 import { confirmRegistration, fillFromWaitlist, runLottery } from '../services/selection.js'
 import { awardCandidates, issueAwardCertificates, setAward } from '../services/awards.js'
@@ -309,7 +310,7 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
     background(ensureCertificates(cur.id).then(() => issueAwardCertificates(cur.id)).then(() => notifyTournamentFinished(cur.id)))
   }
   // a higher limit, a looser quota or another mode can open places for the waitlist
-  if (d.maxTeams !== undefined || d.clubQuota !== undefined || d.selectionMode !== undefined) await fillFromWaitlist(cur.id)
+  if (d.maxTeams !== undefined || d.clubQuota !== undefined || d.selectionMode !== undefined) await withLock(`places:${cur.id}`, () => fillFromWaitlist(cur.id))
   res.json(toSummary(t))
 })
 
@@ -351,19 +352,21 @@ organizerRouter.put('/tournaments/:id/awards', org, async (req, res) => {
 // the selection lottery: a public random order of the applications; places go in that order
 organizerRouter.post('/tournaments/:id/selection/lottery', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  res.status(201).json(await runLottery(param(req, 'id')))
+  res.status(201).json(await withLock(`places:${param(req, 'id')}`, () => runLottery(param(req, 'id'))))
 })
 
 organizerRouter.post('/tournaments/:id/break', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  const result = await announceBreak(param(req, 'id'))
+  // a double click announces the break once (the second sees it announced)
+  const result = await withLock(`break:${param(req, 'id')}`, () => announceBreak(param(req, 'id')))
   background(notifyBreakAnnounced(param(req, 'id')))
   res.status(201).json(result)
 })
 
 // a team of the break gives its place (its seed) to a team outside it: the organizer's decision at a tie on the break
 // line, or any other reason; only while that bracket has no draw yet
-organizerRouter.post('/tournaments/:id/break/replace', org, async (req, res) => {
+organizerRouter.post('/tournaments/:id/break/replace', org, (req, res) => withLock(`break:${param(req, 'id')}`, () => replaceInBreak(req, res)))
+async function replaceInBreak(req: Request, res: Response) {
   const id = param(req, 'id')
   await assertCanManage(req.user, id)
   const d = body(req, z.object({ inTeamId: z.string(), outTeamId: z.string() }))
@@ -380,11 +383,11 @@ organizerRouter.post('/tournaments/:id/break/replace', org, async (req, res) => 
     prisma.team.update({ where: { id: outTeam.id }, data: { breakSeed: inTeam.breakSeed, breakCategory: inTeam.breakCategory } }),
   ])
   res.json({ seed: inTeam.breakSeed })
-})
+}
 
 organizerRouter.delete('/tournaments/:id/break', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  await cancelBreak(param(req, 'id'))
+  await withLock(`break:${param(req, 'id')}`, () => cancelBreak(param(req, 'id')))
   res.status(204).end()
 })
 
@@ -629,7 +632,7 @@ organizerRouter.delete('/teams/:teamId', org, async (req, res) => {
   await prisma.team.delete({ where: { id: team.id } })
   // the team's application no longer holds a place; the waitlist moves up
   await prisma.teamRegistration.updateMany({ where: { tournamentId: team.tournamentId, teamName: team.name, status: 'confirmed' }, data: { status: 'rejected' } })
-  await fillFromWaitlist(team.tournamentId)
+  await withLock(`places:${team.tournamentId}`, () => fillFromWaitlist(team.tournamentId))
   res.status(204).end()
 })
 
@@ -733,7 +736,12 @@ async function leaveRoom(tx: Prisma.TransactionClient, debateId: string, judgeId
 
 const nextStatus = { draft: 'released', released: 'completed' } as const
 
-organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
+// one change of a round at a time (publish, complete, draw, a room added, teams swapped): a double click or a resent
+// request runs after the first and sees its result, so a round is never published twice (nor its Telegram news sent twice)
+const oneAtATime = (handler: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response) =>
+  withLock(`round:${param(req, 'roundId')}`, () => handler(req, res))
+
+organizerRouter.patch('/rounds/:roundId', org, oneAtATime(async (req, res) => {
   const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') }, include: { debates: true } })
   if (!round) throw notFound('round_not_found')
   await assertCanManage(req.user, round.tournamentId)
@@ -770,7 +778,7 @@ organizerRouter.patch('/rounds/:roundId', org, async (req, res) => {
   if (d.status === 'released') background(notifyRoundReleased(round.id))
   if (d.status === 'completed') background(notifyRoundCompleted(round.id))
   res.json({ ...updated, date: toDay(updated.date), infoSlide: updated.infoSlide ?? undefined })
-})
+}))
 
 organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
   const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') } })
@@ -780,7 +788,8 @@ organizerRouter.post('/rounds/:roundId/draw', org, async (req, res) => {
     presentOnly: z.boolean().optional(), addSwing: z.boolean().optional(),
     method: z.enum(['power', 'high_low', 'random', 'slide', 'fold', 'round_robin']).optional(), protectClubs: z.boolean().optional(),
   }).default({}))
-  const report = await generateDraw(round.id, opts)
+  // a double click: the second draw waits for the first, then replaces it (never two draws side by side)
+  const report = await withLock(`round:${round.id}`, () => generateDraw(round.id, opts))
   // the next round starts from these settings (the club rule only when it was set by hand, its default follows the round)
   if (round.kind === 'preliminary') await prisma.tournament.update({ where: { id: round.tournamentId }, data: { drawOptions: opts } })
   const debates = await prisma.debate.findMany({ where: { roundId: round.id }, include: { judges: { orderBy: { isChair: 'desc' } } }, orderBy: { room: 'asc' } })
@@ -882,7 +891,7 @@ type SlotSide = keyof typeof SIDE_COLUMN
 const slotSchema = z.object({ debateId: z.string(), side: z.enum(['proposition', 'opposition', 'closingProposition', 'closingOpposition']) })
 // a team that has no room in this round (a late team): it takes the place of the team at slot a
 const outsideSchema = z.object({ teamId: z.string() })
-organizerRouter.post('/rounds/:roundId/swap-teams', org, async (req, res) => {
+organizerRouter.post('/rounds/:roundId/swap-teams', org, oneAtATime(async (req, res) => {
   const d = body(req, z.object({ a: slotSchema, b: z.union([slotSchema, outsideSchema]) }))
   const round = await prisma.round.findUnique({ where: { id: param(req, 'roundId') }, include: { tournament: { select: { leagues: true } }, debates: { include: { judges: true } } } })
   if (!round) throw notFound('round_not_found')
@@ -935,7 +944,7 @@ organizerRouter.post('/rounds/:roundId/swap-teams', org, async (req, res) => {
   const columns = (id: string) => Object.fromEntries((Object.keys(SIDE_COLUMN) as SlotSide[]).map(side => [SIDE_COLUMN[side], rooms.get(id)![side]]))
   await prisma.$transaction([...new Set([da.id, db.id])].map(id => prisma.debate.update({ where: { id }, data: columns(id) })))
   res.json({ warnings })
-})
+}))
 
 type RoundWithDebates = { id: string; tournamentId: string; tournament: { leagues: unknown }; debates: ({ id: string; forfeit: string | null; judges: { judgeId: string }[] } & Record<(typeof SIDE_COLUMN)[SlotSide], string | null>)[] }
 const teamsInRound = (round: RoundWithDebates) => new Set(round.debates.flatMap(x => Object.values(SIDE_COLUMN).map(c => x[c]).filter((y): y is string => !!y)))
@@ -963,7 +972,7 @@ async function replaceWithOutside(round: RoundWithDebates, a: { debateId: string
 
 // A room added by hand to a running round: a late team against another team that has no room (one replaced by it,
 // or a swing team). With a swing team the room may be won at once (a technical win: the swing side "did not come").
-organizerRouter.post('/rounds/:roundId/rooms', org, async (req, res) => {
+organizerRouter.post('/rounds/:roundId/rooms', org, oneAtATime(async (req, res) => {
   const d = body(req, z.object({
     propositionTeamId: z.string(), oppositionTeamId: z.string().nullable(), // null: a swing team of the league
     room: z.string().trim().min(1).max(60), chairJudgeId: z.string().optional(), technicalWin: z.boolean().optional(),
@@ -999,7 +1008,7 @@ organizerRouter.post('/rounds/:roundId/rooms', org, async (req, res) => {
     include: { judges: { orderBy: { isChair: 'desc' } } },
   })
   res.status(201).json(toDebate(x, true))
-})
+}))
 
 // ---------- registrations ----------
 
@@ -1020,6 +1029,12 @@ organizerRouter.get('/tournaments/:id/registrations', org, async (req, res) => {
 
 // confirming a registration creates the team; the registering participant is linked to their speaker slot
 organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
+  const found = await prisma.teamRegistration.findUnique({ where: { id: param(req, 'regId') }, select: { tournamentId: true } })
+  if (!found) throw notFound('registration_not_found')
+  // under the tournament's places lock: a double click confirms once, and a place is never given twice
+  await withLock(`places:${found.tournamentId}`, () => decideRegistration(req, res))
+})
+async function decideRegistration(req: Request, res: Response) {
   const reg = await prisma.teamRegistration.findUnique({ where: { id: param(req, 'regId') }, include: { tournament: { include: { _count: { select: { teams: { where: { swing: false } } } } } }, user: true } })
   if (!reg) throw notFound('registration_not_found')
   await assertCanManage(req.user, reg.tournamentId)
@@ -1035,7 +1050,7 @@ organizerRouter.patch('/registrations/:regId', org, async (req, res) => {
     background(notifyRegistration(reg.id))
     return void res.json({ id: reg.id, status })
   }
-})
+}
 
 // ---------- tournament cover ----------
 

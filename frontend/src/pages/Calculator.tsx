@@ -6,7 +6,7 @@ import { FORMATS, formatById, type Format } from '@/content/formats'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { ScoreInput } from '@/components/ballot/ScoreInput'
 import { BackButton } from '@/components/layout/BackButton'
 import { FormatPicker } from '@/components/tools/FormatPicker'
 
@@ -38,7 +38,7 @@ export default function Calculator() {
     const keys = Array.from({ length: speakersPerTeam }, (_, s) => fieldKey(team, s))
     if (reply) keys.push(fieldKey(team, 'reply'))
     const states = keys.map(k => check(scores[k] ?? '', k.endsWith('reply') ? reply! : speaker, step))
-    return { team, name: f.sides[team][lang], keys, total: keys.reduce((s, k) => s + value(k), 0), complete: states.every(x => x === 'ok'), bad: states.some(x => x === 'range' || x === 'step') }
+    return { team, name: f.sides[team][lang], keys, total: keys.reduce((s, k) => s + value(k), 0), complete: states.every(x => x === 'ok') }
   })
   const complete = teams.every(x => x.complete)
   const ranked = [...teams].sort((a, b) => b.total - a.total)
@@ -46,7 +46,7 @@ export default function Calculator() {
   const bpPoints = [3, 2, 1, 0]
 
   const pick = (id: string) => { setScores({}); setParams({ format: id }, { replace: true }) }
-  const hint = (k: string) => (k.endsWith('reply') ? `${reply![0]}–${reply![1]}` : `${speaker[0]}–${speaker[1]}`)
+  const rangeOf = (k: string) => { const [min, max] = k.endsWith('reply') ? reply! : speaker; return { min, max, step } }
 
   return (
     <div className="container-page py-8">
@@ -72,19 +72,12 @@ export default function Calculator() {
                 <p className="font-bold">{team.name}</p>
                 <p className="text-2xl font-extrabold tabular-nums">{team.total ? formatNumber(team.total) : '—'}</p>
               </div>
-              <div className="space-y-2 p-4">
-                {team.keys.map((k, i) => {
-                  const state = check(scores[k] ?? '', k.endsWith('reply') ? reply! : speaker, step)
-                  return (
-                    <label key={k} className="flex items-center justify-between gap-3 text-sm">
-                      <span className={cn('font-medium', k.endsWith('reply') && 'text-primary')}>{k.endsWith('reply') ? t('calculator.reply') : t('calculator.speaker', { n: i + 1 })}</span>
-                      <Input inputMode="decimal" value={scores[k] ?? ''} onChange={e => setScores({ ...scores, [k]: e.target.value.replace(/[^\d.,]/g, '') })}
-                        placeholder={hint(k)} aria-invalid={state === 'range' || state === 'step'}
-                        className={cn('w-28 text-center tabular-nums', (state === 'range' || state === 'step') && 'border-danger')} />
-                    </label>
-                  )
-                })}
-                {team.bad && <p className="flex items-center gap-1.5 text-xs text-danger"><AlertCircle className="size-3.5" />{t('calculator.outOfRange', { step: String(step).replace('.', ',') })}</p>}
+              <div className="divide-y divide-border px-4 py-1">
+                {/* only a score that can still become valid can be typed, so nothing is ever out of range */}
+                {team.keys.map((k, i) => (
+                  <ScoreInput key={k} label={k.endsWith('reply') ? t('calculator.reply') : t('calculator.speaker', { n: i + 1 })}
+                    value={scores[k] ?? ''} onChange={v => setScores(p => ({ ...p, [k]: v }))} range={rangeOf(k)} invalid={false} />
+                ))}
               </div>
             </Card>
           ))}

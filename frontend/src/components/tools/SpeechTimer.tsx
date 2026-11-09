@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { NumberField } from '@/components/ui/number-field'
 import { useTranslation } from 'react-i18next'
 import { Bell, BellOff, ChevronLeft, ChevronRight, Maximize, Minimize, Minus, Pause, Play, Plus, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 import { FORMATS, formatById, poiWindow, type Speech } from '@/content/formats'
@@ -232,8 +233,8 @@ export function SpeechTimer({ formatId, onFormatChange, active = true, compact }
               ))}
               <div className="flex items-center gap-1 rounded-xl border-2 border-border p-0.5" role="group" aria-label={t('timer.prepCustom')}>
                 <Button size="icon" variant="ghost" className="size-8" disabled={prep <= 1} onClick={() => setPrepMinutes(prep - 1)} aria-label={t('timer.prepLess')}><Minus className="size-4" /></Button>
-                <input type="number" inputMode="numeric" min={1} max={PREP_MAX} value={prep} onChange={e => setPrepMinutes(Number(e.target.value))}
-                  aria-label={t('timer.prepCustom')} className="w-12 bg-transparent text-center text-sm font-bold tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                <NumberField plain min={1} max={PREP_MAX} value={prep} onChange={setPrepMinutes}
+                  aria-label={t('timer.prepCustom')} className="w-12 bg-transparent text-center text-sm font-bold tabular-nums outline-none" />
                 <Button size="icon" variant="ghost" className="size-8" disabled={prep >= PREP_MAX} onClick={() => setPrepMinutes(prep + 1)} aria-label={t('timer.prepMore')}><Plus className="size-4" /></Button>
                 <span className="pr-2 text-xs text-muted-foreground">{t('timer.min')}</span>
               </div>

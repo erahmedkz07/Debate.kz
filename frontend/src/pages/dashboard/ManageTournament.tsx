@@ -1193,20 +1193,21 @@ function RoundCard({ round, hasDraw, reload, leagues = [], open, onToggle }: { r
   return (
     <Card id={`round-${round.id}`} className={cn('scroll-mt-24', open ? 'p-5' : 'px-5 py-3')}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
+        {/* phones: the title takes the whole line and the buttons go under it (side by side they squeezed the title) */}
+        <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 basis-full cursor-pointer items-center gap-3 text-left sm:basis-0">
           <span className={cn('grid size-9 shrink-0 place-items-center rounded-lg text-sm font-bold', round.kind === 'elimination' ? 'bg-accent text-navy' : 'bg-primary text-primary-foreground')}>
             {round.kind === 'elimination' ? <Trophy className="size-4" /> : round.number}
           </span>
           <span className="min-w-0">
             <span className="flex flex-wrap items-center gap-2">
-              <span className="font-bold">{roundName(round)}</span>
+              <span className="whitespace-nowrap font-bold">{roundName(round)}</span>
               <Badge variant={round.status === 'completed' ? 'muted' : round.status === 'released' ? 'accent' : 'outline'}>{t(`tournament.roundStatus.${round.status}`)}</Badge>
             </span>
             {!open && summary && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{summary}</span>}
           </span>
           <ChevronRight className={cn('ml-auto size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
         </button>
-        {open && <div className="flex flex-wrap gap-2">
+        {open && <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
           {round.status !== 'completed' && (
             <Button asChild size="sm" variant="ghost" title={t('projector.open')}>
               <a href={`/tournaments/${round.tournamentId}/projector?round=${round.id}`} target="_blank" rel="noopener"><Presentation className="size-4" />{t('projector.short')}</a>

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Medal, Minus, Plus, Timer, Trophy, Users, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, CheckCircle2, CloudOff, CloudUpload, DoorOpen, Loader2, Medal, Timer, Trophy, Users, X } from 'lucide-react'
 import { getBallot, NotFoundError, submitBallot } from '@/api'
 import type { Side, Team } from '@/types'
 import { useAsync } from '@/lib/hooks'
@@ -12,7 +12,6 @@ import {
   clearBallotDraft, dropBallot, isRetryable, loadBallotDraft, loadBallotSheet, OUTBOX_EVENT, queueBallot, queuedBallot, saveBallotDraft, saveBallotSheet,
 } from '@/lib/ballotOutbox'
 import { errorMessage } from '@/lib/errors'
-import { acceptScore, focusNextScore, scoreState } from '@/lib/scoreEntry'
 import { cn, formatDateTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -22,6 +21,7 @@ import { Select } from '@/components/ui/select'
 import { Label, Textarea } from '@/components/ui/input'
 import { BackButton } from '@/components/layout/BackButton'
 import { BallotReview } from '@/components/ballot/BallotReview'
+import { ScoreInput } from '@/components/ballot/ScoreInput'
 import { SpeechTimer } from '@/components/tools/SpeechTimer'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { formatOfTournament } from '@/content/formats'
@@ -55,43 +55,6 @@ function FeedbackField({ value, onChange, label }: { value: string; onChange: (v
     <div className="mb-3">
       <Textarea rows={2} maxLength={400} value={value} onChange={e => onChange(e.target.value)} placeholder={t('ballot.feedbackPlaceholder')} aria-label={label} className="text-sm" />
       <p className="mt-1 text-right text-[11px] text-muted-foreground tabular-nums">{value.length}/400</p>
-    </div>
-  )
-}
-
-function ScoreInput({ label, value, onChange, range, invalid }: { label: string; value: string; onChange: (v: string) => void; range: Range; invalid: boolean }) {
-  const pause = useRef<number | undefined>(undefined)
-  useEffect(() => () => window.clearTimeout(pause.current), [])
-  const bump = (d: number) => {
-    const n = value === '' ? (range.min + range.max) / 2 : Number(value) + d
-    onChange(String(Math.min(range.max, Math.max(range.min, n))))
-  }
-  // only what can still become a score is typed; a finished score moves on to the next speaker
-  const type = (el: HTMLInputElement, raw: string) => {
-    const next = acceptScore(raw, range)
-    if (next === null) return
-    onChange(next)
-    window.clearTimeout(pause.current)
-    const state = scoreState(next, range)
-    if (state === 'done') focusNextScore(el)
-    else if (state === 'maybe') pause.current = window.setTimeout(() => { if (document.activeElement === el) focusNextScore(el) }, 900)
-  }
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="min-w-0 truncate text-sm font-medium">{label}</span>
-      <div className="flex shrink-0 items-center gap-1">
-        <button type="button" tabIndex={-1} onClick={() => bump(-range.step)} className="grid size-10 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: −${range.step}`}><Minus className="size-4" /></button>
-        <input
-          data-score inputMode="decimal" enterKeyHint="next" autoComplete="off" value={value} aria-label={label} aria-invalid={invalid}
-          onChange={e => type(e.currentTarget, e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); window.clearTimeout(pause.current); focusNextScore(e.currentTarget) } }}
-          onFocus={e => e.currentTarget.select()}
-          placeholder={`${range.min}–${range.max}`}
-          className={cn('h-10 w-[4.5rem] rounded-lg border-2 bg-card text-center text-base font-bold tabular-nums focus:outline-none focus:ring-4 focus:ring-primary/15',
-            invalid ? 'border-danger' : 'border-border focus:border-primary')}
-        />
-        <button type="button" tabIndex={-1} onClick={() => bump(range.step)} className="grid size-10 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: +${range.step}`}><Plus className="size-4" /></button>
-      </div>
     </div>
   )
 }

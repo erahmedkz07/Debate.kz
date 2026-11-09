@@ -33,7 +33,14 @@ async function visit(page: Page, issues: Issue[], path: string) {
     return out.slice(0, 2).map(el => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)}`).join(' | ') || 'page'
   })
   if (over) issues.push({ page: path, kind: 'wider than the screen', detail: over })
+  // a translation key shown instead of its text (a missing translation)
+  const keys = await page.evaluate(() => (document.body.innerText.match(/(?:dashboard|tournament|tournaments|apiErrors|common|wizard|leagues|ballot|awards|certificate|speakerLink|rating|auth|profile|admin|status|level)\.[a-zA-Z_.]+/g) ?? []).slice(0, 3))
+  if (keys.length) issues.push({ page: path, kind: 'untranslated', detail: keys.join(', ') })
+  if (shots.has(path.split('?')[0].replace(/[a-z0-9]{20,}/g, ':id'))) await page.screenshot({ path: `test-results/crawl-${shotName}-${path.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.png`, fullPage: true })
 }
+// pages kept as pictures for a look by eye (per variant)
+const shots = new Set(['/', '/tournaments/:id', '/dashboard/tournaments/:id/draw', '/dashboard/tournaments/:id/rounds', '/j/:id/ballot/:id', '/rating'])
+let shotName = ''
 
 async function finishedTournament() {
   const t = await leagueTournament()
@@ -56,10 +63,13 @@ async function finishedTournament() {
   return t
 }
 
-for (const device of ['computer', 'phone'] as const) {
+for (const device of ['computer', 'phone', 'phone-kz-dark'] as const) {
   test(`every page works (${device})`, async ({ page }) => {
     test.setTimeout(600_000)
-    if (device === 'phone') await page.setViewportSize({ width: 390, height: 844 })
+    shotName = device
+    if (device !== 'computer') await page.setViewportSize({ width: 390, height: 844 })
+    // the Kazakh site in the dark theme: the longest texts and the other colours
+    if (device === 'phone-kz-dark') await page.addInitScript(() => { try { localStorage.setItem('lang', 'kz'); localStorage.setItem('theme', 'dark') } catch { /* no storage */ } })
     const issues: Issue[] = []
     let current = ''
     await watch(page, issues, () => current)
