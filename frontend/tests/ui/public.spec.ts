@@ -116,3 +116,45 @@ test('the timer: the preparation minutes are erased and typed again', async ({ p
   await expect(minutes).toHaveValue('20')
   await expect(page.getByText('20:00').first()).toBeVisible()
 })
+
+// the timer: a reset or the next speaker while the time runs starts the next speech from zero; a pause keeps the time
+test('the timer: reset and next speaker start from zero, a pause keeps the time', async ({ page }) => {
+  await page.clock.install()
+  await page.goto('/timer')
+  const shown = () => page.locator('body').innerText().then(x => x.match(/\b\d{1,2}:\d{2}\b/)?.[0])
+  const start = page.getByRole('button', { name: 'Старт' })
+  await start.click()
+  await page.clock.runFor(5000)
+  expect(await shown()).toBe('0:05')
+  await page.getByRole('button', { name: 'Сбросить' }).click()
+  await start.click()
+  await page.clock.runFor(1000)
+  expect(await shown()).toBe('0:01')
+  await page.clock.runFor(4000)
+  await page.getByRole('button', { name: 'Следующий спикер' }).click()
+  await start.click()
+  await page.clock.runFor(2000)
+  expect(await shown()).toBe('0:02')
+  await page.getByRole('button', { name: 'Пауза' }).click()
+  await page.clock.runFor(10_000)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+  await page.clock.runFor(1000)
+  expect(await shown()).toBe('0:03')
+})
+
+// the site was updated while the tab stayed open: the next page's part is gone; the page reloads into the new version
+// by itself instead of showing the crash screen
+test('a part of the site missing after an update: the page reloads by itself', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.goto('/tools')
+  await page.waitForLoadState('networkidle')
+  await page.evaluate(() => { (window as unknown as { oldTab: boolean }).oldTab = true })
+  let gone = true
+  await page.route(/\/src\/pages\/Calculator\.tsx/, r => (gone ? (gone = false, r.fulfill({ status: 404, body: '' })) : r.continue()))
+  await page.locator('a[href="/calculator"]').first().click()
+  await expect(page.locator('input[data-score]').first()).toBeVisible()
+  await expect(page).toHaveURL(/\/calculator/)
+  expect(await page.evaluate(() => (window as unknown as { oldTab?: boolean }).oldTab)).toBeUndefined() // it was reloaded
+  await expect(page.getByText('Что-то пошло не так')).toHaveCount(0)
+})

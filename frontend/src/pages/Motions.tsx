@@ -27,7 +27,7 @@ export default function Motions() {
   const filters = {
     search: params.get('q') ?? undefined,
     level: (params.get('level') ?? undefined) as 'school' | 'university' | undefined,
-    lang: (params.get('lang') ?? undefined) as 'ru' | 'kz' | undefined,
+    lang: (params.get('lang') ?? undefined) as 'ru' | 'kz' | 'en' | undefined,
     topic: (params.get('topic') ?? undefined) as MotionTopic | undefined,
     page: Number(params.get('page') ?? 1),
   }
@@ -64,7 +64,7 @@ export default function Motions() {
           <Select className="w-44" value={filters.level ?? 'all'} onValueChange={v => set('level', v === 'all' ? undefined : v)} aria-label={t('wizard.level')}
             options={[{ value: 'all', label: t('motions.allLevels') }, { value: 'school', label: t('level.school') }, { value: 'university', label: t('level.university') }]} />
           <Select className="w-40" value={filters.lang ?? 'all'} onValueChange={v => set('lang', v === 'all' ? undefined : v)} aria-label={t('motions.language')}
-            options={[{ value: 'all', label: t('motions.allLanguages') }, { value: 'ru', label: t('motions.lang.ru') }, { value: 'kz', label: t('motions.lang.kz') }]} />
+            options={[{ value: 'all', label: t('motions.allLanguages') }, { value: 'ru', label: t('motions.lang.ru') }, { value: 'kz', label: t('motions.lang.kz') }, { value: 'en', label: t('motions.lang.en') }]} />
         </div>
         <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label={t('motions.topic')}>
           {TOPICS.map(topic => {

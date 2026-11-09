@@ -8,7 +8,8 @@ import { ApiError, submitBallot, type BallotData, type BallotPayload } from '@/a
 
 export interface QueuedBallot {
   debateId: string
-  userId: string // only the judge who filled it can send it
+  userId: string // only the judge who filled it can send it (an account id, or link:<key> for a judge by the link)
+  judgeKey?: string // a judge by the personal link: the link is the key the ballot is sent with
   label: string // "Round 2 · Room 101" for messages
   payload: BallotPayload
   savedAt: string
@@ -59,7 +60,9 @@ const save = (items: Record<string, QueuedBallot>) => {
   window.dispatchEvent(new Event(OUTBOX_EVENT))
 }
 
-export const pendingBallots = (userId: string) => Object.values(all()).filter(b => b.userId === userId)
+// what this device may send now: the signed-in judge's ballots and those of judges by their links (the link is kept
+// on this device anyway, it is what opened the ballot)
+export const pendingBallots = (userId: string | null) => Object.values(all()).filter(b => (userId && b.userId === userId) || b.judgeKey)
 export const queuedBallot = (debateId: string, userId: string) => all()[itemKey(debateId, userId)]
 
 // one entry per debate: a newer ballot for the same debate replaces the older one
@@ -78,15 +81,15 @@ export type FlushResult = { sent: QueuedBallot[]; rejected: { ballot: QueuedBall
 
 let flushing: Promise<FlushResult> | null = null
 // sends this user's queued ballots one by one; stops at the first network failure
-export function flushBallots(userId: string): Promise<FlushResult> {
+export function flushBallots(userId: string | null): Promise<FlushResult> {
   flushing ??= (async () => {
     const result: FlushResult = { sent: [], rejected: [], waiting: 0 }
     const queue = pendingBallots(userId)
     for (const [i, b] of queue.entries()) {
       try {
-        await submitBallot(b.debateId, b.payload)
-        dropBallot(b.debateId, userId)
-        clearBallotDraft(b.debateId, userId)
+        await submitBallot(b.debateId, b.payload, b.judgeKey)
+        dropBallot(b.debateId, b.userId)
+        clearBallotDraft(b.debateId, b.userId)
         result.sent.push(b)
       } catch (e) {
         if (isRetryable(e) || (e instanceof ApiError && e.status === 401)) {
@@ -95,7 +98,7 @@ export function flushBallots(userId: string): Promise<FlushResult> {
           break
         }
         // the server refused it for good (round closed, panel changed…): the judge must look at it
-        dropBallot(b.debateId, userId)
+        dropBallot(b.debateId, b.userId)
         result.rejected.push({ ballot: b, code: e instanceof ApiError ? e.code : 'unknown_error' })
       }
     }

@@ -353,7 +353,7 @@ export interface MotionItem {
   round: string
   date: string
   topics: MotionTopic[]
-  language: 'ru' | 'kz'
+  language: 'ru' | 'kz' | 'en'
   tournament: { id: string; name: string; level: TournamentLevel; city: string }
 }
 

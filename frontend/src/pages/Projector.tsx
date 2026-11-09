@@ -42,6 +42,29 @@ export default function Projector() {
   const sideNames = useSides(data?.format)
   const roundName = useRoundName()
   const sideList = sidesOf(data?.format)
+  // more than 10 rooms of a two-team format: two columns side by side
+  const split = debates.length > 10 && sideList.length === 2
+  const perColumn = split ? Math.ceil(debates.length / 2) : debates.length
+  // the screen's height shared by the rows (minus the header, the controls and the column titles)
+  const [free, setFree] = useState(() => window.innerHeight - 250)
+  const [width, setWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const bar = (tag: string) => document.querySelector(tag)?.getBoundingClientRect().height ?? 0
+    const on = () => { setFree(window.innerHeight - bar('header') - bar('footer') - 48 - 40); setWidth(window.innerWidth) }
+    on()
+    window.addEventListener('resize', on)
+    // the header grows while the preparation timer shows
+    const watch = new ResizeObserver(on)
+    const header = document.querySelector('header')
+    if (header) watch.observe(header)
+    return () => { window.removeEventListener('resize', on); watch.disconnect() }
+  }, [view, data])
+  const rowHeight = Math.max(26, Math.min(72, free / Math.max(1, perColumn)))
+  // the letters also fit the column's width: about 42 letters across one table (the room, the teams, the chair)
+  const columnWidth = (width - 64 - (split && width >= 1024 ? 48 : 0)) / (split && width >= 1024 ? 2 : 1)
+  const rowFont = Math.round(Math.max(12, Math.min(24, rowHeight * 0.42, columnWidth / 42)))
+  // the room column is as wide as the longest room name: a room is never cut
+  const roomWidth = `${Math.max(t('tournament.room').length * 0.85, ...debates.map(d => d.room.length)) * 0.72 + 1.2}em`
 
   // preparation countdown, from a fixed end time so it never drifts
   useEffect(() => {
@@ -113,7 +136,7 @@ export default function Projector() {
         )}
       </header>
 
-      <main className="flex flex-1 items-center justify-center px-8 pb-8">
+      <main className="flex min-h-0 flex-1 items-center justify-center px-8 pb-8">
         {view === 'cover' && (
           <div className="text-center">
             <Presentation className="mx-auto size-16 text-accent" />
@@ -151,24 +174,29 @@ export default function Projector() {
           </div>
         )}
         {view === 'draw' && (
-          <div className="w-full max-w-6xl">
-            {debates.length === 0 || (round.status === 'draft' && !manager) ? <p className="text-center text-3xl text-white/70">{t('projector.noDraw')}</p> : (
-              <table className="w-full text-left text-xl sm:text-2xl">
-                <thead className="text-sm uppercase tracking-wider text-white/50">
-                  <tr><th className="py-3 pr-4">{t('tournament.room')}</th>{sideList.map(side => <th key={side} className="py-3 pr-4">{sideNames[side]}</th>)}<th className="py-3">{t('tournament.chair')}</th></tr>
-                </thead>
-                <tbody className="divide-y divide-white/10">
-                  {debates.map(d => (
-                    <tr key={d.id}>
-                      <td className="py-4 pr-4 font-bold text-accent">{d.room}</td>
-                      {sideList.map(side => <td key={side} className="py-4 pr-4 font-semibold">{team(teamIdOn(d, side) ?? '')}</td>)}
-                      <td className="py-4 text-white/70">{judge(d.judgeIds[0])}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+          debates.length === 0 || (round.status === 'draft' && !manager) ? <p className="text-center text-3xl text-white/70">{t('projector.noDraw')}</p> : (
+            // nobody scrolls a projector: every room is on the screen. More than 10 rooms of a two-team format go in two
+            // columns; the row height and the letters follow the screen's height and the number of rows, each row is one
+            // line (a very long name ends with "…"), so the draw always fits
+            <div className={cn('grid w-full gap-x-12', split ? 'lg:grid-cols-2' : 'mx-auto max-w-6xl')}>
+              {(split ? [debates.slice(0, perColumn), debates.slice(perColumn)] : [debates]).map((part, i) => (
+                <table key={i} className="w-full table-fixed self-start text-left" style={{ fontSize: rowFont }}>
+                  <thead className="text-sm uppercase tracking-wider text-white/50">
+                    <tr><th className="whitespace-nowrap py-2 pr-4" style={{ width: roomWidth }}>{t('tournament.room')}</th>{sideList.map(side => <th key={side} className="truncate py-2 pr-4">{sideNames[side]}</th>)}<th className="w-[28%] py-2">{t('tournament.chair')}</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {part.map(d => (
+                      <tr key={d.id} style={{ height: rowHeight }}>
+                        <td className="whitespace-nowrap pr-4 font-bold text-accent">{d.room}</td>
+                        {sideList.map(side => <td key={side} className="truncate pr-4 font-semibold">{team(teamIdOn(d, side) ?? '')}</td>)}
+                        <td className="truncate text-white/70">{judge(d.judgeIds[0])}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ))}
+            </div>
+          )
         )}
       </main>
 

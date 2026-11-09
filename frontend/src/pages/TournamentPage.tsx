@@ -220,7 +220,7 @@ function Overview({ data }: { data: TournamentDetails }) {
     { icon: Users, label: t('tournament.tabs.teams'), value: `${data.teamsCount} / ${data.maxTeams}` },
     // live demand: everyone who applied, also over the limit
     ...(data.applications ? [{ icon: Inbox, label: t('tournament.applications'), value: t('tournament.applicationsOf', { count: data.applications, places: data.maxTeams }) }] : []),
-    { icon: Globe, label: t('tournament.languages'), value: data.languages.map(l => (l === 'kz' ? 'Қазақша' : 'Русский')).join(', ') },
+    { icon: Globe, label: t('tournament.languages'), value: [...new Set<string>([...data.languages, ...(data.leagues ?? []).flatMap(l => (l.language ? [l.language] : []))])].map(l => LANGUAGE_NAMES[l] ?? l).join(', ') },
   ]
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -693,6 +693,9 @@ function PageSkeleton() {
     </>
   )
 }
+
+// each language by its own name (an English league is not "Русский"); a league's language counts as the tournament's
+const LANGUAGE_NAMES: Record<string, string> = { kz: 'Қазақша', ru: 'Русский', en: 'English' }
 
 export default function TournamentPage() {
   const { id = '' } = useParams()

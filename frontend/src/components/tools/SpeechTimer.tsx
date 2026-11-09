@@ -105,8 +105,9 @@ export function SpeechTimer({ formatId, onFormatChange, active = true, compact }
   useEffect(() => {
     if (!running) return
     startedAt.current = Date.now()
-    const id = setInterval(() => setElapsed(base.current + (Date.now() - startedAt.current!) / 1000), 200)
-    return () => { clearInterval(id); base.current += (Date.now() - startedAt.current!) / 1000 }
+    const id = setInterval(() => { if (startedAt.current !== null) setElapsed(base.current + (Date.now() - startedAt.current) / 1000) }, 200)
+    // a pause keeps the time run so far; a reset (or the next speaker) has already cleared it and must stay at zero
+    return () => { clearInterval(id); if (startedAt.current !== null) base.current += (Date.now() - startedAt.current) / 1000; startedAt.current = null }
   }, [running])
 
   // bells: once per mark; after the grace period a bell every 5 s
@@ -126,8 +127,11 @@ export function SpeechTimer({ formatId, onFormatChange, active = true, compact }
   useEffect(() => {
     if (!running || !('wakeLock' in navigator)) return
     let lock: WakeLockSentinel | undefined
-    navigator.wakeLock.request('screen').then(l => { lock = l }).catch(() => undefined)
-    return () => { void lock?.release() }
+    const take = () => { if (document.visibilityState === 'visible') navigator.wakeLock.request('screen').then(l => { lock = l }).catch(() => undefined) }
+    take()
+    // the browser drops the lock when the tab is hidden; coming back to a running timer takes it again
+    document.addEventListener('visibilitychange', take)
+    return () => { document.removeEventListener('visibilitychange', take); void lock?.release() }
   }, [running])
 
   // the page's own full screen; the browser's too where it exists. Leaving the browser's (Esc) leaves ours as well.
@@ -146,7 +150,7 @@ export function SpeechTimer({ formatId, onFormatChange, active = true, compact }
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = '' }
   }, [big])
 
-  const reset = useCallback(() => { setRunning(false); base.current = 0; setElapsed(0); rung.current = new Set() }, [])
+  const reset = useCallback(() => { startedAt.current = null; setRunning(false); base.current = 0; setElapsed(0); rung.current = new Set() }, [])
   const setPrepMinutes = (m: number) => { reset(); setPrep(Math.max(1, Math.min(PREP_MAX, Math.round(m) || 1))) }
   const toggle = () => { unlock(); setRunning(v => !v) }
   const go = (to: number) => { reset(); setIndex(Math.max(0, Math.min(format.speeches.length - 1, to))) }

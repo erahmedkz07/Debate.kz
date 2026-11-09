@@ -4,8 +4,10 @@ import { i18nReady } from './lib/i18n'
 import './index.css'
 import App from './App'
 import { watchErrors } from './lib/reportError'
+import { watchStaleBuild } from './lib/staleBuild'
 
 watchErrors()
+watchStaleBuild()
 
 // offline app shell for judges at venues with bad Wi-Fi; production builds only (dev relies on HMR)
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

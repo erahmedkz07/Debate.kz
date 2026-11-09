@@ -155,3 +155,45 @@ test('BP: a team that did not come is 4th; the chair scores and places the other
   const after = (await org.c('GET', `/tournaments/${t.id}`)).data.debates[0]
   expect(after.ranking.at(-1)).toBe('closingOpposition')
 })
+
+// the organizer closes the room (a technical result) while the judge is still typing: sending says why, in words
+test('a room closed while the judge types: sending tells the judge why', async ({ page }) => {
+  const t = await leagueTournament()
+  const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)
+  const judge = t.details.judges.find((j: { id: string }) => j.id === room.judgeIds[0])
+  const prop = t.details.teams.find((x: { id: string }) => x.id === room.propositionTeamId).name
+  await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
+  await fillBallot(page, prop)
+  await t.org('POST', `/debates/${room.id}/forfeit`, { side: 'opposition' })
+  await page.getByRole('button', { name: 'Отправить бюллетень' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Да, отправить' }).click()
+  await expect(page.getByText('В этой комнате засчитано техническое поражение — бюллетень не нужен.').first()).toBeVisible()
+  // the reason stays in the window, and sending again is switched off (it cannot help)
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('техническое поражение')
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Да, отправить' })).toBeDisabled()
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Закрыть' }).first()).toBeVisible()
+  await page.screenshot({ path: 'test-results/ballot-room-closed.png' })
+  await expect(page.getByText(/debate_forfeited|internal_error/)).toHaveCount(0)
+})
+
+// a judge by the link sends with no connection: the ballot waits on the phone and goes by itself when the network is back
+test('a judge by the link without a connection: the ballot waits on the device and is sent when the network returns', async ({ page }) => {
+  const t = await leagueTournament()
+  const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)
+  const judge = t.details.judges.find((j: { id: string }) => j.id === room.judgeIds[0])
+  const prop = t.details.teams.find((x: { id: string }) => x.id === room.propositionTeamId).name
+  await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
+  await fillBallot(page, prop)
+  // the venue Wi-Fi drops just as the judge presses "send"
+  await page.route('**/api/ballots/**', r => (r.request().method() === 'POST' ? r.abort('internetdisconnected') : r.continue()))
+  await page.getByRole('button', { name: 'Отправить бюллетень' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Да, отправить' }).click()
+  await expect(page.getByText('Бюллетень сохранён на устройстве')).toBeVisible()
+  await expect(page.getByText(/на этом же телефоне/)).toBeVisible()
+  // the connection is back
+  await page.unroute('**/api/ballots/**')
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect(page.getByText('Сохранённый бюллетень отправлен').first()).toBeVisible()
+  const sheet = (await t.org('GET', `/tournaments/${t.id}`)).data
+  expect(sheet.debates.find((d: { id: string }) => d.id === room.id).ballotStatus).not.toBe('pending')
+})
