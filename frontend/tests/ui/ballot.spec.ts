@@ -93,3 +93,30 @@ test('score ranges in the settings: 50–80, and the ballot follows them', async
   await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
   await expect(page.locator('input[inputmode="decimal"]').first()).toHaveAttribute('placeholder', '50–80')
 })
+
+test('typing scores: a slip never lands on the sheet, and a finished score moves on to the next speaker', async ({ page }) => {
+  const t = await leagueTournament()
+  const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)
+  const judge = t.details.judges.find((j: { id: string }) => j.id === room.judgeIds[0])
+  await page.goto(`/j/${judge.accessKey}/ballot/${room.id}`)
+  const inputs = page.locator('input[data-score]')
+  await inputs.first().click()
+  // 60–80 by 0.5: "9" cannot start a score; a third digit after "75" is ignored
+  await page.keyboard.type('9')
+  await expect(inputs.nth(0)).toHaveValue('')
+  await page.keyboard.type('755')
+  await expect(inputs.nth(0)).toHaveValue('75')
+  // "75" could still become "75.5": after a short pause the next speaker's field takes the keys
+  await expect(inputs.nth(1)).toBeFocused({ timeout: 3000 })
+  // "80" cannot get longer: the next field at once; a comma is a point
+  await page.keyboard.type('80')
+  await expect(inputs.nth(1)).toHaveValue('80')
+  await expect(inputs.nth(2)).toBeFocused()
+  await page.keyboard.type('72,5')
+  await expect(inputs.nth(2)).toHaveValue('72.5')
+  await expect(inputs.nth(3)).toBeFocused()
+  // Enter moves on too
+  await page.keyboard.type('35')
+  await page.keyboard.press('Enter')
+  await expect(inputs.nth(4)).toBeFocused()
+})

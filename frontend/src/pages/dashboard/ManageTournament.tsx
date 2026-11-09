@@ -381,8 +381,41 @@ function Teams({ data, reload }: SectionProps) {
         <p className="mb-4 flex items-start gap-2 rounded-2xl border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{t('leagues.teamsWithout', { count: noLeague })}</p>
       )}
       {data.status !== 'finished' && data.teams.length > 0 && <CheckinCard data={data} reload={reload} />}
+      {data.teams.length > 0 && (
+        // phones: a card per team, with its buttons in sight (the table needs a wide screen)
+        <div className="space-y-2 md:hidden">
+          {shown.map(team => (
+            <Card key={team.id} className={cn('p-3', team.withdrawn && 'opacity-60')}>
+              <div className="flex items-start gap-3">
+                <EntityLogo src={team.logoUrl} name={team.name} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}
+                    {team.withdrawn && <Badge variant="danger">{t('dashboard.teams.withdrawn')}</Badge>}
+                    {leagues.length > 0 && team.league && <Badge variant="muted">{leagueName(leagues, team.league)}</Badge>}</p>
+                  {team.institution && <p className="text-xs text-muted-foreground">{team.institution}</p>}
+                  <p className="mt-1 text-xs text-muted-foreground">{team.speakers.map(x => x.name).join(', ')}</p>
+                </div>
+              </div>
+              <div className="mt-2 flex justify-end gap-1 border-t border-border pt-2">
+                {!team.swing && !team.withdrawn && data.status !== 'finished' && (
+                  <Button variant="ghost" size="sm" aria-pressed={!!team.checkedIn} disabled={busy === `ci-${team.id}`} className={cn('mr-auto', team.checkedIn ? 'text-success' : 'text-muted-foreground')}
+                    onClick={async () => { if (await run(`ci-${team.id}`, () => setTeamCheckin(team.id, !team.checkedIn))) reload() }}>
+                    {team.checkedIn ? <CheckCircle2 className="size-4" /> : <Circle className="size-4" />}{team.checkedIn ? t('dashboard.checkin.present') : t('dashboard.checkin.absent')}
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" aria-label={t('common.edit')} onClick={() => { setEditing(team); setOpen(true) }}><Pencil className="size-4" /></Button>
+                {team.withdrawn ? (
+                  <Button variant="ghost" size="sm" disabled={busy === `ret-${team.id}`} onClick={async () => { if (await run(`ret-${team.id}`, () => returnTeam(team.id), t('dashboard.teams.returned'))) reload() }}><Undo2 className="size-4" />{t('dashboard.teams.return')}</Button>
+                ) : (
+                  <Button variant="ghost" size="icon" aria-label={t('common.delete')} className="hover:text-danger" onClick={() => setToDelete(team)}><Trash2 className="size-4" /></Button>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
       {data.teams.length === 0 ? <EmptyState icon={<Users className="size-7" />} title={t('common.empty')} /> : (
-        <Card className="overflow-x-auto">
+        <Card className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr><th className="px-5 py-3">{t('common.team')}</th><th className="px-5 py-3">{t('tournament.speakers')}</th><th className="w-44 px-5 py-3" /></tr>
@@ -1698,7 +1731,42 @@ function Draw({ data, reload }: SectionProps) {
               <Button size="sm" variant="ghost" onClick={() => setPicked(null)}><X className="size-4" />{t('common.cancel')}</Button>
             </div>
           )}
-          <Card className="overflow-x-auto">
+          {/* phones: a card per room, everything in sight (the table needs a wide screen) */}
+          <div className="space-y-3 md:hidden">
+            {current.map((d, i) => (
+              <div key={d.id}>
+                {headerBefore(d, i) && <p className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-primary">{leagueName(leagues, team(d.propositionTeamId)?.league)}</p>}
+                <Card className={cn('space-y-3 p-4', busy === d.id && 'opacity-50')}>
+                  <div className="flex items-center justify-between gap-2">
+                    <Select size="sm" className="w-36" value={d.room} disabled={!editable} aria-label={t('tournament.room')} onValueChange={v => patch(d, { room: v })} options={roomOptions(d)} />
+                    <Button variant="ghost" size="icon" disabled={!editable || d.ballotStatus !== 'pending'} title={t('dashboard.draw.swap')} aria-label={t('dashboard.draw.swap')} onClick={() => patch(d, { swapSides: true })}>
+                      <ArrowLeftRight className="size-4" />
+                    </Button>
+                  </div>
+                  <div className={cn('grid gap-2', sideList.length === 4 ? 'grid-cols-2' : 'grid-cols-1')}>
+                    {sideList.map(side => (
+                      <div key={side} className="rounded-xl bg-muted/50 px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{sides[side]}</p>
+                        <p className="font-bold">{teamCell(d, side)}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {d.forfeit && <p className="text-xs font-semibold text-danger">{t('dashboard.forfeit.badge', { team: team(teamIdOn(d, d.forfeit)!)?.name })}</p>}
+                  <div>
+                    <Select size="sm" value={d.judgeIds[0]} disabled={!editable} aria-label={t('tournament.chair')} onValueChange={v => patch(d, { chairJudgeId: v })}
+                      options={status.sorted(d, data.judges.filter(j => !j.left || d.judgeIds.includes(j.id))).map(j => ({ value: j.id, label: j.name, hint: status.label(d, j) }))} />
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                      {d.judgeIds.length > 1 && <span>+ {d.judgeIds.slice(1).map(id => judge(id)?.name).join(', ')}</span>}
+                      {editable && d.ballotStatus === 'pending' && (
+                        <button type="button" onClick={() => setWingsFor(d)} className="inline-flex cursor-pointer items-center gap-1 font-semibold text-primary hover:underline"><UserPlus className="size-3.5" />{t('dashboard.draw.wings')}</button>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            ))}
+          </div>
+          <Card className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-muted/70 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
@@ -1942,7 +2010,10 @@ function Ballots({ data, reload }: SectionProps) {
         <Card key={d.id} className="flex items-center gap-4 p-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-muted-foreground">{d.room}</p>
-            <p className="truncate font-bold">{sidesOf(data.format).map(side => data.teams.find(x => x.id === teamIdOn(d, side))?.name).join(d.closingPropositionTeamId ? ' · ' : ' vs ')}</p>
+            {/* every team of the room on its own line: on a phone a long pair is never cut off */}
+            {sidesOf(data.format).filter(side => teamIdOn(d, side)).map((side, i) => (
+              <p key={side} className="truncate font-bold leading-snug">{i > 0 && <span className="mr-1 text-xs font-normal text-muted-foreground">vs</span>}{data.teams.find(x => x.id === teamIdOn(d, side))?.name}</p>
+            ))}
             {d.forfeit && <p className="text-xs font-semibold text-danger">{t('dashboard.forfeit.badge', { team: teamName(teamIdOn(d, d.forfeit)) })}</p>}
           </div>
           {d.forfeit

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
@@ -12,6 +12,7 @@ import {
   clearBallotDraft, dropBallot, isRetryable, loadBallotDraft, loadBallotSheet, OUTBOX_EVENT, queueBallot, queuedBallot, saveBallotDraft, saveBallotSheet,
 } from '@/lib/ballotOutbox'
 import { errorMessage } from '@/lib/errors'
+import { acceptScore, focusNextScore, scoreState } from '@/lib/scoreEntry'
 import { cn, formatDateTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -59,22 +60,37 @@ function FeedbackField({ value, onChange, label }: { value: string; onChange: (v
 }
 
 function ScoreInput({ label, value, onChange, range, invalid }: { label: string; value: string; onChange: (v: string) => void; range: Range; invalid: boolean }) {
+  const pause = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(pause.current), [])
   const bump = (d: number) => {
     const n = value === '' ? (range.min + range.max) / 2 : Number(value) + d
     onChange(String(Math.min(range.max, Math.max(range.min, n))))
+  }
+  // only what can still become a score is typed; a finished score moves on to the next speaker
+  const type = (el: HTMLInputElement, raw: string) => {
+    const next = acceptScore(raw, range)
+    if (next === null) return
+    onChange(next)
+    window.clearTimeout(pause.current)
+    const state = scoreState(next, range)
+    if (state === 'done') focusNextScore(el)
+    else if (state === 'maybe') pause.current = window.setTimeout(() => { if (document.activeElement === el) focusNextScore(el) }, 900)
   }
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="min-w-0 truncate text-sm font-medium">{label}</span>
       <div className="flex shrink-0 items-center gap-1">
-        <button type="button" onClick={() => bump(-range.step)} className="grid size-9 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: −${range.step}`}><Minus className="size-4" /></button>
+        <button type="button" tabIndex={-1} onClick={() => bump(-range.step)} className="grid size-10 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: −${range.step}`}><Minus className="size-4" /></button>
         <input
-          inputMode="decimal" value={value} onChange={e => onChange(e.target.value.replace(',', '.'))} aria-label={label} aria-invalid={invalid}
+          data-score inputMode="decimal" enterKeyHint="next" autoComplete="off" value={value} aria-label={label} aria-invalid={invalid}
+          onChange={e => type(e.currentTarget, e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); window.clearTimeout(pause.current); focusNextScore(e.currentTarget) } }}
+          onFocus={e => e.currentTarget.select()}
           placeholder={`${range.min}–${range.max}`}
-          className={cn('h-9 w-16 rounded-lg border-2 bg-card text-center text-sm font-bold tabular-nums focus:outline-none focus:ring-4 focus:ring-primary/15',
+          className={cn('h-10 w-[4.5rem] rounded-lg border-2 bg-card text-center text-base font-bold tabular-nums focus:outline-none focus:ring-4 focus:ring-primary/15',
             invalid ? 'border-danger' : 'border-border focus:border-primary')}
         />
-        <button type="button" onClick={() => bump(range.step)} className="grid size-9 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: +${range.step}`}><Plus className="size-4" /></button>
+        <button type="button" tabIndex={-1} onClick={() => bump(range.step)} className="grid size-10 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: +${range.step}`}><Plus className="size-4" /></button>
       </div>
     </div>
   )
