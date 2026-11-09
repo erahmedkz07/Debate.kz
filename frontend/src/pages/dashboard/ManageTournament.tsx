@@ -1987,7 +1987,7 @@ function Ballots({ data, reload }: SectionProps) {
   const [forfeitFor, setForfeitFor] = useState<Debate | null>(null)
   const twoTeams = sidesOf(data.format).length === 2
   const teamName = (id?: string) => data.teams.find(x => x.id === id)?.name
-  const forfeit = async (d: Debate, side: 'proposition' | 'opposition' | null) => {
+  const forfeit = async (d: Debate, side: Side | null) => {
     if (await run(`ff-${d.id}`, () => setForfeit(d.id, side), t(side ? 'dashboard.forfeit.done' : 'dashboard.forfeit.undone'))) { setForfeitFor(null); reload() }
   }
   const roundName = useRoundName()
@@ -2016,10 +2016,10 @@ function Ballots({ data, reload }: SectionProps) {
             ))}
             {d.forfeit && <p className="text-xs font-semibold text-danger">{t('dashboard.forfeit.badge', { team: teamName(teamIdOn(d, d.forfeit)) })}</p>}
           </div>
-          {d.forfeit
+          {d.forfeit && twoTeams
             ? <Badge variant="danger">{t('dashboard.forfeit.short')}</Badge>
             : <Badge variant={variant[d.ballotStatus]}>{t(`dashboard.ballots.${d.ballotStatus}`)}</Badge>}
-          {twoTeams && roundOpen && (d.forfeit ? (
+          {roundOpen && (d.forfeit ? (
             <Button variant="ghost" size="icon" aria-label={t('dashboard.forfeit.undo')} title={t('dashboard.forfeit.undo')} disabled={busy === `ff-${d.id}`} onClick={() => forfeit(d, null)}>
               <Undo2 className="size-4" />
             </Button>
@@ -2068,10 +2068,10 @@ function Ballots({ data, reload }: SectionProps) {
         </div>
       ) : cards(list)}
       <Dialog open={!!forfeitFor} onOpenChange={o => !o && setForfeitFor(null)}>
-        <DialogContent heading={t('dashboard.forfeit.title')} description={t('dashboard.forfeit.text')}>
+        <DialogContent heading={t('dashboard.forfeit.title')} description={t(twoTeams ? 'dashboard.forfeit.text' : 'dashboard.forfeit.bpNote')}>
           {forfeitFor && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {(['proposition', 'opposition'] as const).map(side => (
+              {sidesOf(data.format).filter(side => teamIdOn(forfeitFor, side)).map(side => (
                 <Button key={side} variant="outline" className="h-auto flex-col py-3" disabled={busy === `ff-${forfeitFor.id}`} onClick={() => forfeit(forfeitFor, side)}>
                   <span className="font-bold">{teamName(teamIdOn(forfeitFor, side))}</span>
                   <span className="text-xs font-normal text-muted-foreground">{t('dashboard.forfeit.notCame')}</span>

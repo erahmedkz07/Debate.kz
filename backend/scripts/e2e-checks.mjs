@@ -3406,7 +3406,8 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     .then(async r => ({ status: r.status, data: await r.json().catch(() => null) }))
   // a ballot read from the judge's sheet: every side a different score (no tie) unless tie is asked for
   const build = (sheet, seed, tie = false) => {
-    const R = sheet.rules, present = SIDES.filter(side => sheet[side])
+    // BP: a team that did not come is not scored (it is 4th)
+    const R = sheet.rules, present = SIDES.filter(side => sheet[side] && side !== sheet.absent)
     const order = present.map((_, i) => present[(i + seed) % present.length])
     const scores = {}, totals = {}, reply = {}, replySpeakers = {}
     order.forEach((side, place) => {
@@ -3421,7 +3422,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
       }
     })
     const ranking = [...present].sort((a, b) => totals[b] - totals[a])
-    return { winner: ranking[0], scores, ...(R.reply && { reply, replySpeakers }), ...(present.length === 4 && { ranking }) }
+    return { winner: ranking[0], scores, ...(R.reply && { reply, replySpeakers }), ...(sheet.closingProposition && { ranking }) }
   }
 
   for (const [fi, format] of FORMATS.entries()) {
@@ -3445,11 +3446,12 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
       let d = await details()
       const rooms = d.debates.filter(x => x.roundId === round.id)
       for (const [i, room] of rooms.entries()) {
-        if (room.forfeit || room.winner) continue
-        if (opts.noShow && i === 0 && !bp && round.kind !== 'elimination') {
-          r = await host.c('POST', `/debates/${room.id}/forfeit`, { side: 'opposition' })
-          if (r.status !== 200) problems.push(`no-show ${r.status}`)
-          continue
+        if (room.winner || (room.forfeit && !bp)) continue
+        if (opts.noShow && i === 0 && round.kind !== 'elimination') {
+          // a team does not come: two teams — the room is decided; BP — it is 4th, the chair places the other three
+          r = await host.c('POST', `/debates/${room.id}/forfeit`, { side: bp ? 'closingOpposition' : 'opposition' })
+          if (r.status !== 200) problems.push(`no-show ${r.status} ${JSON.stringify(r.data)}`)
+          if (!bp) continue
         }
         const panel = bp ? room.judgeIds.slice(0, 1) : room.judgeIds
         if (!panel.length) problems.push(`R${round.number} room without a judge`)
@@ -3467,6 +3469,21 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
       r = await host.c('PATCH', `/rounds/${round.id}`, { status: 'completed' })
       if (r.status !== 200) problems.push(`R${round.number} complete ${r.status} ${JSON.stringify(r.data)}`)
     }
+    // completing a round with a room still open names the room
+    if (format === 'WSDC') {
+      const probe = (await host.c('POST', '/tournaments', { ...tBody(760), name: `Пробный ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+      await admin('PATCH', `/admin/tournaments/${probe.id}`, { moderation: 'approved' })
+      await host.c('POST', `/tournaments/${probe.id}/teams/bulk`, { names: ['Проба А', 'Проба Б'] })
+      await host.c('POST', `/tournaments/${probe.id}/judges/bulk`, { names: ['Проба Судья'] })
+      await host.c('PATCH', `/tournaments/${probe.id}`, { status: 'ongoing' })
+      const pr = (await host.c('GET', `/tournaments/${probe.id}`)).data.rounds[0]
+      await host.c('POST', `/rounds/${pr.id}/draw`, { addSwing: false })
+      await host.c('PATCH', `/rounds/${pr.id}`, { motion: 'ЭП', status: 'released' })
+      const room = (await host.c('GET', `/tournaments/${probe.id}`)).data.debates[0]
+      const closing = await host.c('PATCH', `/rounds/${pr.id}`, { status: 'completed' })
+      if (closing.data?.error !== 'ballots_missing' || closing.data.details?.rooms !== room.room) problems.push(`ballots_missing names the rooms: ${JSON.stringify(closing.data)}`)
+      await host.c('DELETE', `/tournaments/${probe.id}`)
+    }
 
     let d = await details()
     const [r1, r2, r3] = d.rounds
@@ -3479,10 +3496,13 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     // round 2: one more team leaves in the middle of the round (two-team formats: its room is lost at once)
     await play(r2, 2, {
       beforeBallots: async () => {
-        if (bp) return
         const now = await details()
-        const room = now.debates.find(x => x.roundId === r2.id && !x.forfeit)
-        const out = await host.c('DELETE', `/teams/${room.oppositionTeamId}`)
+        // a real team (not a swing team) of a room of this round leaves
+        const real = id => id && !now.teams.find(y => y.id === id)?.swing
+        const room = now.debates.find(x => x.roundId === r2.id && !x.forfeit && SIDES.some(side => real(x[`${side}TeamId`])))
+        const leaving = SIDES.map(side => room?.[`${side}TeamId`]).find(real)
+        if (!leaving) { problems.push('no real team to leave'); return }
+        const out = await host.c('DELETE', `/teams/${leaving}`)
         if (out.data?.forfeited !== 1) problems.push(`mid-round leave ${JSON.stringify(out.data)}`)
       },
     })
@@ -3531,7 +3551,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
       if (certs.length < people) await new Promise(res => setTimeout(res, 100))
     }
     if (certs.length < people) problems.push(`certificates ${certs.length} of ${people}`)
-    ok(problems.length === 0, `${format}: a whole tournament — no-show, tie refused, team leaves, late team, break, playoffs, champion, certificates${problems.length ? ` ✗ ${problems.slice(0, 4).join(' | ')}` : ''}`)
+    ok(problems.length === 0, `${format}: a whole tournament — no-show (BP: 4th, three placed), tie refused, team leaves mid-round, late team, break, playoffs, champion, certificates${problems.length ? ` ✗ ${problems.slice(0, 4).join(' | ')}` : ''}`)
   }
 }
 
