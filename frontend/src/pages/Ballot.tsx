@@ -315,7 +315,7 @@ function BallotForm() {
   }
 
   return (
-    <div className="container-page max-w-3xl py-8">
+    <div className="container-page max-w-3xl py-8 md:max-w-6xl">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <BackButton fallback={judgeKey ? `/j/${judgeKey}` : '/judge'} label={data.tournament.name} className="-ml-1" />
         <button type="button" onClick={() => setTimer(v => (v === 'open' ? 'hidden' : 'open'))} aria-pressed={timer === 'open'}
@@ -353,9 +353,22 @@ function BallotForm() {
 
 
 
-      <div className={cn('mt-6', bp ? 'grid gap-5 sm:grid-cols-2' : 'space-y-5')}>
+      {/* phones: the teams are one under the other, so their totals stay in sight while scrolling */}
+      <div className="sticky top-16 z-20 -mx-4 mt-4 flex gap-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur md:hidden">
+        {sides.map(side => (
+          <div key={side} className={cn('min-w-0 flex-1 rounded-lg px-2 py-1 text-center', side === 'proposition' || side === 'closingProposition' ? 'bg-primary-soft' : 'bg-muted')}>
+            <p className="truncate text-[11px] font-semibold text-muted-foreground">{teamOf(side).name}</p>
+            <p className="text-base font-extrabold tabular-nums">{fmt(totals[side])}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* wider screens: the teams side by side, scored without scrolling up and down */}
+      <div className="mt-6 grid items-start gap-5 md:grid-cols-2">
         {sides.map(side => teamCard(side, teamOf(side)))}
       </div>
+
+      <div className="grid items-start gap-5 lg:grid-cols-2">
 
       {bp ? (
         // BP: the places come from the totals as the judge types; 1st–4th give 3/2/1/0 team points
@@ -403,6 +416,7 @@ function BallotForm() {
         <p className="mb-2 text-sm text-muted-foreground">{t('flow.reasonHint')}</p>
         <Textarea id="reason" rows={3} maxLength={1500} value={reason} onChange={e => setReason(e.target.value)} placeholder={t('flow.reasonPlaceholder')} />
       </Card>
+      </div>
 
       {tried && errors.length > 0 && (
         <div role="alert" className="mt-5 space-y-1.5 rounded-2xl bg-danger-soft p-4 text-sm font-medium text-danger">
@@ -410,7 +424,7 @@ function BallotForm() {
         </div>
       )}
 
-      <div className="sticky bottom-0 -mx-4 mt-6 border-t border-border bg-background/90 px-4 py-4 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
+      <div className="sticky bottom-0 -mx-4 mt-6 border-t border-border bg-background/90 px-4 py-4 backdrop-blur sm:static sm:mx-auto sm:max-w-xl sm:border-0 sm:bg-transparent sm:p-0">
         <Button size="lg" className="w-full" onClick={onSubmit}>{t('ballot.submit')}</Button>
         <p className="mt-2 text-center text-xs text-muted-foreground">{t('offline.draftHint')}</p>
       </div>

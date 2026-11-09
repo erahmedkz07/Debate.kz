@@ -5,7 +5,7 @@ import type { TFunction } from 'i18next'
 import { toast } from 'sonner'
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Award, BarChart3, CalendarClock, Check, CheckCircle2, ChevronRight, Circle, ClipboardList, Clock, Copy, DoorOpen, ExternalLink, Eye, EyeOff, Flag, Gavel, Inbox, Languages, LayoutDashboard, Link2, ListOrdered, ListPlus, Loader2, Mail, Megaphone, Pencil, Play, Plus, Presentation, QrCode, RefreshCw, RotateCcw, Scale, Settings, ShieldAlert, Shuffle, Table2, Trash2, Trophy, Undo2, UserPlus, Users, X } from 'lucide-react'
 import {
-  type DrawMethod, type DrawReport, addTeam, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, returnJudge, returnTeam, setForfeit, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
+  type DrawMethod, type DrawReport, addTeam, replaceInBreak, getStandings, getSelection, runSelectionLottery, announceBreak, cancelBreak, setJudgeConflicts, setTeamCategories, getJudgeFeedback, type JudgeFeedbackSummary, inviteByEmail, deleteJudge, deleteTeam, deleteTournament, returnJudge, returnTeam, setForfeit, generateDraw, getCheckin, newCheckinCode, resetCheckin, setTeamCheckin, getRegistrations, getTournamentById, NotFoundError, setRegistrationStatus,
   updateDebate, updateRound, updateSchedule, updateTeam, updateTournament, addTeamsBulk, addJudgesBulk, setJudgeLeague, newJudgeLink, type TeamInput,
   importTeams, type ImportTeam, getSpeakerClaims, decideSpeakerClaim, swapTeams, type TeamSlot, renameJudge, addRoom,
 } from '@/api'
@@ -1125,7 +1125,9 @@ function MissingMotions({ data }: { data: TournamentDetails }) {
 }
 
 /* ---------- Rounds ---------- */
-function RoundCard({ round, hasDraw, reload, leagues = [] }: { round: Round; hasDraw: boolean; reload: () => void; leagues?: League[] }) {
+// A round: its motion (with leagues one tab per league), publishing, completing. A completed round folds into one line
+// (the page stays short; the break and the playoffs are within reach); a click opens it again.
+function RoundCard({ round, hasDraw, reload, leagues = [], open, onToggle }: { round: Round; hasDraw: boolean; reload: () => void; leagues?: League[]; open: boolean; onToggle: () => void }) {
   const { t } = useTranslation()
   const roundName = useRoundName()
   const { busy, run } = useAction()
@@ -1138,6 +1140,7 @@ function RoundCard({ round, hasDraw, reload, leagues = [] }: { round: Round; has
   useEffect(() => setSlide(round.infoSlide ?? ''), [round.infoSlide])
   useEffect(() => setLm(savedLm()), [round.leagueMotions, leagues.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const byLeague = leagues.length > 0 && round.kind !== 'elimination'
+  const [tab, setTab] = useState(leagues[0]?.key ?? '')
   const dirty = byLeague ? JSON.stringify(lm) !== JSON.stringify(savedLm()) : motion.trim() !== round.motion || slide.trim() !== (round.infoSlide ?? '')
   const noMotion = byLeague ? leagues.some(l => !lm[l.key]?.motion.trim()) : !motion.trim()
   // why "publish" is not available yet, said next to the button instead of a silent grey button
@@ -1153,17 +1156,24 @@ function RoundCard({ round, hasDraw, reload, leagues = [] }: { round: Round; has
   const complete = async () => { if (await run('complete', () => updateRound(round.id, { status: 'completed' }), t('dashboard.rounds.completedToast'))) reload() }
   const setSilent = async (silent: boolean) => { if (await run('silent', () => updateRound(round.id, { silent }), t(silent ? 'dashboard.rounds.closedToast' : 'dashboard.rounds.openedToast'))) reload() }
 
+  const summary = byLeague ? leagues.map(l => lm[l.key]?.motion).filter(Boolean).join(' · ') : round.motion
   return (
-    <Card className="p-5">
+    <Card id={`round-${round.id}`} className={cn('scroll-mt-24', open ? 'p-5' : 'px-5 py-3')}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className={cn('grid size-9 place-items-center rounded-lg text-sm font-bold', round.kind === 'elimination' ? 'bg-accent text-navy' : 'bg-primary text-primary-foreground')}>
+        <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
+          <span className={cn('grid size-9 shrink-0 place-items-center rounded-lg text-sm font-bold', round.kind === 'elimination' ? 'bg-accent text-navy' : 'bg-primary text-primary-foreground')}>
             {round.kind === 'elimination' ? <Trophy className="size-4" /> : round.number}
           </span>
-          <p className="font-bold">{roundName(round)}</p>
-          <Badge variant={round.status === 'completed' ? 'muted' : round.status === 'released' ? 'accent' : 'outline'}>{t(`tournament.roundStatus.${round.status}`)}</Badge>
-        </div>
-        <div className="flex flex-wrap gap-2">
+          <span className="min-w-0">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="font-bold">{roundName(round)}</span>
+              <Badge variant={round.status === 'completed' ? 'muted' : round.status === 'released' ? 'accent' : 'outline'}>{t(`tournament.roundStatus.${round.status}`)}</Badge>
+            </span>
+            {!open && summary && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{summary}</span>}
+          </span>
+          <ChevronRight className={cn('ml-auto size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
+        </button>
+        {open && <div className="flex flex-wrap gap-2">
           {round.status !== 'completed' && (
             <Button asChild size="sm" variant="ghost" title={t('projector.open')}>
               <a href={`/tournaments/${round.tournamentId}/projector?round=${round.id}`} target="_blank" rel="noopener"><Presentation className="size-4" />{t('projector.short')}</a>
@@ -1180,13 +1190,21 @@ function RoundCard({ round, hasDraw, reload, leagues = [] }: { round: Round; has
               {busy === 'complete' ? <Loader2 className="size-4 animate-spin" /> : <Flag className="size-4" />}{t('dashboard.rounds.complete')}
             </Button>
           )}
-        </div>
+        </div>}
       </div>
-      {byLeague ? (
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {leagues.map(l => (
-            <div key={l.key} className="rounded-2xl border border-border p-4">
-              <p className="mb-2 text-sm font-bold text-primary">{l.name}</p>
+      {!open ? null : byLeague ? (
+        <div className="mt-4">
+          {/* one league at a time: a tab per league, a mark where the motion is written */}
+          <div className="mb-3 flex flex-wrap gap-1 rounded-xl bg-muted p-1" role="tablist" aria-label={t('leagues.league')}>
+            {leagues.map(l => (
+              <button key={l.key} type="button" role="tab" aria-selected={tab === l.key} onClick={() => setTab(l.key)}
+                className={cn('flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition-all', tab === l.key ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground')}>
+                {lm[l.key]?.motion.trim() ? <Check className="size-3.5 text-success" /> : <Circle className="size-3.5" />}{l.name}
+              </button>
+            ))}
+          </div>
+          {leagues.filter(l => l.key === tab).map(l => (
+            <div key={l.key}>
               <Label htmlFor={`m-${round.id}-${l.key}`}>{t('dashboard.rounds.motion')}</Label>
               <Textarea id={`m-${round.id}-${l.key}`} rows={2} value={lm[l.key]?.motion ?? ''} disabled={round.status === 'completed'} placeholder={t('dashboard.rounds.motionPlaceholder')}
                 onChange={e => setLm({ ...lm, [l.key]: { ...lm[l.key], motion: e.target.value } })} />
@@ -1195,7 +1213,7 @@ function RoundCard({ round, hasDraw, reload, leagues = [] }: { round: Round; has
                 onChange={e => setLm({ ...lm, [l.key]: { ...lm[l.key], infoSlide: e.target.value } })} />
             </div>
           ))}
-          {blocker && <p className="text-xs text-muted-foreground lg:col-span-2">{blocker}</p>}
+          {blocker && <p className="mt-2 text-xs text-muted-foreground">{blocker}</p>}
         </div>
       ) : (
       <div className="mt-4">
@@ -1207,7 +1225,7 @@ function RoundCard({ round, hasDraw, reload, leagues = [] }: { round: Round; has
         <Textarea id={`s-${round.id}`} rows={2} maxLength={2000} value={slide} disabled={round.status === 'completed'} onChange={e => setSlide(e.target.value)} placeholder={t('dashboard.rounds.infoSlidePlaceholder')} />
       </div>
       )}
-      {round.kind !== 'elimination' && (
+      {open && round.kind !== 'elimination' && (
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
           <span className="text-sm font-semibold">{t('dashboard.rounds.visibility')}</span>
           <div className="inline-flex rounded-xl bg-muted p-1" role="radiogroup" aria-label={t('dashboard.rounds.visibility')}>
@@ -1228,14 +1246,37 @@ function RoundCard({ round, hasDraw, reload, leagues = [] }: { round: Round; has
 
 function Rounds({ data, reload }: SectionProps) {
   const { t } = useTranslation()
-  const card = (r: Round) => <RoundCard key={r.id} round={r} hasDraw={data.debates.some(d => d.roundId === r.id)} reload={reload} leagues={data.leagues} />
+  const roundName = useRoundName()
+  // completed rounds fold; the rest stay open. A round opened or folded by hand stays so.
+  const [toggled, setToggled] = useState<Record<string, boolean>>({})
+  const isOpen = (r: Round) => toggled[r.id] ?? r.status !== 'completed'
+  const card = (r: Round) => <RoundCard key={r.id} round={r} hasDraw={data.debates.some(d => d.roundId === r.id)} reload={reload} leagues={data.leagues}
+    open={isOpen(r)} onToggle={() => setToggled(x => ({ ...x, [r.id]: !isOpen(r) }))} />
+  const jump = (id: string, round?: Round) => {
+    if (round) setToggled(x => ({ ...x, [round.id]: true }))
+    setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  }
+  const prelims = data.rounds.filter(r => r.kind !== 'elimination'), playoffs = data.rounds.filter(r => r.kind === 'elimination')
+  const chip = (id: string, label: string, done: boolean, round?: Round) => (
+    <button key={id} type="button" onClick={() => jump(id, round)}
+      className={cn('inline-flex cursor-pointer items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold transition-colors hover:border-primary hover:text-primary',
+        round?.status === 'released' ? 'border-accent bg-accent-soft' : 'border-border bg-card')}>
+      {done && <Check className="size-3 text-success" />}{label}
+    </button>
+  )
   return (
     <>
       <SectionTitle title={t('dashboard.nav.rounds')} />
+      {/* the way through a long tournament: every round and the break one click away */}
+      <nav aria-label={t('dashboard.rounds.jump')} className="sticky top-16 z-10 -mx-1 mb-4 flex flex-wrap gap-1.5 bg-background/90 px-1 py-2 backdrop-blur">
+        {prelims.map(r => chip(`round-${r.id}`, roundName(r), r.status === 'completed', r))}
+        {chip('break-card', t('dashboard.rounds.breakChip'), playoffs.length > 0)}
+        {playoffs.map(r => chip(`round-${r.id}`, roundName(r), r.status === 'completed', r))}
+      </nav>
       <div className="space-y-4">
-        {data.rounds.filter(r => r.kind !== 'elimination').map(card)}
+        {prelims.map(card)}
         <BreakCard data={data} reload={reload} />
-        {data.rounds.filter(r => r.kind === 'elimination').map(card)}
+        {playoffs.map(card)}
       </div>
     </>
   )
@@ -1257,9 +1298,46 @@ function BreakCard({ data, reload }: SectionProps) {
     : !prelims.length || prelims.some(r => r.status !== 'completed') ? t('dashboard.break.needPrelims') : null
   const canCancel = elimination.length > 0 && elimination.every(r => r.status === 'draft')
   const announce = async () => { if (await run('announce', () => announceBreak(data.id), t('dashboard.break.announcedToast'))) reload() }
+  // the table after the break: who is level with a team of the break (every tie-break equal) and who could replace whom
+  const table = useAsync(() => (elimination.length ? getStandings(data.id) : Promise.resolve(null)), [data.id, elimination.length])
+  const rows = (table.data?.teams ?? []).filter(r => !data.teams.find(x => x.id === r.team.id)?.withdrawn)
+  const drawn = (key: string | null) => data.debates.some(d => elimination.some(r => r.id === d.roundId && (r.category ?? null) === key))
+  const outsideOf = (key: string | null) => rows.filter(r => !r.team.swing && !data.teams.find(x => x.id === r.team.id)?.breakSeed && (!leagues.length || r.team.league === key))
+  const tiesOf = (key: string | null, seeded: Team[]) => {
+    const ranks = new Set(rows.filter(r => seeded.some(x => x.id === r.team.id)).map(r => r.rank))
+    const level = outsideOf(key).filter(r => ranks.has(r.rank))
+    return level.length ? { inside: seeded.filter(x => rows.some(r => r.team.id === x.id && level.some(o => o.rank === r.rank))), outside: level.map(r => r.team) } : null
+  }
+  const replace = async (inTeamId: string, outTeamId: string) => { if (await run(`rep-${inTeamId}`, () => replaceInBreak(data.id, inTeamId, outTeamId), t('dashboard.break.replaced'))) reload() }
+  const seedRow = (s: Team, key: string | null, badge: string) => {
+    const choices = drawn(key) ? [] : outsideOf(key)
+    const tie = tiesOf(key, [s])
+    return (
+      <li key={s.id} className={cn('flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-sm', tie && 'ring-2 ring-accent')}>
+        <span className={cn('grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-extrabold', badge)}>{s.breakSeed}</span>
+        <span className="min-w-0 flex-1 truncate font-semibold">{s.name}</span>
+        {choices.length > 0 && (
+          <Select size="sm" className="w-40 shrink-0" value="" placeholder={t('dashboard.break.replace')} aria-label={t('dashboard.break.replaceTeam', { team: s.name })}
+            onValueChange={v => replace(s.id, v)}
+            options={[...choices].sort((a, b) => Number(tie?.outside.some(x => x.id === b.team.id)) - Number(tie?.outside.some(x => x.id === a.team.id)) || a.rank - b.rank)
+              .map(r => ({ value: r.team.id, label: `${r.team.name} · ${r.rank}${tie?.outside.some(x => x.id === r.team.id) ? ` · ${t('dashboard.break.level')}` : ''}` }))} />
+        )}
+      </li>
+    )
+  }
+  const tieNote = (key: string | null, seeded: Team[]) => {
+    const tie = tiesOf(key, seeded)
+    if (!tie) return null
+    return (
+      <p className="mt-2 flex items-start gap-2 rounded-xl border border-accent bg-accent-soft px-3 py-2 text-xs">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+        {t('dashboard.break.tie', { inside: tie.inside.map(x => x.name).join(', '), outside: tie.outside.map(x => x.name).join(', ') })}
+      </p>
+    )
+  }
   const cancel = async () => { if (await run('cancel', () => cancelBreak(data.id), t('dashboard.break.cancelledToast'))) reload() }
   return (
-    <Card className="border-2 border-dashed border-accent p-5">
+    <Card id="break-card" className="scroll-mt-24 border-2 border-dashed border-accent p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="grid size-9 place-items-center rounded-lg bg-accent-soft text-navy dark:text-accent"><Trophy className="size-4" /></span>
@@ -1286,25 +1364,17 @@ function BreakCard({ data, reload }: SectionProps) {
         <div key={c.key} className="mt-4">
           <p className="text-sm font-bold">{c.name}</p>
           <ol className="mt-2 grid gap-2 sm:grid-cols-2">
-            {c.teams.map(s => (
-              <li key={s.id} className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-sm">
-                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-extrabold text-navy">{s.breakSeed}</span>
-                <span className="truncate font-semibold">{s.name}</span>
-              </li>
-            ))}
+            {c.teams.map(s => seedRow(s, leagues.length ? c.key : null, 'bg-accent text-navy'))}
           </ol>
+          {leagues.length > 0 && tieNote(c.key, c.teams)}
         </div>
       ))}
       {seeds.length > 0 && (
         <ol className="mt-4 grid gap-2 sm:grid-cols-2">
-          {seeds.map(s => (
-            <li key={s.id} className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-sm">
-              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-extrabold text-primary-foreground">{s.breakSeed}</span>
-              <span className="truncate font-semibold">{s.name}</span>
-            </li>
-          ))}
+          {seeds.map(s => seedRow(s, null, 'bg-primary text-primary-foreground'))}
         </ol>
       )}
+      {seeds.length > 0 && tieNote(null, seeds)}
     </Card>
   )
 }
@@ -1426,7 +1496,8 @@ function Draw({ data, reload }: SectionProps) {
   const sideList = sidesOf(data.format)
   const { busy, run } = useAction()
   const [wingsFor, setWingsFor] = useState<Debate | null>(null)
-  const defaultRound = data.rounds.find(r => r.status === 'released') ?? data.rounds.find(r => r.status === 'draft') ?? data.rounds[0]
+  // the round of now: the one being played, else the next one to draw or publish, else the last one (a finished tournament)
+  const defaultRound = data.rounds.find(r => r.status === 'released') ?? data.rounds.find(r => r.status === 'draft') ?? data.rounds.at(-1)
   const [roundId, setRoundId] = useState(defaultRound?.id)
   // the settings of the last draw (kept by the server for every organizer) are where the next round starts
   const last = data.drawOptions ?? {}
@@ -1853,7 +1924,8 @@ function Ballots({ data, reload }: SectionProps) {
   }
   const roundName = useRoundName()
   const active = data.rounds.filter(r => r.status !== 'draft')
-  const [roundId, setRoundId] = useState(active.at(-1)?.id ?? '')
+  // the round being played, else the last one played (not the first: the organizer comes here for the current ballots)
+  const [roundId, setRoundId] = useState((active.find(r => r.status === 'released') ?? active.at(-1))?.id ?? '')
   // leagues: one league's rooms, or every league in its own block with its own count
   const leagues = data.leagues ?? []
   const [leagueTab, setLeagueTab] = useState('')

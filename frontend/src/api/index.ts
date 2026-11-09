@@ -384,6 +384,8 @@ export interface Bracket extends BracketPart {
 }
 export const getBracket = (id: string) => http<Bracket>('GET', `/tournaments/${encodeURIComponent(id)}/bracket`)
 export const announceBreak = (id: string) => http<Bracket>('POST', `/tournaments/${encodeURIComponent(id)}/break`)
+// a team of the break gives its seed to a team outside it (a tie on the break line, the organizer's decision)
+export const replaceInBreak = (id: string, inTeamId: string, outTeamId: string) => http<{ seed: number }>('POST', `/tournaments/${encodeURIComponent(id)}/break/replace`, { inTeamId, outTeamId })
 export const cancelBreak = (id: string) => http<void>('DELETE', `/tournaments/${encodeURIComponent(id)}/break`)
 export const setTeamCategories = (teamId: string, categories: string[]) => http<Team>('PUT', `/teams/${encodeURIComponent(teamId)}/categories`, { categories })
 

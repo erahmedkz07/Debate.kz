@@ -238,6 +238,8 @@ export async function getStandings(tournamentId: string, hide: Set<string> = new
   type TeamRound = { result: 'W' | 'L' | number; score: number; opponentId?: string }
   const speakerByRound = new Map<string, Record<string, number>>(), teamByRound = new Map<string, Record<string, TeamRound>>()
   const margins = new Map<string, number>()
+  // draw strength: whom a team met (the sum of its opponents' points), the last tie-break
+  const opponents = new Map<string, string[]>()
   const round1 = (n: number) => Math.round(n * 10) / 10
 
   for (const d of debates) {
@@ -270,6 +272,10 @@ export async function getStandings(tournamentId: string, hide: Set<string> = new
     }
     // each side's score in this debate: the panel's average of its totals (a technical loss has no ballots)
     const sides = (['proposition', 'opposition', 'closingProposition', 'closingOpposition'] as const).filter(side => teamOnSide(d, side))
+    for (const side of sides) {
+      const id = teamOnSide(d, side)!
+      opponents.set(id, [...(opponents.get(id) ?? []), ...sides.filter(x => x !== side).map(x => teamOnSide(d, x)!)])
+    }
     const scoreOf = (side: string) => (d.ballots.length ? d.ballots.reduce((sum, b) => sum + b.scores.filter(x => x.side === side).reduce((a, x) => a + Number(x.score), 0), 0) / d.ballots.length : 0)
     for (const side of sides) {
       const id = teamOnSide(d, side)!
@@ -285,19 +291,27 @@ export async function getStandings(tournamentId: string, hide: Set<string> = new
     const sp = team.speakers.reduce((s, x) => s + (speakerSum.get(x.id) ?? 0), 0)
     const w = wins.get(team.id) ?? 0, l = losses.get(team.id) ?? 0
     // points: wins in two-team formats, team points (3/2/1/0) in BP
-    return { team: toTeam(team), wins: w, losses: l, points: points.get(team.id) ?? 0, speakerPoints: round1(sp), margins: round1(margins.get(team.id) ?? 0), byRound: teamByRound.get(team.id) ?? {} }
-  }).sort((a, b) => b.points - a.points || b.speakerPoints - a.speakerPoints)
+    const drawStrength = (opponents.get(team.id) ?? []).reduce((s, id) => s + (points.get(id) ?? 0), 0)
+    return { team: toTeam(team), wins: w, losses: l, points: points.get(team.id) ?? 0, speakerPoints: round1(sp), margins: round1(margins.get(team.id) ?? 0), drawStrength, byRound: teamByRound.get(team.id) ?? {} }
+  }).sort(byTieBreaks)
 
   const speakerRows = teams.flatMap(team => team.speakers.map(s => {
     const total = speakerSum.get(s.id) ?? 0, n = speakerRounds.get(s.id) ?? 0
     return { speaker: { id: s.id, name: s.name, teamId: team.id, ...(s.userId && { userId: s.userId }) }, team: toTeam(team), total: round1(total), average: n ? round1(total / n) : 0, rounds: n, byRound: speakerByRound.get(s.id) ?? {} }
   })).sort((a, b) => b.total - a.total)
 
+  // a full tie (every tie-break equal) shares the place; the organizer decides at the break line (services/playoffs.ts)
   return {
-    teams: teamRows.map((r, i) => ({ rank: i + 1, ...r })),
+    teams: teamRows.map(r => ({ rank: teamRows.findIndex(x => byTieBreaks(x, r) === 0) + 1, ...r })),
     speakers: speakerRows.map((r, i) => ({ rank: i + 1, ...r })),
   }
 }
+
+// The team table's order: points (wins; BP: team points), then the speakers' total, then the margins (how much the team
+// outscored its opponents in total), then the draw strength (the points of the teams it met: a harder path ranks higher)
+type Ranked = { points: number; speakerPoints: number; margins: number; drawStrength: number }
+export const byTieBreaks = (a: Ranked, b: Ranked) =>
+  b.points - a.points || b.speakerPoints - a.speakerPoints || b.margins - a.margins || b.drawStrength - a.drawStrength
 
 // A personal link (a judge's, a speaker's) is a key: whoever has it acts as that person. It stops working
 // LINK_DAYS days after the tournament's last day: enough to send the last ballots, read the results, take the

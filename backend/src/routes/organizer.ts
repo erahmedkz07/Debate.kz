@@ -361,6 +361,27 @@ organizerRouter.post('/tournaments/:id/break', org, async (req, res) => {
   res.status(201).json(result)
 })
 
+// a team of the break gives its place (its seed) to a team outside it: the organizer's decision at a tie on the break
+// line, or any other reason; only while that bracket has no draw yet
+organizerRouter.post('/tournaments/:id/break/replace', org, async (req, res) => {
+  const id = param(req, 'id')
+  await assertCanManage(req.user, id)
+  const d = body(req, z.object({ inTeamId: z.string(), outTeamId: z.string() }))
+  const [inTeam, outTeam] = await Promise.all([prisma.team.findUnique({ where: { id: d.inTeamId } }), prisma.team.findUnique({ where: { id: d.outTeamId } })])
+  if (!inTeam || !outTeam || inTeam.tournamentId !== id || outTeam.tournamentId !== id) throw notFound('team_not_found')
+  if (!inTeam.breakSeed) throw badRequest('team_not_in_break')
+  if (outTeam.breakSeed) throw badRequest('team_in_break')
+  if (outTeam.swing || outTeam.withdrawnAt) throw badRequest('team_withdrawn')
+  const t = await prisma.tournament.findUniqueOrThrow({ where: { id }, select: { leagues: true } })
+  if (leaguesOf(t).length && inTeam.league !== outTeam.league) throw badRequest('different_leagues')
+  if (await prisma.debate.count({ where: { round: { tournamentId: id, kind: 'elimination', category: inTeam.breakCategory } } })) throw forbidden('break_in_progress')
+  await prisma.$transaction([
+    prisma.team.update({ where: { id: inTeam.id }, data: { breakSeed: null, breakCategory: null } }),
+    prisma.team.update({ where: { id: outTeam.id }, data: { breakSeed: inTeam.breakSeed, breakCategory: inTeam.breakCategory } }),
+  ])
+  res.json({ seed: inTeam.breakSeed })
+})
+
 organizerRouter.delete('/tournaments/:id/break', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
   await cancelBreak(param(req, 'id'))
