@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
@@ -12,6 +12,7 @@ import {
   clearBallotDraft, dropBallot, isRetryable, loadBallotDraft, loadBallotSheet, OUTBOX_EVENT, queueBallot, queuedBallot, saveBallotDraft, saveBallotSheet,
 } from '@/lib/ballotOutbox'
 import { errorMessage } from '@/lib/errors'
+import { acceptScore, focusNextScore, scoreState } from '@/lib/scoreEntry'
 import { cn, formatDateTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -59,22 +60,37 @@ function FeedbackField({ value, onChange, label }: { value: string; onChange: (v
 }
 
 function ScoreInput({ label, value, onChange, range, invalid }: { label: string; value: string; onChange: (v: string) => void; range: Range; invalid: boolean }) {
+  const pause = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(pause.current), [])
   const bump = (d: number) => {
     const n = value === '' ? (range.min + range.max) / 2 : Number(value) + d
     onChange(String(Math.min(range.max, Math.max(range.min, n))))
+  }
+  // only what can still become a score is typed; a finished score moves on to the next speaker
+  const type = (el: HTMLInputElement, raw: string) => {
+    const next = acceptScore(raw, range)
+    if (next === null) return
+    onChange(next)
+    window.clearTimeout(pause.current)
+    const state = scoreState(next, range)
+    if (state === 'done') focusNextScore(el)
+    else if (state === 'maybe') pause.current = window.setTimeout(() => { if (document.activeElement === el) focusNextScore(el) }, 900)
   }
   return (
     <div className="flex items-center justify-between gap-3 py-2.5">
       <span className="min-w-0 truncate text-sm font-medium">{label}</span>
       <div className="flex shrink-0 items-center gap-1">
-        <button type="button" onClick={() => bump(-range.step)} className="grid size-9 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: −${range.step}`}><Minus className="size-4" /></button>
+        <button type="button" tabIndex={-1} onClick={() => bump(-range.step)} className="grid size-10 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: −${range.step}`}><Minus className="size-4" /></button>
         <input
-          inputMode="decimal" value={value} onChange={e => onChange(e.target.value.replace(',', '.'))} aria-label={label} aria-invalid={invalid}
+          data-score inputMode="decimal" enterKeyHint="next" autoComplete="off" value={value} aria-label={label} aria-invalid={invalid}
+          onChange={e => type(e.currentTarget, e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); window.clearTimeout(pause.current); focusNextScore(e.currentTarget) } }}
+          onFocus={e => e.currentTarget.select()}
           placeholder={`${range.min}–${range.max}`}
-          className={cn('h-9 w-16 rounded-lg border-2 bg-card text-center text-sm font-bold tabular-nums focus:outline-none focus:ring-4 focus:ring-primary/15',
+          className={cn('h-10 w-[4.5rem] rounded-lg border-2 bg-card text-center text-base font-bold tabular-nums focus:outline-none focus:ring-4 focus:ring-primary/15',
             invalid ? 'border-danger' : 'border-border focus:border-primary')}
         />
-        <button type="button" onClick={() => bump(range.step)} className="grid size-9 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: +${range.step}`}><Plus className="size-4" /></button>
+        <button type="button" tabIndex={-1} onClick={() => bump(range.step)} className="grid size-10 cursor-pointer place-items-center rounded-lg bg-muted hover:bg-border" aria-label={`${label}: +${range.step}`}><Plus className="size-4" /></button>
       </div>
     </div>
   )
@@ -315,7 +331,7 @@ function BallotForm() {
   }
 
   return (
-    <div className="container-page max-w-3xl py-8">
+    <div className="container-page max-w-3xl py-8 md:max-w-6xl">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <BackButton fallback={judgeKey ? `/j/${judgeKey}` : '/judge'} label={data.tournament.name} className="-ml-1" />
         <button type="button" onClick={() => setTimer(v => (v === 'open' ? 'hidden' : 'open'))} aria-pressed={timer === 'open'}
@@ -353,9 +369,22 @@ function BallotForm() {
 
 
 
-      <div className={cn('mt-6', bp ? 'grid gap-5 sm:grid-cols-2' : 'space-y-5')}>
+      {/* phones: the teams are one under the other, so their totals stay in sight while scrolling */}
+      <div className="sticky top-16 z-20 -mx-4 mt-4 flex gap-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur md:hidden">
+        {sides.map(side => (
+          <div key={side} className={cn('min-w-0 flex-1 rounded-lg px-2 py-1 text-center', side === 'proposition' || side === 'closingProposition' ? 'bg-primary-soft' : 'bg-muted')}>
+            <p className="truncate text-[11px] font-semibold text-muted-foreground">{teamOf(side).name}</p>
+            <p className="text-base font-extrabold tabular-nums">{fmt(totals[side])}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* wider screens: the teams side by side, scored without scrolling up and down */}
+      <div className="mt-6 grid items-start gap-5 md:grid-cols-2">
         {sides.map(side => teamCard(side, teamOf(side)))}
       </div>
+
+      <div className="grid items-start gap-5 lg:grid-cols-2">
 
       {bp ? (
         // BP: the places come from the totals as the judge types; 1st–4th give 3/2/1/0 team points
@@ -403,6 +432,7 @@ function BallotForm() {
         <p className="mb-2 text-sm text-muted-foreground">{t('flow.reasonHint')}</p>
         <Textarea id="reason" rows={3} maxLength={1500} value={reason} onChange={e => setReason(e.target.value)} placeholder={t('flow.reasonPlaceholder')} />
       </Card>
+      </div>
 
       {tried && errors.length > 0 && (
         <div role="alert" className="mt-5 space-y-1.5 rounded-2xl bg-danger-soft p-4 text-sm font-medium text-danger">
@@ -410,7 +440,7 @@ function BallotForm() {
         </div>
       )}
 
-      <div className="sticky bottom-0 -mx-4 mt-6 border-t border-border bg-background/90 px-4 py-4 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
+      <div className="sticky bottom-0 -mx-4 mt-6 border-t border-border bg-background/90 px-4 py-4 backdrop-blur sm:static sm:mx-auto sm:max-w-xl sm:border-0 sm:bg-transparent sm:p-0">
         <Button size="lg" className="w-full" onClick={onSubmit}>{t('ballot.submit')}</Button>
         <p className="mt-2 text-center text-xs text-muted-foreground">{t('offline.draftHint')}</p>
       </div>

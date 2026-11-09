@@ -72,5 +72,5 @@ export async function ensureCertificates(tournamentId: string) {
 }
 
 export const certificateInclude = {
-  tournament: { select: { id: true, name: true, city: true, startDate: true, endDate: true, organizerName: true, level: true } },
+  tournament: { select: { id: true, name: true, city: true, startDate: true, endDate: true, organizerName: true, level: true, leagues: true } },
 } as const

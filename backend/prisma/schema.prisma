@@ -518,10 +518,11 @@ model TournamentAward {
   speakerId    String?    @map("speaker_id")
   judgeId      String?    @map("judge_id")
   name         String // as printed (a snapshot)
+  league       String? // with leagues: each league has its own best speaker and best judge
   createdAt    DateTime   @default(now()) @map("created_at")
   tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
 
-  @@unique([tournamentId, kind])
+  @@unique([tournamentId, kind, league])
   @@map("tournament_awards")
 }
 
@@ -699,6 +700,7 @@ model Certificate {
   breakCategory String?    @map("break_category") // the category bracket the team played in (its name, a snapshot)
   categoryPlace Int?       @map("category_place") // place in that bracket (1 = category champion)
   award         String? // award diplomas (kind = award): best_speaker | best_judge
+  league        String? // an award diploma of a league (its key): printed with the league's name, in its language
   issuedAt      DateTime   @default(now()) @map("issued_at")
   tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
 

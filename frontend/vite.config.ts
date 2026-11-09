@@ -30,6 +30,8 @@ export default defineConfig({
   // same-origin API in dev: the session cookie just works, no CORS
   // (the UI tests point it at their own test API with API_TARGET)
   server: {
+    // every address of this computer, not only localhost: phones on the same Wi-Fi open http://<this computer's IP>:5173
+    host: true,
     proxy: {
       '/api': { target: process.env.API_TARGET ?? 'http://localhost:4000', changeOrigin: true },
       '/uploads': { target: process.env.API_TARGET ?? 'http://localhost:4000', changeOrigin: true },

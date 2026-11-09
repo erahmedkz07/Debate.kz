@@ -134,6 +134,7 @@ export interface TeamStanding {
   losses: number
   points: number // wins in two-team formats, team points (3/2/1/0 per round) in BP
   speakerPoints: number
+  drawStrength?: number // the points of the teams it met (the last tie-break)
   margins: number // the total margin over the opponents (two-team formats)
   // round by round: the result (W / L, BP: the place), the team's score and the opponent (two-team formats)
   byRound?: Record<string, { result: 'W' | 'L' | number; score: number; opponentId?: string }>
@@ -167,7 +168,7 @@ export interface TournamentDetails extends Tournament {
   rooms?: string[]
   roomLinks?: Record<string, string> // room name -> video call link
   roomLeagues?: Record<string, string> // with leagues: room name -> the league it is for
-  awards?: { kind: 'best_speaker' | 'best_judge'; name: string }[] // best speaker / best judge (public after the finish)
+  awards?: { kind: 'best_speaker' | 'best_judge'; name: string; league?: string }[] // best speaker / best judge (of each league; public after the finish)
   selectionMode?: 'manual' | 'first_come' | 'lottery' // how the places are filled
   clubQuota?: number // at most this many teams per club
   lotteryAt?: string // when the selection lottery was drawn
@@ -320,6 +321,7 @@ export interface Certificate {
   code: string
   kind: 'speaker' | 'judge' | 'award'
   award?: 'best_speaker' | 'best_judge' // an award diploma
+  league?: string // the league of an award diploma (its name)
   language?: 'ru' | 'kz' | 'en' // the language it is printed in (the holder's league); none = the reader's
   name: string
   teamName?: string

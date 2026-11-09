@@ -169,15 +169,18 @@ export const replyToReview = (reviewId: string, text: string) => http<{ ok: true
 export const sendTournamentReview = (id: string, score: number, comment?: string) => http<{ ok: true }>('POST', `/tournaments/${encodeURIComponent(id)}/review`, { score, comment })
 // best speaker / best judge: suggestions and the organizer's choice
 export type AwardKind = 'best_speaker' | 'best_judge'
-export interface AwardCandidates {
+// with leagues: one group per league (its own best speaker and best judge); without: one group (league null)
+export interface AwardGroup {
+  league: string | null; name: string | null
   speakers: { id: string; name: string; team: string; total: number; average: number; rounds: number }[]
   judges: { id: string; name: string; rating: number; reviews: number; average: number | null }[]
   otherJudges: { id: string; name: string; rating: number; reviews: number; average: number | null }[]
-  minReviews: number; preliminaryRounds: number
   chosen: Partial<Record<AwardKind, { speakerId?: string; judgeId?: string; name: string }>>
 }
+export interface AwardCandidates { groups: AwardGroup[]; minReviews: number; preliminaryRounds: number }
 export const getAwardCandidates = (id: string) => http<AwardCandidates>('GET', `/tournaments/${encodeURIComponent(id)}/awards`)
-export const setTournamentAward = (id: string, kind: AwardKind, personId: string | null) => http<{ kind: AwardKind; name: string | null }>('PUT', `/tournaments/${encodeURIComponent(id)}/awards`, { kind, personId })
+export const setTournamentAward = (id: string, kind: AwardKind, personId: string | null, league: string | null = null) =>
+  http<{ kind: AwardKind; name: string | null }>('PUT', `/tournaments/${encodeURIComponent(id)}/awards`, { kind, personId, ...(league && { league }) })
 // a person's public page: career as a speaker and a judge, awards
 export interface PublicProfile {
   id: string; name: string; avatarUrl?: string; city?: string; since: string; club?: { id: string; name: string }
@@ -381,6 +384,8 @@ export interface Bracket extends BracketPart {
 }
 export const getBracket = (id: string) => http<Bracket>('GET', `/tournaments/${encodeURIComponent(id)}/bracket`)
 export const announceBreak = (id: string) => http<Bracket>('POST', `/tournaments/${encodeURIComponent(id)}/break`)
+// a team of the break gives its seed to a team outside it (a tie on the break line, the organizer's decision)
+export const replaceInBreak = (id: string, inTeamId: string, outTeamId: string) => http<{ seed: number }>('POST', `/tournaments/${encodeURIComponent(id)}/break/replace`, { inTeamId, outTeamId })
 export const cancelBreak = (id: string) => http<void>('DELETE', `/tournaments/${encodeURIComponent(id)}/break`)
 export const setTeamCategories = (teamId: string, categories: string[]) => http<Team>('PUT', `/teams/${encodeURIComponent(teamId)}/categories`, { categories })
 
