@@ -490,7 +490,7 @@ await tgSend(111, { text: '/on' })
 await tgSend(111, { text: '/me' })
 ok(/подтверждён/.test(await lastText(111)), '/me shows the account')
 await tgSend(333, { text: 'привет' })
-ok(/не подключён/.test(await lastText(333)), 'unknown chats get instructions')
+ok(/Зарегистрироваться/.test(JSON.stringify((await inbox('333')).at(-1)?.reply_markup)), 'unknown chats are offered to sign up')
 
 // notifications
 const logosReg = (await org('GET', `/tournaments/${t1.id}/registrations`)).data.find(x => x.status === 'pending' && x.user.email === 'student@debate.kz')
@@ -1246,7 +1246,7 @@ ok((await sentTo(333)).some(m => /Подтвердите номер/.test(m.text
 await tgSend(333, { text: '/foo' })
 ok(/Не понял/.test(await lastText(333)), 'an unknown command gets the list of commands')
 await bot('POST', '/telegram/test/update', { update_id: ++upd, message: { message_id: upd, from: { id: 778, language_code: 'kk' }, chat: { id: 778, type: 'private' }, text: 'сәлем' } })
-ok(/қосылмаған/.test(await lastText(778)), 'an unknown chat with Telegram in Kazakh gets instructions in Kazakh')
+ok(/Тіркелу/.test(JSON.stringify((await inbox('778')).at(-1)?.reply_markup)), 'an unknown chat with Telegram in Kazakh is greeted in Kazakh')
 // the link from the site carries the language the person is using there
 r = await timur('POST', '/me/telegram/link', { language: 'kz' })
 ok(r.status === 201 && (await timur('GET', '/auth/me')).data.user.language === 'kz', 'connecting Telegram from the Kazakh site sets Kazakh')
@@ -3789,6 +3789,166 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
       && res.data.debates.every(d => !(teamsOf(d).includes(mine[0]) && teamsOf(d).includes(mine[1])))) clean++
   }
   ok(clean === 5, 'every draw keeps the judge away from their school (both spellings) and the two school teams apart in round 1')
+}
+
+// ---------- the bot: sign-up, signing in on the site, club, application, check-in — all in Telegram ----------
+{
+  const botC = client()
+  let u = 50000
+  const send = (chatId, fields) => botC('POST', '/telegram/test/update', { update_id: ++u + 900000, message: { message_id: u, from: { id: chatId, username: `b${chatId}` }, chat: { id: chatId, type: 'private' }, ...fields } })
+  const tap = (chatId, data) => botC('POST', '/telegram/test/update', { update_id: ++u + 900000, callback_query: { id: `fb${u}`, from: { id: chatId }, data, message: { message_id: 7, chat: { id: chatId, type: 'private' }, text: '' } } })
+  const said = async chatId => (await botC('GET', `/telegram/test/outbox?chat=${chatId}`)).data.filter(m => m.method === 'sendMessage' || m.method === 'editMessageText')
+  const last = async chatId => (await said(chatId)).at(-1)?.text ?? ''
+  const lastMarkup = async chatId => JSON.stringify((await said(chatId)).at(-1)?.reply_markup ?? {})
+  const buttons = async chatId => (await said(chatId)).flatMap(m => m.reply_markup?.inline_keyboard?.flat() ?? [])
+  const button = async (chatId, prefix) => (await buttons(chatId)).filter(x => x.callback_data?.startsWith(prefix)).at(-1)?.callback_data
+  const phoneDigits = () => `7701${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`
+  const mails = async to => (await client()('GET', `/test/mail?to=${encodeURIComponent(to)}`)).data
+
+  // sign-up
+  const A = 7100000 + Math.floor(Math.random() * 99999)
+  await send(A, { text: '/start' })
+  ok((await lastMarkup(A)).includes('reg:start'), 'a new person is offered to sign up right in the bot')
+  await tap(A, 'reg:start')
+  ok(/согласие/.test(await last(A)) && /privacy/.test(await last(A)), 'sign-up starts with the consent and the policy links')
+  await tap(A, 'reg:agree')
+  await send(A, { text: 'Айым' })
+  ok(/имя и фамилия/i.test(await last(A)), 'one word is not a full name')
+  await send(A, { text: '  Айым   Ботова ' })
+  ok((await said(A)).at(-1)?.reply_markup?.keyboard?.[0]?.[0]?.request_contact, 'then the phone, with the "share my number" button')
+  ok((await db.query('select step from bot_dialogs where chat_id = $1', [String(A)])).rows[0]?.step === 'reg.phone', 'the dialog is kept in the database (a restart loses nothing)')
+  await send(A, { contact: { phone_number: '+77010000000', user_id: 1 } })
+  ok(/свой номер/.test(await last(A)), "someone else's contact is not accepted")
+  const aDigits = phoneDigits()
+  await send(A, { contact: { phone_number: aDigits, user_id: A } })
+  await send(A, { text: 'не почта' })
+  ok(/не похоже/.test(await last(A)), 'a wrong email is asked again')
+  const aEmail = `bot.${jtag.toLowerCase()}.${A}@example.com`
+  await send(A, { text: aEmail.toUpperCase() })
+  ok(/Аккаунт на Debaters.kz создан/.test(await last(A)), 'the account is made')
+  const aUser = (await db.query('select * from users where email = $1', [aEmail])).rows[0]
+  const aPhone = `+7 ${aDigits.slice(1, 4)} ${aDigits.slice(4, 7)} ${aDigits.slice(7, 9)} ${aDigits.slice(9)}`
+  ok(aUser?.name === 'Айым Ботова' && aUser.telegram_chat_id === String(A) && !!aUser.phone_verified_at && !!aUser.consent_at && !aUser.password_hash && aUser.phone === aPhone,
+    'the account has the name, the confirmed phone, the consent and Telegram connected, no password')
+  ok((await mails(aEmail)).length === 1, 'a letter to confirm the email is sent')
+  await send(A, { text: '/start' })
+  ok(/уже подключены/.test(await last(A)), 'a second /start does not sign up again')
+  const dupChat = A + 1
+  await send(dupChat, { text: '/start' }); await tap(dupChat, 'reg:start'); await tap(dupChat, 'reg:agree'); await send(dupChat, { text: 'Другой Человек' })
+  await send(dupChat, { contact: { phone_number: aDigits, user_id: dupChat } })
+  ok(/уже есть аккаунт/.test(await last(dupChat)), 'one phone, one account: the same phone cannot sign up twice')
+
+  // signing in on the site
+  const browser = client()
+  let start = await browser('POST', '/auth/telegram/start')
+  ok(start.status === 201 && start.data.url.startsWith('https://t.me/DebateKzTestBot?start=login_') && !!start.data.secret, 'the site gets a bot link and a secret for itself')
+  ok((await browser('POST', '/auth/telegram/poll', { secret: start.data.secret })).data?.status === 'pending', 'until the person confirms, the site waits')
+  await send(A, { text: `/start ${start.data.url.split('start=')[1]}` })
+  ok(/Вход на сайт Debaters.kz как/.test(await last(A)) && /Айым Ботова/.test(await last(A)), 'the bot shows who will be signed in')
+  const okBtn = await button(A, 'login:ok:')
+  await tap(A, okBtn)
+  ok(/Вход подтверждён/.test(await last(A)), 'the person confirms in the bot')
+  ok((await browser('POST', '/auth/telegram/poll', { secret: 'wrong-secret-value' })).status === 410, 'a wrong secret gets nothing')
+  r = await browser('POST', '/auth/telegram/poll', { secret: start.data.secret })
+  ok(r.data?.status === 'ok' && (await browser('GET', '/auth/me')).data.user?.email === aEmail, 'the browser that asked is signed in')
+  ok((await client()('POST', '/auth/telegram/poll', { secret: start.data.secret })).status === 410, 'the same secret does not sign in twice')
+  await tap(A, okBtn)
+  ok(/устарел/.test(await last(A)), 'an old confirmation button does nothing')
+  start = await client()('POST', '/auth/telegram/start')
+  await send(A, { text: `/start ${start.data.url.split('start=')[1]}` })
+  await tap(A, await button(A, 'login:no:'))
+  ok(/Вход отменён/.test(await last(A)) && (await client()('POST', '/auth/telegram/poll', { secret: start.data.secret })).data?.error === 'login_denied', '"it was not me" stops the sign-in')
+  await send(A, { text: '/start login_forged-token-value' })
+  ok(/устарел/.test(await last(A)), 'a made-up sign-in link is refused')
+  // a person without an account presses "Sign in with Telegram": they sign up in the bot, then confirm
+  const B = A + 2
+  const startB = await client()('POST', '/auth/telegram/start')
+  const browserB = client()
+  await send(B, { text: `/start ${startB.data.url.split('start=')[1]}` })
+  ok(/ещё нет аккаунта/.test((await said(B)).map(m => m.text).join('\n')), 'without an account the bot offers to sign up first')
+  await tap(B, 'reg:agree')
+  await send(B, { text: 'Бекзат Ботов' })
+  await send(B, { contact: { phone_number: phoneDigits(), user_id: B } })
+  await send(B, { text: `bot.b.${jtag.toLowerCase()}.${B}@example.com` })
+  ok(/Вход на сайт Debaters.kz как/.test(await last(B)), 'after the sign-up the bot asks to confirm that sign-in')
+  await tap(B, await button(B, 'login:ok:'))
+  ok((await browserB('POST', '/auth/telegram/poll', { secret: startB.data.secret })).data?.status === 'ok' && (await browserB('GET', '/auth/me')).data.user?.name === 'Бекзат Ботов', 'and the site is signed in to the new account')
+
+  // club: join by the code, make a team
+  const head = await newAccount('Бот Клуб Жетекші')
+  const club = (await head.c('POST', '/clubs', { name: `Бот клубы ${jtag}`, city: 'Астана' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+  const code = (await head.c('POST', `/clubs/${club.id}/code`)).data.joinCode
+  await send(A, { text: '/apply' })
+  ok(/вступите в клуб/.test(await last(A)), '/apply without a club points to /club')
+  await send(A, { text: '/club' })
+  ok(/код клуба/.test(await last(A)), '/club asks for the club code')
+  await send(A, { text: 'abc' })
+  ok(/8 латинских/.test(await last(A)), 'a wrong code is explained')
+  await send(A, { text: `${code.slice(0, 4).toLowerCase()} ${code.slice(4).toLowerCase()}` })
+  ok((await said(A)).some(m => /Вы в клубе/.test(m.text)) && (await db.query('select club_id from club_members where user_id = $1', [aUser.id])).rows[0]?.club_id === club.id, 'the code (typed in small letters with a space) puts the person into the club')
+  await tap(A, 'club:new')
+  await send(A, { text: 'Бот Қырандар' })
+  ok(/Ваша команда: «Бот Қырандар»/.test(await last(A)), 'a new team is made and the person is in it')
+
+  // an application: a school tournament today, first come first served
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const hostT = await newAccount('Бот Турнир Иесі')
+  const bt = (await hostT.c('POST', '/tournaments', { ...tBody(498), name: `Бот турнирі ${jtag}`, startDate: day, endDate: day, requireApproval: false, kind: 'open' })).data
+  await admin('PATCH', `/admin/tournaments/${bt.id}`, { moderation: 'approved' })
+  await hostT.c('PATCH', `/tournaments/${bt.id}`, { selectionMode: 'first_come' })
+  await send(A, { text: '/apply' })
+  ok((await lastMarkup(A)).includes(`apply:t:${bt.id}`), '/apply lists the open tournaments')
+  await tap(A, `apply:t:${bt.id}`)
+  ok(/спикеров/.test(await last(A)), 'a team of one member: the bot asks for the three speakers')
+  await send(A, { text: 'Айым Ботова\nДана Нұрлан' })
+  ok(/ровно 3/.test(await last(A)), 'two names for three places are asked again')
+  await send(A, { text: 'Айым Ботова\nДана Нұрлан\nӘлия Бек' })
+  ok(/школу или университет/.test(await last(A)), 'then the school')
+  await send(A, { text: 'Лицей Бот' })
+  ok(/родители/i.test(await last(A)), "a school tournament asks for the parents' consent")
+  await tap(A, 'apply:guardian')
+  ok(/Проверьте заявку/.test(await last(A)) && /Әлия Бек/.test(await last(A)), 'then the whole application to check')
+  await tap(A, 'apply:send')
+  ok((await said(A)).some(m => /место получено/.test(m.text ?? '')), 'sent: first come, the place is given at once')
+  const reg = (await db.query('select * from team_registrations where tournament_id = $1 and user_id = $2', [bt.id, aUser.id])).rows[0]
+  ok(reg?.status === 'confirmed' && reg.team_name === 'Бот Қырандар' && reg.speakers.join() === 'Айым Ботова,Дана Нұрлан,Әлия Бек' && !!reg.guardian_consent_at && reg.institution === 'Лицей Бот',
+    'the application is the same as from the site (team, speakers, school, consent); the phone confirmed in Telegram is enough without the email')
+  await tap(A, 'apply:send')
+  ok((await said(A)).slice(-2).some(m => /устарел/.test(m.text ?? '')) && Number((await db.query('select count(*) from team_registrations where tournament_id = $1', [bt.id])).rows[0].count) === 1, 'pressing "send" again sends nothing twice')
+  await send(A, { text: '/apply' })
+  ok(!(await lastMarkup(A)).includes(bt.id), 'a tournament already applied to is not offered again')
+
+  // check-in at the venue
+  const ciCode = (await hostT.c('POST', `/tournaments/${bt.id}/checkin/code`)).data.code
+  await send(A, { text: '/checkin' })
+  ok(/код с экрана/.test(await last(A)), '/checkin asks for the code on the screen')
+  await send(A, { text: 'ZZZZZZ' })
+  const presentAt = async () => (await db.query("select checked_in_at from teams where tournament_id = $1 and name = 'Бот Қырандар'", [bt.id])).rows[0]?.checked_in_at
+  ok(/код/i.test(await last(A)) && !(await presentAt()), 'a wrong code checks nobody in')
+  await send(A, { text: ` ${ciCode.slice(0, 3).toLowerCase()} ${ciCode.slice(3)} ` })
+  ok(/отмечена/.test(await last(A)) && !!(await presentAt()), 'the right code checks the team in')
+
+  // /cancel
+  await send(A, { text: '/club' })
+  await tap(A, 'club:new')
+  await send(A, { text: '/cancel' })
+  ok(/отменил/.test(await last(A)) && !(await db.query('select 1 from bot_dialogs where chat_id = $1', [String(A)])).rows.length, '/cancel closes the dialog')
+
+  // someone signs up in the bot with another person's email: when the mailbox's owner resets the password, the
+  // stranger's Telegram and phone no longer sign in to that account
+  const H = A + 3
+  const victim = `bot.victim.${jtag.toLowerCase()}.${H}@example.com`
+  await send(H, { text: '/start' }); await tap(H, 'reg:start'); await tap(H, 'reg:agree'); await send(H, { text: 'Чужой Человек' })
+  await send(H, { contact: { phone_number: phoneDigits(), user_id: H } }); await send(H, { text: victim })
+  const forgot = await client()('POST', '/auth/forgot-password', { email: victim })
+  const owner = client()
+  ok((await owner('POST', '/auth/reset-password', { token: forgot.data.devResetToken, password: 'Owner-pass-123' })).status === 200, "the mailbox's owner resets the password")
+  const after = (await db.query('select telegram_chat_id, verified_phone, email_verified_at from users where email = $1', [victim])).rows[0]
+  ok(!after.telegram_chat_id && !after.verified_phone && !!after.email_verified_at, "the stranger's Telegram and phone are unlinked")
+  const st = await client()('POST', '/auth/telegram/start')
+  await send(H, { text: `/start ${st.data.url.split('start=')[1]}` })
+  ok(!/Чужой Человек/.test(await last(H)), 'and the stranger cannot sign in to it through the bot')
 }
 
 // ---------- errors are written down ----------

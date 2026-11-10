@@ -18,9 +18,12 @@ declare global {
 }
 
 // Session token lives in an httpOnly cookie: JS on the page cannot read it (XSS-safe)
+// iatMs: issue time in milliseconds, so a password change revokes sessions from the same second too
+export const sessionToken = (userId: string, expiresIn: '7d' | '5m' = '7d') =>
+  jwt.sign({ sub: userId, iatMs: Date.now() }, env.JWT_SECRET, { expiresIn, algorithm: 'HS256' })
+
 export function setSession(res: Response, userId: string) {
-  // iatMs: issue time in milliseconds, so a password change revokes sessions from the same second too
-  const token = jwt.sign({ sub: userId, iatMs: Date.now() }, env.JWT_SECRET, { expiresIn: '7d', algorithm: 'HS256' })
+  const token = sessionToken(userId)
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: isProd, maxAge: MAX_AGE_MS, path: '/' })
 }
 
@@ -58,7 +61,8 @@ export const requireAuth = (...roles: Role[]) => (req: Request, _res: Response, 
 // Actions that create content or join tournaments need a confirmed email (anti-spam)
 export const requireVerified = (req: Request, _res: Response, next: NextFunction) => {
   if (!req.user) return next(unauthorized())
-  if (!req.user.emailVerifiedAt) return next(forbidden('email_not_verified'))
+  // a confirmed email, or a phone confirmed in Telegram (an account made in the bot): a real person either way
+  if (!req.user.emailVerifiedAt && !req.user.phoneVerifiedAt) return next(forbidden('email_not_verified'))
   next()
 }
 

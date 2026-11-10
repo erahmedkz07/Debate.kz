@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { CalendarDays, Gavel, Loader2, LogIn, Mail, MapPin, ShieldCheck, Users, X } from 'lucide-react'
 import { acceptInvite, declineInvite, getInvite, NotFoundError } from '@/api'
-import { useAuth } from '@/lib/auth'
+import { useAuth, isVerified } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { formatDateRange } from '@/lib/utils'
@@ -87,7 +87,7 @@ export default function InvitePage() {
                 <Button asChild className="flex-1"><Link to={`/login?next=${encodeURIComponent(`/invite/${token}`)}`}><LogIn className="size-4" />{t('nav.login')}</Link></Button>
                 <Button asChild variant="outline" className="flex-1"><Link to={`/register?next=${encodeURIComponent(`/invite/${token}`)}`}>{t('auth.toRegister')}</Link></Button>
               </div>
-            ) : !user.emailVerified ? (
+            ) : !isVerified(user) ? (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">{t('apiErrors.email_not_verified')}</p>
                 <ResendVerification />

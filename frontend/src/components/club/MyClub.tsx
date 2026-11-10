@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Clock, KeyRound, Loader2, Plus, Search, X } from 'lucide-react'
 import { cancelClubRequest, createClub, getMe, getMyClubRequests, joinClub } from '@/api'
-import { useAuth } from '@/lib/auth'
+import { useAuth, isVerified } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
@@ -34,7 +34,7 @@ function NoClub({ onJoined }: { onJoined: () => Promise<void> }) {
   const [cancelling, setCancelling] = useState<string | null>(null)
   const [busy, setBusy] = useState<'create' | 'join' | null>(null)
   const act = async (kind: 'create' | 'join', fn: () => Promise<unknown>, ok: string) => {
-    if (!user?.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
+    if (!isVerified(user)) return void toast.info(t('apiErrors.email_not_verified'))
     setBusy(kind)
     try { await fn(); toast.success(ok); await onJoined() } catch (e) { toast.error(errorMessage(e, t)) } finally { setBusy(null) }
   }

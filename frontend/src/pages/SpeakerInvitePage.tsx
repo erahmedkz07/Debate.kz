@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Link2, Loader2, LogIn, Trophy, Users } from 'lucide-react'
 import { acceptSpeakerInvite, getSpeakerInvite, NotFoundError } from '@/api'
-import { useAuth } from '@/lib/auth'
+import { useAuth, isVerified } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { formatDate } from '@/lib/utils'
@@ -58,7 +58,7 @@ export default function SpeakerInvitePage() {
               <Button asChild className="flex-1"><Link to={`/login?next=${back}`}><LogIn className="size-4" />{t('nav.login')}</Link></Button>
               <Button asChild variant="outline" className="flex-1"><Link to={`/register?next=${back}`}>{t('auth.toRegister')}</Link></Button>
             </div>
-          ) : !user.emailVerified ? (
+          ) : !isVerified(user) ? (
             <div className="space-y-3"><p className="text-sm text-muted-foreground">{t('apiErrors.email_not_verified')}</p><ResendVerification /></div>
           ) : (
             <Button size="lg" className="w-full" onClick={accept} disabled={busy}>{busy && <Loader2 className="size-4 animate-spin" />}{t('speakerInvite.accept', { name: data.speaker })}</Button>

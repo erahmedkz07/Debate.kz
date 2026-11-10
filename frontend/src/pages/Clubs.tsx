@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { ArrowRight, Building2, KeyRound, Loader2, LogIn, MapPin, Search, Users } from 'lucide-react'
 import { getClubByCode, getClubs, getMe, joinClub, NotFoundError } from '@/api'
 import type { ClubSummary } from '@/types'
-import { useAuth } from '@/lib/auth'
+import { useAuth, isVerified } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { PageHeader } from '@/components/layout/Layout'
@@ -57,7 +57,7 @@ export default function Clubs() {
   const set = (k: string, v: string) => { const n = new URLSearchParams(params); if (v) n.set(k, v); else n.delete(k); setParams(n, { replace: true }) }
   const need = (fn: () => void) => () => {
     if (!user) return setGate(true)
-    if (!user.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
+    if (!isVerified(user)) return void toast.info(t('apiErrors.email_not_verified'))
     fn()
   }
   const go = async (fn: () => Promise<{ id: string }>) => {

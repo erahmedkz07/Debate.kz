@@ -6,6 +6,8 @@ import { answerCallback, editMessage, esc, linkable, sendMessage, type InlineBut
 import { asLang, fromTelegram, LANGS, T, type Lang } from './botTexts.js'
 import { campNames, sideLabel, sidesInDebate } from './formats.js'
 import { motionFor } from './tournaments.js'
+import { continueDialog, endDialog, flowCallback, greet, onApply, onCheckin, onClub, onLoginLink, startRegistration } from './botFlows.js'
+import { F } from './botFlowTexts.js'
 
 // Telegram bot logic (transport-independent: fed by long polling, or by e2e in test mode).
 // Private chats only. Linking: the site creates a one-time token -> t.me/<bot>?start=<token>.
@@ -36,9 +38,15 @@ async function onStart(msg: TgMessage, token: string | undefined) {
   const chat = String(msg.chat.id)
   const current = await linkedUser(msg.chat.id)
   const guess = current ? langOf(current) : fromTelegram(msg.from?.language_code)
+  // "Sign in with Telegram" on the site, and "Sign up in Telegram" from the sign-up page
+  if (token?.startsWith('login_')) return onLoginLink(msg, token.slice('login_'.length), current)
+  if (token === 'register') {
+    if (current) return sendMessage(chat, F[guess].alreadyRegistered(current.name))
+    return startRegistration(chat, guess)
+  }
   if (!token) {
     if (current) return sendMessage(chat, `${T[guess].alreadyLinked(current.name)}\n\n${T[guess].help}`)
-    return sendMessage(chat, T[guess].linkFirst(site('/me')))
+    return greet(msg)
   }
   const row = await prisma.emailToken.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: true } })
   if (!row || row.purpose !== 'telegram_link' || row.usedAt || row.expiresAt < new Date()) return sendMessage(chat, T[guess].linkExpired)
@@ -164,6 +172,8 @@ async function onTournaments(chat: string, user: User) {
 async function onCallback(cb: TgCallback) {
   const user = await linkedUser(cb.from.id)
   const chat = String(cb.from.id)
+  // the dialogs' buttons (sign-up, sign-in, club, application, check-in)
+  if (cb.data && await flowCallback(chat, cb.data, user, cb.from.language_code, cb.message?.message_id)) return answerCallback(cb.id)
   if (!user) {
     await answerCallback(cb.id)
     return sendMessage(chat, T[fromTelegram(cb.from.language_code)].linkFirst(site('/me')))
@@ -195,12 +205,19 @@ export async function handleUpdate(update: TgUpdate) {
   if (!msg || msg.chat.type !== 'private') return // groups are ignored
   const chat = String(msg.chat.id)
   const text = msg.text?.trim() ?? ''
-  if (command(text) === '/start') return onStart(msg, text.split(/\s+/)[1])
+  if (command(text) === '/start') { await endDialog(chat); return onStart(msg, text.split(/\s+/)[1]) }
   const user = await linkedUser(msg.chat.id)
-  if (!user) return sendMessage(chat, T[fromTelegram(msg.from?.language_code)].linkFirst(site('/me')))
+  // a command leaves an open dialog; anything else is the dialog's answer
+  if (text.startsWith('/')) await endDialog(chat)
+  else if (await continueDialog(msg, user)) return
+  if (!user) return greet(msg)
   const t = T[langOf(user)]
   if (msg.contact) return onContact(msg, user)
   switch (command(text)) {
+    case '/cancel': return sendMessage(chat, F[langOf(user)].cancelled, { removeKeyboard: true })
+    case '/apply': return onApply(chat, user)
+    case '/club': return onClub(chat, user)
+    case '/checkin': return onCheckin(chat, user)
     case '/help': return sendMessage(chat, t.help)
     case '/me':
       await sendMessage(chat, meText(user), { buttons: settingsButtons(user) })
@@ -222,4 +239,4 @@ export async function handleUpdate(update: TgUpdate) {
 }
 
 // the "/" menu in Telegram, in each language
-export const botCommands = (l: Lang) => ['next', 'tournaments', 'me', 'lang', 'stop', 'on', 'help'].map(command => ({ command, description: T[l].commands[command] }))
+export const botCommands = (l: Lang) => ['next', 'apply', 'checkin', 'club', 'tournaments', 'me', 'lang', 'stop', 'on', 'help'].map(command => ({ command, description: T[l].commands[command] }))

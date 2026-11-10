@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
+import type { User } from '@/types'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
@@ -13,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
 import { GoogleButton, OrDivider } from '@/components/auth/GoogleButton'
+import { TelegramLoginButton } from '@/components/auth/TelegramLogin'
 import { SecondStepForm } from '@/components/auth/TwoFactor'
 
 
@@ -41,6 +43,13 @@ export default function Login() {
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<Form>({ resolver: zodResolver(schema) })
   const emailValue = watch('email')?.trim()
+  // "Sign in with Telegram": confirmed in the bot, signed in here (or asked for the two-step code like after a password)
+  const telegramUser = useCallback((u: User) => {
+    signIn(u)
+    toast.success(t('auth.welcome', { name: u.name.split(' ')[0] }))
+    navigate(landingFor(u, next), { replace: true })
+  }, [signIn, t, navigate, next])
+  const telegramError = useCallback((m: string) => setFormError(m), [])
 
   if (user) return <Navigate to={landingFor(user, next)} replace />
 
@@ -94,7 +103,10 @@ export default function Login() {
           <span>{formError}{invalid && <span className="mt-1 block font-normal">{t('google.passwordHint')}</span>}</span>
         </div>
       )}
-      <GoogleButton next={next} label={t('google.signIn')} />
+      <div className="space-y-3">
+        <TelegramLoginButton onUser={telegramUser} onTicket={setTicket} onError={telegramError} />
+        <GoogleButton next={next} label={t('google.signIn')} />
+      </div>
       <OrDivider />
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
         <div>

@@ -10,7 +10,7 @@ import {
   Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, Share2, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award, ExternalLink,
 } from 'lucide-react'
 import { getBracket, getSelection, getStandings, getTournamentById, NotFoundError, registerTeam } from '@/api'
-import { useAuth } from '@/lib/auth'
+import { useAuth, isVerified } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { LoginRequiredDialog } from '@/components/auth/guards'
 import { leagueMotion, leaguesOfRound, type Debate, type League, type Round, type Side, type TournamentDetails } from '@/types'
@@ -95,7 +95,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
   // guests must sign in first; an unverified email is explained before filling the form
   const onOpenChange = (v: boolean) => {
     if (v && !user) return setGate(true)
-    if (v && !user?.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
+    if (v && !isVerified(user)) return void toast.info(t('apiErrors.email_not_verified'))
     // the club and team are stated in the profile before applying
     if (v && !user?.clubTeam) return void toast.info(t('apiErrors.club_required'), { action: { label: t('club.toProfile'), onClick: () => navigate('/me?tab=club') } })
     setOpen(v)
