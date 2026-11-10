@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js'
 import { getStandings, leaguesOf } from './tournaments.js'
 import { assignPositions, BRACKET_METHODS, groupRooms, pairTeams, roundRobinPairs, shuffle, type DrawMethod } from './pairing.js'
 import { eliminationRooms } from './playoffs.js'
+import { sameInstitution } from './institutions.js'
 import { conflictChecker, type ConflictCheck } from './conflicts.js'
 
 // the organizer's own rooms first; when they run out (or there are none) the rooms are simply numbered
@@ -70,7 +71,7 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
   if (unfinished) throw badRequest('previous_round_unfinished')
   // round robin and the bracket methods pair two teams; BP rooms of four use power, high-low or random
   if (isBP(round.tournament.format) && (opts.method === 'round_robin' || BRACKET_METHODS.includes(opts.method ?? 'power'))) throw badRequest('method_not_for_bp')
-  const [allTeams, judges, previous] = await Promise.all([
+  const [loadedTeams, judges, previous, school] = await Promise.all([
     prisma.team.findMany({
       where: { tournamentId: tId, swing: false, withdrawnAt: null, ...(opts.presentOnly && { checkedInAt: { not: null } }) },
       select: { id: true, institutionId: true, clubId: true, league: true, name: true },
@@ -80,7 +81,10 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
       where: { round: { tournamentId: tId, number: { lt: round.number } } },
       select: { propositionTeamId: true, oppositionTeamId: true, closingPropositionTeamId: true, closingOppositionTeamId: true, round: { select: { number: true } } },
     }),
+    sameInstitution(),
   ])
+  // a school written two ways is one school: its teams are kept apart in the first rounds all the same
+  const allTeams = loadedTeams.map(t => ({ ...t, institutionId: school(t.institutionId) }))
   const perRoom = isBP(round.tournament.format) ? 4 : 2
 
   // Leagues (a Russian and a Kazakh league in one tournament): each league is drawn on its own, its teams only meet

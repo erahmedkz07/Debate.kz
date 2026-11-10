@@ -1615,6 +1615,35 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   await bpHost.c('PATCH', `/rounds/${bpFinal.id}`, { status: 'completed' })
   const bpBracket = (await client()('GET', `/tournaments/${bp.id}/bracket`)).data
   ok(bpBracket.champion?.id === room.propositionTeamId, 'the BP champion is 1st in the final room')
+
+  // the final finishes the tournament by itself: the organizer never presses "complete" nor "finish"
+  {
+    const aHost = await newAccount('Автофинал Организатор')
+    const af = (await aHost.c('POST', '/tournaments', { ...tBody(96), name: `Автофинал ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+    await admin('PATCH', `/admin/tournaments/${af.id}`, { moderation: 'approved' })
+    for (const n of ['Арай', 'Бөрі', 'Жұлдыз', 'Самға']) await aHost.c('POST', `/tournaments/${af.id}/teams`, { name: n, institution: `Мектеп ${n}`, speakers: [`${n} Бір`, `${n} Екі`, `${n} Үш`] })
+    for (let i = 1; i <= 2; i++) await addJudge(aHost.c, af.id, `Автофинал Судья ${i}`)
+    await aHost.c('PATCH', `/tournaments/${af.id}`, { status: 'ongoing' })
+    await playRound(aHost.c, af.id, (await details(aHost.c, af.id)).rounds[0].id, wsdc('proposition'))
+    const fin = (await aHost.c('POST', `/tournaments/${af.id}/break`)).data.rounds[0]
+    await aHost.c('POST', `/rounds/${fin.id}/draw`, { addSwing: false })
+    await aHost.c('PATCH', `/rounds/${fin.id}`, { motion: 'ЭП мектеп формасын алып тастайды', status: 'released' })
+    const run = async ms => (await admin('POST', '/admin/watchdog/run', { now: new Date(Date.now() + ms).toISOString() })).data
+    const status = async () => (await client()('GET', `/tournaments/${af.id}`)).data.status
+    ok((await run(3 * 60 * 60 * 1000)) && await status() === 'ongoing', 'a final without a result does not finish the tournament')
+    for (const d of (await details(aHost.c, af.id)).debates.filter(x => x.roundId === fin.id)) await panelVote(d.id, wsdc('opposition'))
+    ok((await run(60 * 60 * 1000)) && await status() === 'ongoing', 'right after the final ballot there is time to fix a mistake: not finished yet')
+    ok((await run(2 * 60 * 60 * 1000 + 60_000)).autoFinished >= 1 && await status() === 'finished', '2 hours after the final ballot the tournament finishes by itself')
+    const rounds = (await details(aHost.c, af.id)).rounds
+    ok(rounds.every(x => x.status === 'completed'), 'the final round is completed with it')
+    let certs = 0
+    for (let i = 0; i < 30 && !certs; i++) { await sleep(200); certs = Number((await db.query('select count(*) from certificates where tournament_id = $1', [af.id])).rows[0].count) }
+    ok(certs >= 12, `the certificates are issued (${certs})`)
+    let told = false
+    for (let i = 0; i < 20 && !told; i++) { await sleep(200); told = (await notes(aHost.c)).items.some(n => n.type === 'organizer.autoFinished') }
+    ok(told, 'the organizer is told that the tournament finished by itself')
+    ok((await run(3 * 60 * 60 * 1000)).autoFinished === 0, 'a finished tournament is not finished again')
+  }
 }
 // ---------- 41. minors: parents' consent for school and mixed tournaments ----------
 {
@@ -3724,6 +3753,42 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
   const clubs = async q => (await client()('GET', `/clubs?search=${encodeURIComponent(q)}`)).data.some(x => x.id === club.id)
   ok(await clubs(`акниет ${jtag}`) && await clubs('оскемен лицейи'), 'a club is found by its name and school typed without Kazakh letters')
+}
+
+// ---------- one school written two ways is one school (fair judging, school teams apart) ----------
+{
+  const host = await newAccount('Мектеп Ұйымдастырушы')
+  const k = (await host.c('POST', '/tournaments', { ...tBody(497), name: `Мектептер ${jtag}` })).data
+  await admin('PATCH', `/admin/tournaments/${k.id}`, { moderation: 'approved' })
+  const sp = n => [`${n} Ааа`, `${n} Ббб`, `${n} Ввв`]
+  await host.c('POST', `/tournaments/${k.id}/teams`, { name: 'Мек 1', institution: `Лицей № 7 «Дарын» ${jtag}`, speakers: sp('Мек1') })
+  await host.c('POST', `/tournaments/${k.id}/teams`, { name: 'Мек 2', institution: `лицей №7 дарын ${jtag.toLowerCase()}`, speakers: sp('Мек2') })
+  await host.c('POST', `/tournaments/${k.id}/teams`, { name: 'Мек 3', institution: `Школа 3 ${jtag}`, speakers: sp('Мек3') })
+  await host.c('POST', `/tournaments/${k.id}/teams`, { name: 'Мек 4', institution: `Школа 4 ${jtag}`, speakers: sp('Мек4') })
+  const inst = Object.fromEntries((await db.query('select name, institution_id from teams where tournament_id = $1', [k.id])).rows.map(x => [x.name, x.institution_id]))
+  ok(inst['Мек 1'] && inst['Мек 1'] === inst['Мек 2'], 'a school typed another way ("лицей №7 дарын") is the same school as «Лицей № 7 «Дарын»»')
+  // an older row of the same school (made before spellings were joined) still counts as that school
+  await db.query("insert into institutions (id, name, level) values ($1, $2, 'school')", [`old${jtag}`, `ЛИЦЕЙ-7 ДАРЫН ${jtag}`])
+  await db.query('update teams set institution_id = $1 where tournament_id = $2 and name = $3', [`old${jtag}`, k.id, 'Мек 2'])
+  // a judge from that school, by their profile, joins with the invite link
+  const teacher = await newAccount('Мұғалім Дарындағы')
+  ok((await teacher.c('PATCH', '/me', { name: 'Мұғалім Дарындағы', phone: '+7 707 000 00 00', institution: `Лицей №7 Дарын ${jtag}` })).status === 200, 'the judge writes their school in the profile')
+  const link = (await host.c('POST', `/tournaments/${k.id}/invites`, { kind: 'judge' })).data.url
+  await teacher.c('POST', `/invites/${link.split('/invite/')[1]}/accept`)
+  const jt = (await db.query('select id, institution_id from judges where tournament_id = $1 and user_id = $2', [k.id, teacher.id])).rows[0]
+  ok([inst['Мек 1'], `old${jtag}`].includes(jt?.institution_id), "the judge's school from the profile is that school (one of its spellings), not a new one")
+  for (const n of ['Свободный Бір', 'Свободный Екі']) await addJudge(host.c, k.id, n)
+  const round = (await host.c('GET', `/tournaments/${k.id}`)).data.rounds[0]
+  let clean = 0
+  for (let i = 0; i < 5; i++) {
+    const res = await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false, method: 'random' })
+    const teamsOf = d => [d.propositionTeamId, d.oppositionTeamId]
+    const ids = Object.fromEntries((await db.query('select id, name from teams where tournament_id = $1', [k.id])).rows.map(x => [x.name, x.id]))
+    const mine = [ids['Мек 1'], ids['Мек 2']]
+    if (res.status === 201 && res.data.debates.every(d => !(d.judgeIds.includes(jt.id) && teamsOf(d).some(t => mine.includes(t))))
+      && res.data.debates.every(d => !(teamsOf(d).includes(mine[0]) && teamsOf(d).includes(mine[1])))) clean++
+  }
+  ok(clean === 5, 'every draw keeps the judge away from their school (both spellings) and the two school teams apart in round 1')
 }
 
 // ---------- errors are written down ----------

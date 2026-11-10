@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js'
 import { fromDay, toDay, todayKz } from '../lib/dates.js'
 import { admins, notify, organizersOf } from './notify.js'
+import { autoFinish } from './autoFinish.js'
 
 // Keeping tournaments alive, without banning people. Prevention first, a strike only when a tournament is abandoned:
 //   - 3 days before the start: the organizers are reminded if preliminary rounds still have no motion;
@@ -29,8 +30,10 @@ export async function giveStrike(userId: string, tournament: { id: string; name:
 }
 
 // one pass over the tournaments; `today` (YYYY-MM-DD, Kazakhstan date) can be given by the e2e run
-export async function runWatchdog(today = todayKz()) {
-  const done = { motionReminders: 0, finishReminders: 0, archived: 0 }
+export async function runWatchdog(today = todayKz(), now = new Date()) {
+  const done = { motionReminders: 0, finishReminders: 0, archived: 0, autoFinished: 0 }
+  // first the tournaments whose final is played: they finish by themselves, no reminder is needed
+  done.autoFinished = await autoFinish(now)
   const live = await prisma.tournament.findMany({
     where: { status: { not: 'finished' }, abandonedAt: null, moderation: 'approved' },
     include: { rounds: { where: { kind: 'preliminary' }, select: { motion: true } }, organizers: { where: { role: 'owner' } } },
@@ -63,10 +66,11 @@ export async function runWatchdog(today = todayKz()) {
   return done
 }
 
-// runs every hour in the API process (one process per server: see deploy/README.md)
+// runs every 15 minutes in the API process (one process per server: see deploy/README.md): a finished final turns
+// into results and certificates within 2 h 15 min at most
 export function startWatchdog() {
   const tick = () => runWatchdog().catch(e => console.error('[watchdog]', e instanceof Error ? e.message : e))
-  const timer = setInterval(tick, 60 * 60 * 1000)
+  const timer = setInterval(tick, 15 * 60 * 1000)
   setTimeout(tick, 30_000) // shortly after a restart, not during it
   return () => clearInterval(timer)
 }

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js'
+import { sameInstitution } from './institutions.js'
 
 // Who may not judge whom. A judge has a conflict with a team when:
 //   - they come from the same institution (school / university);
@@ -8,12 +9,13 @@ import { prisma } from '../lib/prisma.js'
 export type ConflictCheck = (judgeId: string, teamIds: string[]) => boolean
 
 export async function conflictChecker(tournamentId: string): Promise<ConflictCheck> {
-  const [judges, teams] = await Promise.all([
+  const [judges, teams, school] = await Promise.all([
     prisma.judge.findMany({
       where: { tournamentId },
       select: { id: true, institutionId: true, conflicts: { select: { teamId: true } }, user: { select: { clubMembership: { select: { clubId: true } } } } },
     }),
     prisma.team.findMany({ where: { tournamentId }, select: { id: true, institutionId: true, clubId: true } }),
+    sameInstitution(),
   ])
   const team = new Map(teams.map(t => [t.id, t]))
   const judge = new Map(judges.map(j => [j.id, {
@@ -26,7 +28,7 @@ export async function conflictChecker(tournamentId: string): Promise<ConflictChe
       const t = team.get(id)
       if (!t) return false
       return j.personal.has(id)
-        || (!!j.institutionId && j.institutionId === t.institutionId)
+        || (!!j.institutionId && school(j.institutionId) === school(t.institutionId))
         || (!!j.clubId && j.clubId === t.clubId)
     })
   }

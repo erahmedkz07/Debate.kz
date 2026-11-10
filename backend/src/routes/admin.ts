@@ -226,9 +226,10 @@ adminRouter.post('/admin/strikes/:id/lift', async (req, res) => {
 })
 
 adminRouter.post('/admin/watchdog/run', async (req, res) => {
-  const { today } = body(req, z.object({ today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }))
-  // a pretend date only in the e2e run: in production the watchdog always uses today
-  res.json(await runWatchdog(env.NODE_ENV === 'test' && today ? today : undefined))
+  const { today, now } = body(req, z.object({ today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), now: z.string().datetime().optional() }))
+  // a pretend date and time only in the e2e run: in production the watchdog always uses the real ones
+  const test = env.NODE_ENV === 'test'
+  res.json(await runWatchdog(test && today ? today : undefined, test && now ? new Date(now) : undefined))
 })
 
 adminRouter.get('/admin/users', async (_req, res) => {

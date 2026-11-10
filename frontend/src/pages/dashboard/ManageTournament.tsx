@@ -2366,6 +2366,8 @@ function SettingsSection({ data, reload }: SectionProps) {
               <Switch label={t('dashboard.stage.regSwitch')} checked={data.registrationOpen ?? true} onChange={toggleRegistration} />
             </div>
           )}
+          {/* the final finishes the tournament by itself (backend/services/autoFinish.ts) */}
+          {data.status === 'ongoing' && <p className="mt-4 flex items-start gap-2 rounded-xl bg-primary-soft p-3 text-sm"><Flag className="mt-0.5 size-4 shrink-0 text-primary" />{t('dashboard.stage.autoFinish')}</p>}
           <div className="mt-5 flex flex-wrap justify-end gap-2">
             {data.status === 'ongoing' && !data.rounds.some(r => r.status !== 'draft') && (
               <Button variant="ghost" disabled={!!busy} onClick={() => setStageTo('registration')}><Undo2 className="size-4" />{t('dashboard.stage.back')}</Button>

@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { institutionIdFor } from '../services/institutions.js'
 import { prisma } from '../lib/prisma.js'
 import { env } from '../lib/env.js'
 import { toDay } from '../lib/dates.js'
@@ -142,9 +143,7 @@ invitesRouter.post('/invites/:token/accept', requireAuth(), requireVerified, asy
     const claimed = await tx.tournamentInvite.updateMany({ where: { id: invite.id, usedAt: null }, data: { usedAt: new Date(), usedById: user.id } })
     if (claimed.count !== 1) throw badRequest('invite_used')
     if (invite.kind === 'judge') {
-      const institutionId = user.institution
-        ? (await tx.institution.upsert({ where: { name: user.institution }, update: {}, create: { name: user.institution, level: invite.tournament.level } })).id
-        : undefined
+      const institutionId = user.institution ? await institutionIdFor(user.institution, invite.tournament.level, tx) : undefined
       // a judge the organizer had added without an account becomes this person (the draws they sat on stay);
       // if that judge was removed or linked meanwhile, the person joins as a new judge
       const linked = invite.judgeId
