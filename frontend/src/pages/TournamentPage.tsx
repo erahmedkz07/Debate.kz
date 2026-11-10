@@ -339,7 +339,7 @@ function TeamsTab({ data }: { data: TournamentDetails }) {
             ))}
           </ul>
           <span className="sr-only">{t('tournament.speakers')}</span>
-          {team.league && leagues.length > 0 && <Badge variant="muted" className="mt-3">{leagueName(leagues, team.league)}</Badge>}
+          {team.league && leagues.length > 0 && <Badge variant="muted" className="mt-3 max-w-full whitespace-normal">{leagueName(leagues, team.league)}</Badge>}
         </Card>
       ))}
     </div>
