@@ -197,3 +197,27 @@ test('a judge by the link without a connection: the ballot waits on the device a
   const sheet = (await t.org('GET', `/tournaments/${t.id}`)).data
   expect(sheet.debates.find((d: { id: string }) => d.id === room.id).ballotStatus).not.toBe('pending')
 })
+
+// the session ends while the ballot is typed (signed out on another device, an expired cookie): sending sends the
+// person to sign in, and after signing in the ballot comes back with everything typed and goes through
+test('the session ends while typing: sign in again, the typed ballot is still there and is sent', async ({ page }) => {
+  const t = await leagueTournament()
+  const room = t.details.debates.find((d: { judgeIds: string[] }) => d.judgeIds.length)
+  const prop = t.details.teams.find((x: { id: string }) => x.id === room.propositionTeamId).name
+  await signIn(page, t.org.email, t.org.password)
+  await page.goto(`/ballot/${room.id}?as=${room.judgeIds[0]}`)
+  await fillBallot(page, prop)
+  await page.locator('#reason').fill('Причина до выхода')
+  // the session is ended on the server (the cookie this page holds is no longer valid)
+  await page.request.post('/api/auth/logout')
+  await page.getByRole('button', { name: 'Отправить бюллетень' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Да, отправить' }).click()
+  await expect(page).toHaveURL(/\/login/)
+  await page.locator('#email').fill(t.org.email)
+  await page.locator('#password').fill(t.org.password)
+  await page.getByRole('button', { name: 'Войти', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/ballot/${room.id}`))
+  await expect(page.locator('input[inputmode="decimal"]').first()).toHaveValue('75')
+  await expect(page.locator('#reason')).toHaveValue('Причина до выхода')
+  await send(page)
+})

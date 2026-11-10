@@ -632,7 +632,8 @@ r = await org('POST', `/tournaments/${t1.id}/checkin/code`)
 const ciCode = r.data.code
 ok(r.status === 200 && /^[A-Z2-9]{6}$/.test(ciCode) && r.data.present === 0, 'organizer creates a check-in code')
 ok((await student('POST', `/checkin/${t1.id}`, { code: 'WRONG1' })).data.error === 'wrong_checkin_code', 'a wrong code is rejected')
-r = await student('POST', `/checkin/${t1.id}`, { code: ciCode.toLowerCase() })
+// typed in small letters with a space in the middle, as read off the screen: still the code
+r = await student('POST', `/checkin/${t1.id}`, { code: ` ${ciCode.slice(0, 3).toLowerCase()} ${ciCode.slice(3).toLowerCase()} ` })
 ok(r.status === 200 && r.data.team === 'E2E Команда', 'a team member checks the team in by scanning the QR')
 ok((await timur('POST', `/checkin/${t1.id}`, { code: ciCode })).data.error === 'not_in_tournament', 'people without a team cannot check in')
 for (let i = 0; i < 10; i++) await sabina('POST', `/checkin/${t1.id}`, { code: 'ZZZZZZ' })
@@ -3012,6 +3013,8 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok((await rec('POST', '/auth/login/2fa', { ticket: again.ticket, code: on.recovery[0] })).status === 200, 'a recovery code signs in')
   const third = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
   ok((await client()('POST', '/auth/login/2fa', { ticket: third.ticket, code: on.recovery[0] })).data?.error === 'invalid_code', 'a recovery code works once')
+  const fourth = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
+  ok((await client()('POST', '/auth/login/2fa', { ticket: fourth.ticket, code: ` ${on.recovery[2].replace('-', '').toUpperCase()} ` })).status === 200, 'a recovery code typed in capitals without the dash signs in too')
   ok((await client()('POST', '/auth/login/2fa', { ticket: 'forged.ticket.value', code: totp(setup.secret) })).data?.error === 'ticket_expired', 'a forged ticket is refused')
   ok((await me.c('POST', '/me/2fa/disable', { code: '000000' })).data?.error === 'invalid_code', 'turning it off needs a real code')
   ok((await me.c('POST', '/me/2fa/disable', { code: on.recovery[1] })).data?.user?.twoFactor === false, 'a recovery code turns it off')
@@ -3681,6 +3684,16 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(ties >= 0, 'Proposition never goes to the team that has already had it more')
   ok(ties > 0 && alternated === ties, `on equal terms the team in Opposition last time opens (${alternated} of ${ties})`)
   ok([...balance.values()].every(v => Math.abs(v) <= 2), `after 4 rounds no team is more than 2 debates off balance (${[...balance.values()].join(',')})`)
+}
+
+// ---------- phone numbers as people write them ----------
+{
+  const reg = async phone => client()('POST', '/auth/register', { name: 'Телефон Тестовый', email: `ph.${Math.random().toString(36).slice(2, 9)}@example.com`, phone, password: 'secret123', consent: true })
+  for (const raw of ['8 701 555 12 34', '87015551234', '+7 (701) 555-12-34', '+7 701-555-12-34']) {
+    const r = await reg(raw)
+    ok(r.status === 201 && r.data.user.phone === '+7 701 555 12 34', `"${raw}" is taken and kept as +7 701 555 12 34 (${r.status} ${r.data?.user?.phone ?? r.data?.error})`)
+  }
+  for (const raw of ['+7 701 555 12 3', '7015551234', '+1 202 555 0101', '8 495 123 45 67', '+7 701 555 12 34 доб. 5']) ok((await reg(raw)).data?.error === 'validation_error', `"${raw}" is not a Kazakhstan mobile number`)
 }
 
 // ---------- errors are written down ----------

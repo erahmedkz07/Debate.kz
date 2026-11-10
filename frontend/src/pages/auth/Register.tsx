@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { isKzPhone } from '@/lib/phone'
 import { toast } from 'sonner'
 import { AlertCircle, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
 import { AuthError, getGoogleConfig, register as registerUser } from '@/api'
@@ -29,7 +30,7 @@ export default function Register() {
   const schema = z.object({
     name: z.string().trim().min(3, t('auth.errors.name')).refine(v => v.includes(' '), t('auth.errors.name')),
     email: z.string().trim().min(1, t('auth.errors.required')).email(t('auth.errors.email')),
-    phone: z.string().trim().regex(/^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/, t('auth.errors.phone')),
+    phone: z.string().trim().refine(isKzPhone, t('auth.errors.phone')),
     password: z.string().min(8, t('auth.errors.password')),
     confirm: z.string().min(1, t('auth.errors.required')),
     consent: z.literal(true, { error: t('auth.errors.consent') }),

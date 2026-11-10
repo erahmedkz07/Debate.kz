@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
+import { phoneField } from '../lib/phone.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay, todayKz } from '../lib/dates.js'
 import rateLimit from 'express-rate-limit'
@@ -23,7 +24,7 @@ import { STRIKE_LIMIT } from '../services/watchdog.js'
 export const meRouter = Router()
 const mailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
 
-const phone = z.string().trim().regex(/^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/, 'phone')
+const phone = phoneField
 
 meRouter.patch('/me', requireAuth(), async (req, res) => {
   const data = body(req, z.object({

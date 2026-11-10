@@ -106,7 +106,7 @@ export default function Clubs() {
       <Dialog open={joining} onOpenChange={setJoining}>
         <DialogContent heading={t('club.joinByCode')} description={t('club.joinCodeText')}>
           <form className="space-y-4" onSubmit={e => { e.preventDefault(); void go(() => joinClub(code.trim())) }}>
-            <Input autoFocus maxLength={8} value={code} onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="ABCD2345" className="text-center font-mono text-lg tracking-[0.3em]" aria-label={t('club.code')} />
+            <Input autoFocus value={code} onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))} placeholder="ABCD2345" className="text-center font-mono text-lg tracking-[0.3em]" aria-label={t('club.code')} />
             <div className="flex justify-end gap-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
               <Button type="submit" disabled={busy || code.trim().length !== 8}>{t('club.join')}</Button>

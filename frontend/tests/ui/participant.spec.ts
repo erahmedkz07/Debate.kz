@@ -24,12 +24,14 @@ test('a participant on a phone: sign-up, email, club, team, application', async 
   await page.goto('/register')
   await page.locator('#name').fill('Айым Серікова')
   await page.locator('#email').fill(email)
-  await page.locator('#phone').fill('+7 701 555 12 34')
+  // written the way most people here write it, with 8 in front
+  await page.locator('#phone').fill('8 701 555 12 34')
   await page.locator('#password').fill(password)
   await page.locator('#confirm').fill(password)
   await page.locator('input[type="checkbox"]').first().check()
   await page.getByRole('button', { name: 'Зарегистрироваться' }).click()
   await expect(page).not.toHaveURL(/\/register$/)
+  await expect.poll(async () => page.evaluate(async () => (await (await fetch('/api/auth/me')).json()).user?.phone)).toBe('+7 701 555 12 34')
 
   // the letter's link confirms the email
   let link = ''

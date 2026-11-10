@@ -63,7 +63,7 @@ export function TwoFactorRow() {
               </div>
               <div>
                 <Label htmlFor="tf-code">{t('twoFactor.code')}</Label>
-                <Input id="tf-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} autoFocus value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} placeholder="123456" />
+                <Input id="tf-code" inputMode="numeric" autoComplete="one-time-code" autoFocus value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" />
               </div>
               <div className="flex justify-end gap-2">
                 <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
