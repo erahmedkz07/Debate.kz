@@ -3,6 +3,7 @@ import { Router } from 'express'
 import sharp from 'sharp'
 import { z } from 'zod'
 import type { Prisma } from '../generated/prisma/client.js'
+import { idsContaining } from '../lib/search.js'
 import { prisma } from '../lib/prisma.js'
 import { body, param, query } from '../middleware/validate.js'
 import { cachedStandings, getStandings, getTournamentDetails, isOrganizerOf, isPublic, publicWhere, summaryInclude, toSummary } from '../services/tournaments.js'
@@ -44,7 +45,7 @@ publicRouter.get('/tournaments', async (req, res) => {
 async function listTournaments(f: z.infer<typeof listSchema>) {
   const where: Prisma.TournamentWhereInput = {
     ...publicWhere,
-    ...(f.search && { OR: [{ name: { contains: f.search, mode: 'insensitive' } }, { organizerName: { contains: f.search, mode: 'insensitive' } }] }),
+    ...(f.search && { id: { in: await idsContaining('tournaments', f.search) } }),
     ...(f.city && f.city !== 'all' && { city: f.city }),
     ...(f.region && f.region !== 'all' && { region: f.region }),
     ...(f.level && f.level !== 'all' && { level: { in: [f.level, 'mixed' as const] } }),

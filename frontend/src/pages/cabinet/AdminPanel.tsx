@@ -24,6 +24,7 @@ import { Select } from '@/components/ui/select'
 import { SideTabsList, SideTabsTrigger, Tabs, TabsContent } from '@/components/ui/tabs'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { CabinetHeader } from '@/pages/dashboard/DashboardLayout'
+import { fold } from '@/lib/search'
 
 // only two global roles; organizer/judge are per-tournament rights
 const roles: Role[] = ['user', 'admin']
@@ -102,10 +103,10 @@ function TournamentsTab({ list, setList }: { list: AdminTournament[]; setList: D
   }
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'unpaid'>('all')
-  const query = q.trim().toLowerCase()
+  const query = fold(q.trim())
   const shown = [...list]
     .filter(x => filter === 'all' || (filter === 'unpaid' ? x.plan === 'pro' && !x.paid : x.moderation === filter))
-    .filter(x => !query || [x.name, x.city, x.owner?.name, x.owner?.email].some(v => v?.toLowerCase().includes(query)))
+    .filter(x => !query || [x.name, x.city, x.owner?.name, x.owner?.email].some(v => v && fold(v).includes(query)))
     // pending moderation first: that is what the admin has to act on
     .sort((a, b) => Number(b.moderation === 'pending') - Number(a.moderation === 'pending'))
   // server first, then local list; returns false on error. One change per row at a time: its buttons wait.
@@ -267,7 +268,7 @@ function UsersTab() {
   if (loading || !data) return <Skeleton className="h-96" />
 
   const shown = list.filter(u => (role === 'all' || u.role === role) &&
-    (!q || u.name.toLowerCase().includes(q.toLowerCase()) || u.email.toLowerCase().includes(q.toLowerCase())))
+    (!q || fold(u.name).includes(fold(q.trim())) || u.email.toLowerCase().includes(q.trim().toLowerCase())))
   const patch = async (id: string, p: { role?: Role; blocked?: boolean; safeguardingOfficer?: boolean }) => {
     setSaving(id)
     try {

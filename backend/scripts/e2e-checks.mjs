@@ -2620,6 +2620,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const find = async q => (await client()('GET', `/motions?search=${encodeURIComponent(q)}`)).data.items.filter(m => m.tournament.id === t.id)
   const ru = await find(`запретит ${jtag}`), kz = await find(`интеллектіге ${jtag}`)
   ok(ru.length === 1 && ru[0].language === 'ru' && kz.length === 1 && kz[0].language === 'kz', 'the motion bank lists each league motion')
+  ok((await find(`интеллектиге тыйым ${jtag}`)).length === 1, 'a Kazakh motion is found with и typed for і')
 }
 
 // ---------- 68. rooms by league; no sample rooms ----------
@@ -3708,6 +3709,21 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
     ok(r.status === 201 && r.data.user.phone === '+7 701 555 12 34', `"${raw}" is taken and kept as +7 701 555 12 34 (${r.status} ${r.data?.user?.phone ?? r.data?.error})`)
   }
   for (const raw of ['+7 701 555 12 3', '7015551234', '+1 202 555 0101', '8 495 123 45 67', '+7 701 555 12 34 доб. 5']) ok((await reg(raw)).data?.error === 'validation_error', `"${raw}" is not a Kazakhstan mobile number`)
+}
+
+// ---------- search: Kazakh letters typed as Russian ones ----------
+{
+  const host = await newAccount('Іздеу Ұйымдастырушы')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(495), name: `Қазақстан Кубогы ${jtag}`, maxTeams: 8 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const found = async q => (await client()('GET', `/tournaments?search=${encodeURIComponent(q)}`)).data.some(x => x.id === t.id)
+  const hits = [await found(`казакстан кубогы ${jtag}`), await found(`ҚАЗАҚСТАН КУБОГЫ ${jtag}`), await found(`Казахстан ${jtag}`)]
+  ok(hits.join() === 'true,true,false', `a tournament "Қазақстан Кубогы" is found by "казакстан кубогы" and by capitals (${hits})`)
+  ok((await client()('GET', `/tournaments?search=${encodeURIComponent('%_%')}`)).data.length === 0, '"%" and "_" in a search are plain characters, not wildcards')
+  const club = (await host.c('POST', '/clubs', { name: `Ақниет ${jtag}`, city: 'Астана', institution: 'Өскемен лицейі' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+  const clubs = async q => (await client()('GET', `/clubs?search=${encodeURIComponent(q)}`)).data.some(x => x.id === club.id)
+  ok(await clubs(`акниет ${jtag}`) && await clubs('оскемен лицейи'), 'a club is found by its name and school typed without Kazakh letters')
 }
 
 // ---------- errors are written down ----------

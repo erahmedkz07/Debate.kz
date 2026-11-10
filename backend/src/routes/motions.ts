@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { fold } from '../lib/search.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
 import { query } from '../middleware/validate.js'
@@ -38,8 +39,8 @@ motionsRouter.get('/motions', async (req, res) => {
       tournament: { id: r.tournament.id, name: r.tournament.name, level: r.tournament.level, city: r.tournament.city },
     }))
   })
-  // search ignores case, ё/е, quotes and punctuation: "эта палата", «Эта палата…» and "ЭТА ПАЛАТА" find the same motions
-  const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  // search ignores case, ё/е, Kazakh letters typed as Russian ones, quotes and punctuation: "эта палата", «Эта палата…» and "ЭТА ПАЛАТА" find the same motions
+  const norm = (s: string) => fold(s).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   const words = q.search ? norm(q.search).split(' ').filter(Boolean) : []
   const matches = (m: (typeof all)[number]) => {
     if (!words.length) return true
