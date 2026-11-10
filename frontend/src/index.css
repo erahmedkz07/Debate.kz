@@ -93,8 +93,9 @@
     color: var(--foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
-    /* a very long word (a team name, a link) wraps inside its box instead of pushing the page sideways */
-    overflow-wrap: break-word;
+    /* a very long word (a team name, a link) wraps inside its box instead of pushing the page sideways; "anywhere"
+       (not "break-word") also lets flex items and table cells shrink below that word, which is where it mattered */
+    overflow-wrap: anywhere;
   }
   ::selection {
     background: var(--accent);

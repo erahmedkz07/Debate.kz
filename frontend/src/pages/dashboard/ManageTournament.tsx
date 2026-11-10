@@ -391,7 +391,7 @@ function Teams({ data, reload }: SectionProps) {
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}
                     {team.withdrawn && <Badge variant="danger">{t('dashboard.teams.withdrawn')}</Badge>}
-                    {leagues.length > 0 && team.league && <Badge variant="muted">{leagueName(leagues, team.league)}</Badge>}</p>
+                    {leagues.length > 0 && team.league && <Badge variant="muted" className="max-w-full whitespace-normal">{leagueName(leagues, team.league)}</Badge>}</p>
                   {team.institution && <p className="text-xs text-muted-foreground">{team.institution}</p>}
                   <p className="mt-1 text-xs text-muted-foreground">{team.speakers.map(x => x.name).join(', ')}</p>
                 </div>
@@ -429,7 +429,7 @@ function Teams({ data, reload }: SectionProps) {
                       <div>
                         <p className="flex flex-wrap items-center gap-1.5 font-bold">{team.name}{team.swing && <Badge variant="outline">{t('dashboard.checkin.swing')}</Badge>}
                           {team.withdrawn && <Badge variant="danger">{t('dashboard.teams.withdrawn')}</Badge>}
-                          {leagues.length > 0 && team.league && <Badge variant="muted">{leagueName(leagues, team.league)}</Badge>}</p>
+                          {leagues.length > 0 && team.league && <Badge variant="muted" className="max-w-full whitespace-normal">{leagueName(leagues, team.league)}</Badge>}</p>
                         <p className="text-xs text-muted-foreground">{team.institution}</p>
                         {!team.swing && (data.breakCategories ?? []).length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
@@ -2352,7 +2352,8 @@ function SettingsSection({ data, reload }: SectionProps) {
           <h3 className="font-bold">{t('dashboard.stage.title')}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.stage.text')}</p>
           {/* stepper: registration -> ongoing -> finished */}
-          <ol className="mt-5 grid grid-cols-3 gap-2">
+          {/* in a row from a tablet; on a phone one under another ("Регистрация открыта" does not fit a third of it) */}
+          <ol className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
             {stages.map((s, i) => (
               <li key={s} className={cn('flex items-center justify-center rounded-xl border-2 px-3 py-2.5 text-center text-sm font-semibold leading-tight',
                 i === stageIndex ? 'border-primary bg-primary-soft text-primary' : i < stageIndex ? 'border-success/40 text-success' : 'border-border text-muted-foreground')}>
