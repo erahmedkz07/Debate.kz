@@ -65,7 +65,7 @@ export function Footer() {
       </div>
       <div className="relative border-t border-white/10">
         <div className="container-page flex flex-col gap-2 py-5 text-xs text-white/50 sm:flex-row sm:items-center sm:justify-between">
-          <span>© {year} Debate.kz. {t('footer.rights')}</span>
+          <span>© {year} Debaters.kz. {t('footer.rights')}</span>
           <span className="flex flex-wrap gap-x-4 gap-y-1">
             <Link className="hover:text-accent" to="/privacy">{t('legal.privacy')}</Link>
             <Link className="hover:text-accent" to="/terms">{t('legal.terms')}</Link>

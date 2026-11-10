@@ -40,7 +40,7 @@ async function tellAdmins(text: string) {
     for (const a of admins) {
       await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: String(a.telegramChatId), text: `⚠️ Debate.kz: ${text}`, disable_web_page_preview: true }),
+        body: JSON.stringify({ chat_id: String(a.telegramChatId), text: `⚠️ Debaters.kz: ${text}`, disable_web_page_preview: true }),
       }).catch(() => undefined)
     }
   } catch { /* no alert is better than a crash */ }

@@ -116,7 +116,7 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
       to: owner.email,
       subject: approved ? `Турнир «${t.name}» одобрен` : `Турнир «${t.name}» отклонён`,
       text: approved
-        ? `Ваш турнир опубликован и виден всем на Debate.kz:\n${env.CLIENT_ORIGIN}/tournaments/${t.id}`
+        ? `Ваш турнир опубликован и виден всем на Debaters.kz:\n${env.CLIENT_ORIGIN}/tournaments/${t.id}`
         : `Администратор отклонил турнир. Причина: ${d.moderationNote}`,
     })
   }

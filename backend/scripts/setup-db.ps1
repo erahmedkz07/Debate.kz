@@ -1,4 +1,4 @@
-# Creates the application role and database for Debate.kz in the local PostgreSQL 16.
+# Creates the application role and database for Debaters.kz in the local PostgreSQL 16.
 # Run once:  powershell -ExecutionPolicy Bypass -File backend\scripts\setup-db.ps1
 # psql asks for the password of the "postgres" superuser (the one set during PostgreSQL install).
 # The app password is read from backend\.env, so no secret lives in this script.

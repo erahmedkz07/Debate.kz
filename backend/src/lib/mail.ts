@@ -50,9 +50,9 @@ function html(mail: Mail) {
   return `<!doctype html><html lang="${frame.htmlLang}"><body style="margin:0;background:#f7fbfd;font-family:Arial,Helvetica,sans-serif;color:#0b2230">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7fbfd;padding:24px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e3eef3">
-<tr><td style="background:#009bc9;padding:18px 24px;color:#ffffff;font-size:20px;font-weight:800">Debate.kz</td></tr>
+<tr><td style="background:#009bc9;padding:18px 24px;color:#ffffff;font-size:20px;font-weight:800">Debaters.kz</td></tr>
 <tr><td style="padding:24px;font-size:15px">${paragraphs}${button}</td></tr>
-<tr><td style="padding:14px 24px;background:#f7fbfd;font-size:12px;color:#5b6b75">${frame.footer} © Debate.kz</td></tr>
+<tr><td style="padding:14px 24px;background:#f7fbfd;font-size:12px;color:#5b6b75">${frame.footer} © Debaters.kz</td></tr>
 </table></td></tr></table></body></html>`
 }
 
@@ -68,7 +68,7 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     return true
   }
   try {
-    await t.sendMail({ from: env.MAIL_FROM ?? `Debate.kz <${env.SMTP_USER}>`, to: mail.to, subject: mail.subject, text, html: html(mail) })
+    await t.sendMail({ from: env.MAIL_FROM ?? `Debaters.kz <${env.SMTP_USER}>`, to: mail.to, subject: mail.subject, text, html: html(mail) })
     return true
   } catch (e) {
     console.error('[mail]', mail.subject, '→', mail.to, e instanceof Error ? e.message : e)

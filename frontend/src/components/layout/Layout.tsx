@@ -16,7 +16,7 @@ export function ScrollToTop() {
   return null
 }
 
-// The browser tab says which page is open: "<the page's heading> — Debate.kz" (the home page keeps the site's name).
+// The browser tab says which page is open: "<the page's heading> — Debaters.kz" (the home page keeps the site's name).
 // The heading is read from the page itself, so every page, a tournament or a person, gets its own title without each
 // page setting it; it follows the language and data that arrive later.
 export function TitleSync() {
@@ -26,7 +26,7 @@ export function TitleSync() {
     const site = t('meta.siteTitle')
     const apply = () => {
       const h1 = document.querySelector('main h1, h1')?.textContent?.trim()
-      const title = pathname === '/' || !h1 ? site : `${h1.length > 60 ? `${h1.slice(0, 57)}…` : h1} — Debate.kz`
+      const title = pathname === '/' || !h1 ? site : `${h1.length > 60 ? `${h1.slice(0, 57)}…` : h1} — Debaters.kz`
       if (document.title !== title) document.title = title // the observer fires often (timers): touch the tab only on change
     }
     apply()

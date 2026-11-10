@@ -112,9 +112,9 @@ publicRouter.get('/share/t/:id', async (req, res) => {
   const about = (t.description ?? '').replace(/<[^>]*>/g, ' ').replace(/[#*_>`\[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180)
   const desc = [`${t.city} · ${dates}`, about].filter(Boolean).join(' — ')
   res.set('Cache-Control', 'public, max-age=300').type('html').send(`<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<title>${esc(t.name)} — Debate.kz</title>
+<title>${esc(t.name)} — Debaters.kz</title>
 <meta name="description" content="${esc(desc)}">
-<meta property="og:type" content="website"><meta property="og:site_name" content="Debate.kz">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Debaters.kz">
 <meta property="og:title" content="${esc(t.name)}"><meta property="og:description" content="${esc(desc)}">
 <meta property="og:image" content="${esc(image)}"><meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:url" content="${esc(target)}">

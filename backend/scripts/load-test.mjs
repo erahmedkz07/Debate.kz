@@ -57,7 +57,7 @@ await db.end()
 const storage = mkdtempSync(path.join(os.tmpdir(), 'debatekz-load-'))
 const env = {
   ...process.env, NODE_ENV: 'production', PORT: String(PORT), DATABASE_URL: loadUrl.toString(),
-  CLIENT_ORIGIN: 'https://debate.kz.test', APP_URL: 'https://debate.kz.test', JWT_SECRET: randomBytes(48).toString('hex'),
+  CLIENT_ORIGIN: 'https://debaters.kz.test', APP_URL: 'https://debaters.kz.test', JWT_SECRET: randomBytes(48).toString('hex'),
   SMTP_HOST: 'smtp.invalid', SMTP_USER: 'load@debate.kz.test', SMTP_PASS: 'none', TELEGRAM_BOT_TOKEN: '',
   GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '',
   STORAGE_DIR: storage.replace(/^[A-Za-z]:/, '').replaceAll('\\', '/'), // an absolute path, as production requires

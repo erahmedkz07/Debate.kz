@@ -50,7 +50,7 @@ export function verifyCode(secret: string, code: string, now = Date.now()): numb
 
 // the address an authenticator app reads from the QR code
 export const otpauthUrl = (secret: string, account: string) =>
-  `otpauth://totp/${encodeURIComponent(`Debate.kz:${account}`)}?secret=${secret}&issuer=Debate.kz&algorithm=SHA1&digits=6&period=30`
+  `otpauth://totp/${encodeURIComponent(`Debaters.kz:${account}`)}?secret=${secret}&issuer=Debaters.kz&algorithm=SHA1&digits=6&period=30`
 
 // one-time recovery codes for a lost phone: shown once, kept only as hashes
 export const newRecoveryCodes = () => Array.from({ length: 8 }, () => randomBytes(5).toString('hex').replace(/(.{5})/, '$1-'))

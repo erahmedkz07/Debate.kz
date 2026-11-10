@@ -1,4 +1,4 @@
-# Scheduled jobs for Debate.kz. Install: sudo cp deploy/cron /etc/cron.d/debatekz
+# Scheduled jobs for Debaters.kz. Install: sudo cp deploy/cron /etc/cron.d/debaters
 # m  h  dom mon dow user     command
-30   3  *   *   *   debatekz bash /opt/debatekz/deploy/backup.sh >> /var/backups/debatekz/backup.log 2>&1
-*/5  *  *   *   *   debatekz bash /opt/debatekz/deploy/healthcheck.sh
+30   3  *   *   *   debaters bash /opt/debaters/deploy/backup.sh >> /var/backups/debaters/backup.log 2>&1
+*/5  *  *   *   *   debaters bash /opt/debaters/deploy/healthcheck.sh

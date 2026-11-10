@@ -2,7 +2,7 @@
 // its row counts are compared with the live database, and the temporary database is dropped. The live database is
 // only read. The files archive is listed too. A failure is reported to the admins in Telegram.
 // Usage: npm run backup:verify   (weekly is enough; see docs/OPERATIONS.md). Reads the server's copies too:
-//        BACKUP_DIR=/var/backups/debatekz node --env-file=/etc/debatekz/api.env scripts/backup-verify.mjs
+//        BACKUP_DIR=/var/backups/debaters node --env-file=/etc/debaters/api.env scripts/backup-verify.mjs
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'

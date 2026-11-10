@@ -3,12 +3,12 @@ import { cn } from '@/lib/utils'
 
 export function Logo({ className, inverted = false }: { className?: string; inverted?: boolean }) {
   return (
-    <Link to="/" className={cn('group inline-flex items-center gap-2.5', className)} aria-label="Debate.kz">
+    <Link to="/" className={cn('group inline-flex items-center gap-2.5', className)} aria-label="Debaters.kz">
       <span className="grid size-10 place-items-center rounded-xl bg-primary shadow-md shadow-primary/30 transition-transform duration-300 group-hover:rotate-[-6deg] group-hover:scale-105">
         <img src="/brand/debate-logo-mark.svg" alt="" className="w-7" />
       </span>
       <span className={cn('text-xl font-extrabold tracking-tight', inverted ? 'text-white' : 'text-foreground')}>
-        Debate<span className="text-primary">.kz</span>
+        Debaters<span className="text-primary">.kz</span>
       </span>
     </Link>
   )

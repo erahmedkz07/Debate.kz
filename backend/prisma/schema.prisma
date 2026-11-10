@@ -1,4 +1,4 @@
-// Debate.kz database schema (PostgreSQL 16, Prisma 7)
+// Debaters.kz database schema (PostgreSQL 16, Prisma 7)
 // Connection URL lives in prisma.config.ts (Prisma 7 style), not here.
 
 generator client {

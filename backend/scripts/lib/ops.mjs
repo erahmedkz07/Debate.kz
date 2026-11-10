@@ -40,7 +40,7 @@ export async function alert(text) {
   for (const id of ids) {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: id, text: `⚠️ Debate.kz: ${text}`, disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: id, text: `⚠️ Debaters.kz: ${text}`, disable_web_page_preview: true }),
     }).catch(() => undefined)
   }
 }

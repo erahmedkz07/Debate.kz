@@ -3039,7 +3039,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   // two-step sign-in
   const me = await mk('Безопасность Владелец')
   const setup = (await me.c('POST', '/me/2fa/setup')).data
-  ok(/^[A-Z2-7]{32}$/.test(setup.secret) && setup.url.startsWith('otpauth://totp/Debate.kz'), 'setup gives a secret and an address for the app')
+  ok(/^[A-Z2-7]{32}$/.test(setup.secret) && setup.url.startsWith('otpauth://totp/Debaters.kz'), 'setup gives a secret and an address for the app')
   ok((await me.c('POST', '/me/2fa/enable', { code: '000000' })).data?.error === 'invalid_code', 'a wrong code does not turn it on')
   const on = (await me.c('POST', '/me/2fa/enable', { code: totp(setup.secret) })).data
   ok(on.user.twoFactor === true && on.recovery.length === 8, 'a code from the app turns it on and gives 8 recovery codes')

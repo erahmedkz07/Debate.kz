@@ -48,7 +48,7 @@ const tournaments: T[] = [
   { key: 't4', owner: 'org', name: 'Лига дебатов Караганды — осень', city: 'Караганда', startDate: '2026-09-19', endDate: '2026-09-27', level: 'school', status: 'ongoing', teamsCount: 12, maxTeams: 12, cover: images.studentsHall, organizer: 'Дебатный клуб «Шешен»', prelims: 4, breakSize: 4, languages: ['ru', 'kz'], description: 'Осенний этап городской лиги. Турнир идёт прямо сейчас — следите за жеребьёвкой и результатами онлайн.' },
   { key: 't5', name: 'Nazarbayev University Debate Open', city: 'Астана', startDate: '2026-09-21', endDate: '2026-09-24', level: 'university', status: 'ongoing', teamsCount: 24, maxTeams: 24, cover: images.panel, organizer: 'NU Debate Club', prelims: 5, breakSize: 8, languages: ['ru'], description: 'Один из самых сильных студенческих турниров страны. Сильные судьи, актуальные темы и отличная атмосфера.' },
   { key: 't6', name: 'Кубок Павлодара', city: 'Павлодар', startDate: '2026-12-05', endDate: '2026-12-06', level: 'school', status: 'registration', teamsCount: 4, maxTeams: 16, cover: images.presentation, organizer: 'Школа-гимназия №8', prelims: 4, breakSize: 4, languages: ['ru'], description: 'Первый открытый турнир Павлодара. Приглашаем команды из всех регионов Казахстана.' },
-  { key: 't7', owner: 'org', name: 'Республиканский чемпионат школьников', city: 'Алматы', startDate: '2026-05-14', endDate: '2026-05-17', level: 'school', status: 'finished', teamsCount: 32, maxTeams: 32, cover: images.audience, organizer: 'Debate.kz', prelims: 6, breakSize: 16, languages: ['ru', 'kz'], description: 'Главный школьный турнир года. 32 команды из 14 областей страны.' },
+  { key: 't7', owner: 'org', name: 'Республиканский чемпионат школьников', city: 'Алматы', startDate: '2026-05-14', endDate: '2026-05-17', level: 'school', status: 'finished', teamsCount: 32, maxTeams: 32, cover: images.audience, organizer: 'Debaters.kz', prelims: 6, breakSize: 16, languages: ['ru', 'kz'], description: 'Главный школьный турнир года. 32 команды из 14 областей страны.' },
   { key: 't8', name: 'Актобе Debate Weekend', city: 'Актобе', startDate: '2026-08-22', endDate: '2026-08-23', level: 'university', status: 'finished', teamsCount: 10, maxTeams: 12, cover: images.speakerCrowd, organizer: 'АРГУ им. Жубанова', prelims: 4, breakSize: 4, languages: ['ru', 'kz'], description: 'Летний турнир выходного дня для студентов западного Казахстана.' },
   // waits for admin moderation: not visible in the public list
   { key: 't10', owner: 'dinara', moderation: 'pending', name: 'Осенний кубок Лицея №15', city: 'Павлодар', startDate: '2026-11-28', endDate: '2026-11-29', level: 'school', status: 'registration', teamsCount: 0, maxTeams: 12, cover: images.handsUp, organizer: 'Лицей №15', prelims: 3, breakSize: 4, languages: ['ru', 'kz'], description: 'Первый турнир дебатного клуба лицея. Ждёт проверки администратором.' },
@@ -116,7 +116,7 @@ If you really want to reset to demo data: npm run db:seed:force`)
   const mkUser = (email: string, name: string, role: Role, extra: Partial<{ phone: string; institution: string; city: string; blocked: boolean; createdAt: Date }> = {}) =>
     prisma.user.create({ data: { email, name, role, passwordHash: hash, emailVerifiedAt: extra.createdAt ?? new Date(), consentAt: extra.createdAt ?? new Date(), ...extra } })
 
-  const admin = await mkUser('admin@debate.kz', 'Администратор Debate.kz', 'admin', { city: 'Астана', createdAt: day('2026-01-10') })
+  const admin = await mkUser('admin@debate.kz', 'Администратор Debaters.kz', 'admin', { city: 'Астана', createdAt: day('2026-01-10') })
   const org = await mkUser('org@debate.kz', 'Аргын Ахмед', 'user', { phone: '+7 701 111 22 33', institution: 'Дебатный клуб «Шешен»', city: 'Астана', createdAt: day('2026-02-01') })
   const dinara = await mkUser('dinara@mail.kz', 'Динара Касымова', 'user', { institution: 'Лицей №15', city: 'Павлодар', createdAt: day('2026-05-20') })
   await mkUser('timur@mail.kz', 'Тимур Оспанов', 'user', { institution: 'КазНУ им. аль-Фараби', city: 'Алматы', createdAt: day('2026-06-11') })
@@ -137,7 +137,7 @@ If you really want to reset to demo data: npm run db:seed:force`)
   await prisma.news.createMany({
     data: [
       {
-        title: 'На Debate.kz появились дебатные клубы', summary: 'Укажите свой клуб и команду в профиле — это нужно для заявок на турниры и нового рейтинга клубов.',
+        title: 'На Debaters.kz появились дебатные клубы', summary: 'Укажите свой клуб и команду в профиле — это нужно для заявок на турниры и нового рейтинга клубов.',
         body: 'Теперь у каждого клуба есть своя страница: состав, команды и журнал изменений.\n\nВступить в клуб можно по ссылке, которую пришлёт любой его член. Все члены клуба равны: каждый может создавать команды и распределять состав.\n\nВ рейтинге появилась вкладка «Клубы», а жеребьёвка в первых раундах больше не сводит команды одного клуба.',
         published: true, publishedAt: day('2026-09-26'), authorId: admin.id,
       },
