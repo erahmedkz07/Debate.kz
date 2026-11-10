@@ -2240,9 +2240,21 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   if (regStatus !== 'confirmed') await host.c('PATCH', `/registrations/${r.data.id}`, { status: 'confirmed' })
   let team = (await host.c('GET', `/tournaments/${t.id}`)).data.teams.find(x => x.name === 'Аудит Тим')
   ok(team?.speakers[0].userId === cap.id, 'the applicant is linked to their slot even when the name is written another way')
+  ok(team?.speakers[0].name === 'капитанов аудит', 'extra spaces inside a speaker name are not kept')
+  {
+    // a Kazakh name typed on a Russian keyboard is still the applicant's own slot
+    const kz = await newAccount('Нұрлан Әлиұлы')
+    const kzClub = (await kz.c('POST', '/clubs', { name: `Аудит клуб каз ${jtag}`, city: 'Астана' })).data
+    await admin('PATCH', `/admin/clubs/${kzClub.id}`, { status: 'approved' })
+    await kz.c('POST', `/clubs/${kzClub.id}/teams`, { name: 'Аудит Қыран', join: true })
+    const kr = await kz.c('POST', `/tournaments/${t.id}/registrations`, { teamName: 'Аудит Қыран', institution: 'Лицей', speakers: ['Нурлан Алиулы', 'Второй Спикер', 'Третий Спикер'], phone: '+7 701 555 44 33', guardianConsent: true })
+    if ((await db.query('select status from team_registrations where id = $1', [kr.data.id])).rows[0]?.status !== 'confirmed') await host.c('PATCH', `/registrations/${kr.data.id}`, { status: 'confirmed' })
+    const kt = (await host.c('GET', `/tournaments/${t.id}`)).data.teams.find(x => x.name === 'Аудит Қыран')
+    ok(kt?.speakers[0].userId === kz.id, '"Нурлан Алиулы" is the slot of the account "Нұрлан Әлиұлы"')
+  }
   r = await host.c('PATCH', `/teams/${team.id}`, { name: 'Аудит Тим 2', institution: 'Лицей', speakers: ['Капитанов Аудит', 'Новый Человек', 'Третий Спикер'] })
   ok(r.status === 200, 'the organizer renames the team and replaces a speaker')
-  ok((await db.query('select team_name from team_registrations where tournament_id = $1', [t.id])).rows[0]?.team_name === 'Аудит Тим 2', "the team's application follows the new name")
+  ok((await db.query('select team_name from team_registrations where tournament_id = $1 and user_id = $2', [t.id, cap.id])).rows[0]?.team_name === 'Аудит Тим 2', "the team's application follows the new name")
   const slots = (await db.query('select name, user_id from speakers where team_id = $1 order by position', [team.id])).rows
   ok(slots[0].user_id === cap.id, 'the same person in a slot stays linked')
   await db.query('update speakers set user_id = $1 where team_id = $2 and position = 2', [cap.id, team.id])
@@ -3005,10 +3017,12 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(first.twoFactor === true && first.ticket && !first.user, 'the password alone gives no session, only a ticket for the code')
   const fresh = client()
   ok((await fresh('POST', '/auth/login/2fa', { ticket: first.ticket, code: '123456' })).data?.error === 'invalid_code', 'a wrong code is refused')
-  ok((await fresh('POST', '/auth/login/2fa', { ticket: first.ticket, code: totp(setup.secret, Math.floor(Date.now() / 30_000) + 1) })).status === 200
+  // the same code is kept for the replay check below (a new 30-second window must not give a different one)
+  const nextCode = totp(setup.secret, Math.floor(Date.now() / 30_000) + 1)
+  ok((await fresh('POST', '/auth/login/2fa', { ticket: first.ticket, code: nextCode })).status === 200
     && (await fresh('GET', '/auth/me')).data?.user?.email === me.email, 'the next code from the app signs in (the one used to turn it on is spent)')
   const again = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
-  ok((await client()('POST', '/auth/login/2fa', { ticket: again.ticket, code: totp(setup.secret, Math.floor(Date.now() / 30_000) + 1) })).data?.error === 'invalid_code', 'the same code is not taken twice')
+  ok((await client()('POST', '/auth/login/2fa', { ticket: again.ticket, code: nextCode })).data?.error === 'invalid_code', 'the same code is not taken twice')
   const rec = client()
   ok((await rec('POST', '/auth/login/2fa', { ticket: again.ticket, code: on.recovery[0] })).status === 200, 'a recovery code signs in')
   const third = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data

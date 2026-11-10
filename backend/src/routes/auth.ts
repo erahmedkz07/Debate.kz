@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { phoneField } from '../lib/phone.js'
+import { personName } from '../lib/names.js'
 import type { User } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { env, isProd } from '../lib/env.js'
@@ -35,7 +36,7 @@ async function sendVerification(user: User) {
 // Registration never lets the client pick a role: everyone starts as a plain user.
 // Any extra fields (e.g. role: "admin") are stripped by zod.
 const registerSchema = z.object({
-  name: z.string().trim().min(3).max(100).refine(v => v.includes(' '), 'full name required'),
+  name: personName().refine(v => v.includes(' '), 'full name required'),
   email: z.string().trim().toLowerCase().email().max(200),
   phone,
   password: z.string().min(8).max(128),

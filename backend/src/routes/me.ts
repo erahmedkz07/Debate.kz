@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { phoneField } from '../lib/phone.js'
+import { personName } from '../lib/names.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay, todayKz } from '../lib/dates.js'
 import rateLimit from 'express-rate-limit'
@@ -28,7 +29,7 @@ const phone = phoneField
 
 meRouter.patch('/me', requireAuth(), async (req, res) => {
   const data = body(req, z.object({
-    name: z.string().trim().min(3).max(100),
+    name: personName(),
     phone: z.union([phone, z.literal('')]).optional(),
     institution: z.string().trim().max(150).optional(),
     city: z.string().trim().max(60).optional(),
@@ -183,7 +184,7 @@ meRouter.get('/me/strikes', requireAuth(), async (req, res) => {
 const registrationSchema = z.object({
   teamName: z.string().trim().min(2).max(60),
   institution: z.string().trim().min(2).max(150),
-  speakers: z.array(z.string().trim().min(3).max(100)).min(1).max(3), // as many as the tournament's format needs (LD: one)
+  speakers: z.array(personName()).min(1).max(3), // as many as the tournament's format needs (LD: one)
   phone,
   // school and mixed tournaments: the parents (legal guardians) of speakers under 18 agreed to their data being processed
   guardianConsent: z.boolean().optional(),
