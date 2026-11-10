@@ -1,4 +1,4 @@
-# Debate.kz — backend
+# Debaters.kz — backend
 
 REST API платформы дебатных турниров.
 
@@ -86,13 +86,13 @@ PKCE, проверка издателя/получателя/срока токе
 email, имя и фото (фото перекодируется в WebP, как обычный аватар).
 
 **Настройка (один раз, в своём Google-аккаунте):**
-1. Откройте [Google Cloud Console](https://console.cloud.google.com/) → создайте проект (например, «Debate.kz»).
+1. Откройте [Google Cloud Console](https://console.cloud.google.com/) → создайте проект (например, «Debaters.kz»).
 2. **APIs & Services → OAuth consent screen**: тип *External*, название приложения, email поддержки;
    scopes — `openid`, `email`, `profile` (больше не нужно). Пока приложение в режиме *Testing*, войти могут только
    адреса из списка *Test users* — добавьте туда свои; для всех пользователей нажмите *Publish app*.
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID**, тип *Web application*:
-   - *Authorized JavaScript origins*: `http://localhost:5173` (и боевой адрес, например `https://debate.kz`);
-   - *Authorized redirect URIs*: `http://localhost:5173/api/auth/google/callback` (и `https://debate.kz/api/auth/google/callback`).
+   - *Authorized JavaScript origins*: `http://localhost:5173` (и боевой адрес, например `https://debaters.kz`);
+   - *Authorized redirect URIs*: `http://localhost:5173/api/auth/google/callback` (и `https://debaters.kz/api/auth/google/callback`).
      Адрес строится из `CLIENT_ORIGIN`, он должен совпадать символ в символ.
 4. Скопируйте *Client ID* и *Client secret* в `backend/.env` (секрет никому не пересылайте):
    ```
@@ -124,7 +124,7 @@ email, имя и фото (фото перекодируется в WebP, как
    SMTP_PORT=465
    SMTP_USER=your.address@gmail.com
    SMTP_PASS=abcdefghijklmnop
-   MAIL_FROM=Debate.kz <your.address@gmail.com>
+   MAIL_FROM=Debaters.kz <your.address@gmail.com>
    ```
 Gmail отправляет до ~500 писем в сутки — для старта хватит; для боевого сайта лучше отдельный сервис рассылок
 (SMTP-настройки те же, меняются только значения).
@@ -139,7 +139,7 @@ Gmail отправляет до ~500 писем в сутки — для ста�
 сайт работает как обычно.
 
 **Настройка (один раз):**
-1. В Telegram откройте [@BotFather](https://t.me/BotFather) → `/newbot` → имя (например, «Debate.kz») → username, который оканчивается на `bot` (например, `DebateKzBot`).
+1. В Telegram откройте [@BotFather](https://t.me/BotFather) → `/newbot` → имя (например, «Debaters.kz») → username, который оканчивается на `bot` (например, `DebateKzBot`).
 2. BotFather пришлёт токен вида `123456789:AA...`. **Никому его не пересылайте** (и не вставляйте в чаты) — с ним можно управлять ботом.
 3. Впишите в `backend/.env`:
    ```

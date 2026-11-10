@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Deploys the current main branch: build, back up, migrate, restart, check.
-# Run as the app user: sudo -iu debatekz bash /opt/debatekz/deploy/deploy.sh
+# Run as the app user: sudo -iu debaters bash /opt/debaters/deploy/deploy.sh
 set -euo pipefail
 
-APP_DIR=/opt/debatekz
-ENV_FILE=/etc/debatekz/api.env
+APP_DIR=/opt/debaters
+ENV_FILE=/etc/debaters/api.env
 BRANCH=${BRANCH:-main}
 HEALTH_URL=${HEALTH_URL:-http://127.0.0.1:4000/api/health}
 
-[[ $(id -un) == debatekz ]] || { echo "run as debatekz: sudo -iu debatekz bash $0"; exit 1; }
+[[ $(id -un) == debaters ]] || { echo "run as debaters: sudo -iu debaters bash $0"; exit 1; }
 cd "$APP_DIR"
 
 echo "== code"
@@ -37,7 +37,7 @@ set -a; source "$ENV_FILE"; set +a
 npx prisma migrate deploy
 
 echo "== restart"
-sudo /usr/bin/systemctl restart debatekz-api
+sudo /usr/bin/systemctl restart debaters-api
 
 # the API needs a few seconds for the DB pool
 for i in $(seq 1 20); do
@@ -47,5 +47,5 @@ for i in $(seq 1 20); do
   fi
   sleep 1
 done
-echo "FAILED: health check did not pass; see: journalctl -u debatekz-api -n 100"
+echo "FAILED: health check did not pass; see: journalctl -u debaters-api -n 100"
 exit 1

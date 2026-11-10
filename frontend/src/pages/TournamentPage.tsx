@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { isKzPhone } from '@/lib/phone'
 import { toast } from 'sonner'
 import {
   Building2, CalendarDays, Clock, DoorOpen, Gavel, Globe, Lock, Share2, MapPin, Medal, MessageSquareQuote, Star, Trophy, UserPlus, Users, FileSpreadsheet, Printer, Inbox, Shuffle, Award, ExternalLink,
@@ -42,8 +43,6 @@ import { InstitutionSelect } from '@/components/ui/institution-select'
 import { LeagueTabs, leagueName } from '@/components/tournament/LeagueTabs'
 import { RichText } from '@/components/ui/rich-text'
 
-const phoneRe = /^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/
-
 // Share a tournament: the phone's own share sheet, or the link copied. The link is the preview page, so WhatsApp and
 // Telegram show the tournament's title, dates and cover; a person opening it goes on to the tournament.
 function ShareButton({ id, name }: { id: string; name: string }) {
@@ -73,7 +72,7 @@ function RegisterTeamDialog({ tournament }: { tournament: TournamentDetails }) {
     // the 3rd speaker only in three-speaker formats (WSDC, Karl Popper); APF teams have two
     s3: speakersNeeded === 3 ? z.string().trim().min(3, t('auth.errors.name')) : z.string().optional(),
     guardian: z.boolean().refine(v => !minors || v, t('tournament.registerDialog.guardianRequired')),
-    phone: z.string().trim().regex(phoneRe, t('auth.errors.phone')),
+    phone: z.string().trim().refine(isKzPhone, t('auth.errors.phone')),
   })
   type Form = z.infer<typeof schema>
   const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<Form>({

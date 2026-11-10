@@ -80,7 +80,7 @@ function NoClub({ onJoined }: { onJoined: () => Promise<void> }) {
             <h3 className="flex items-center gap-2 font-bold"><KeyRound className="size-4 text-primary" />{t('club.joinByCode')}</h3>
             <p className="mt-1 text-sm text-muted-foreground">{t('club.joinCodeText')}</p>
             <form className="mt-4 flex gap-2" onSubmit={e => { e.preventDefault(); void act('join', () => joinClub(code.trim()), t('club.joinedShort')) }}>
-              <Input maxLength={8} value={code} onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} placeholder="ABCD2345" className="text-center font-mono tracking-[0.25em]" aria-label={t('club.code')} />
+              <Input value={code} onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))} placeholder="ABCD2345" className="text-center font-mono tracking-[0.25em]" aria-label={t('club.code')} />
               <Button type="submit" disabled={!!busy || code.trim().length !== 8} className="shrink-0">{busy === 'join' && <Loader2 className="size-4 animate-spin" />}{t('club.join')}</Button>
             </form>
           </Card>

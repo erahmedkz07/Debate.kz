@@ -55,7 +55,7 @@ export default function CheckIn() {
             <p className="mt-2 text-sm text-muted-foreground">{state === 'error' ? message : t('checkin.text')}</p>
             <form className="mt-6 space-y-3 text-left" onSubmit={e => { e.preventDefault(); void submit() }}>
               <Label htmlFor="ci-code">{t('checkin.code')}</Label>
-              <Input id="ci-code" value={code} onChange={e => setCode(e.target.value.toUpperCase())} maxLength={12} autoCapitalize="characters" className="text-center font-mono text-lg tracking-[0.3em]" />
+              <Input id="ci-code" value={code} onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12))} autoCapitalize="characters" className="text-center font-mono text-lg tracking-[0.3em]" />
               <Button type="submit" className="w-full" disabled={state === 'busy' || !code.trim()}>
                 {state === 'busy' && <Loader2 className="size-4 animate-spin" />}{t('checkin.submit')}
               </Button>

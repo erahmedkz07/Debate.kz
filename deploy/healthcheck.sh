@@ -3,8 +3,8 @@
 # one Telegram message goes to ALERT_CHAT_ID through the production bot. No spam while it stays down.
 set -uo pipefail
 
-ENV_FILE=/etc/debatekz/api.env
-STATE=/var/lib/debatekz/.health-state
+ENV_FILE=/etc/debaters/api.env
+STATE=/var/lib/debaters/.health-state
 set -a; source "$ENV_FILE"; set +a
 URL=${HEALTH_URL:-$CLIENT_ORIGIN/api/health}
 
@@ -14,10 +14,10 @@ echo "$now" > "$STATE"
 [[ $now == "$before" ]] && exit 0
 
 # only on a change: down -> alert, up again -> all clear
-text="Debate.kz: сайт НЕ отвечает ($URL). Проверьте: journalctl -u debatekz-api -n 100"
-[[ $now == up ]] && text="Debate.kz: сайт снова работает"
+text="Debaters.kz: сайт НЕ отвечает ($URL). Проверьте: journalctl -u debaters-api -n 100"
+[[ $now == up ]] && text="Debaters.kz: сайт снова работает"
 if [[ -n ${TELEGRAM_BOT_TOKEN:-} && -n ${ALERT_CHAT_ID:-} ]]; then
   curl -fsS --max-time 10 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
     --data-urlencode "chat_id=$ALERT_CHAT_ID" --data-urlencode "text=$text" >/dev/null
 fi
-logger -t debatekz-health "$text"
+logger -t debaters-health "$text"

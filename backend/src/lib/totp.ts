@@ -50,8 +50,13 @@ export function verifyCode(secret: string, code: string, now = Date.now()): numb
 
 // the address an authenticator app reads from the QR code
 export const otpauthUrl = (secret: string, account: string) =>
-  `otpauth://totp/${encodeURIComponent(`Debate.kz:${account}`)}?secret=${secret}&issuer=Debate.kz&algorithm=SHA1&digits=6&period=30`
+  `otpauth://totp/${encodeURIComponent(`Debaters.kz:${account}`)}?secret=${secret}&issuer=Debaters.kz&algorithm=SHA1&digits=6&period=30`
 
 // one-time recovery codes for a lost phone: shown once, kept only as hashes
 export const newRecoveryCodes = () => Array.from({ length: 8 }, () => randomBytes(5).toString('hex').replace(/(.{5})/, '$1-'))
-export const hashRecovery = (code: string) => createHash('sha256').update(code.trim().toLowerCase()).digest('hex')
+// a recovery code is "abcde-12345"; typed with capitals, spaces or without the dash it is still the same code
+export function hashRecovery(code: string) {
+  const plain = code.toLowerCase().replace(/[\s-]/g, '')
+  const canonical = /^[0-9a-f]{10}$/.test(plain) ? `${plain.slice(0, 5)}-${plain.slice(5)}` : code.trim().toLowerCase()
+  return createHash('sha256').update(canonical).digest('hex')
+}

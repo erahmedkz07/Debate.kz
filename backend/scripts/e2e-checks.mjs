@@ -632,7 +632,8 @@ r = await org('POST', `/tournaments/${t1.id}/checkin/code`)
 const ciCode = r.data.code
 ok(r.status === 200 && /^[A-Z2-9]{6}$/.test(ciCode) && r.data.present === 0, 'organizer creates a check-in code')
 ok((await student('POST', `/checkin/${t1.id}`, { code: 'WRONG1' })).data.error === 'wrong_checkin_code', 'a wrong code is rejected')
-r = await student('POST', `/checkin/${t1.id}`, { code: ciCode.toLowerCase() })
+// typed in small letters with a space in the middle, as read off the screen: still the code
+r = await student('POST', `/checkin/${t1.id}`, { code: ` ${ciCode.slice(0, 3).toLowerCase()} ${ciCode.slice(3).toLowerCase()} ` })
 ok(r.status === 200 && r.data.team === 'E2E Команда', 'a team member checks the team in by scanning the QR')
 ok((await timur('POST', `/checkin/${t1.id}`, { code: ciCode })).data.error === 'not_in_tournament', 'people without a team cannot check in')
 for (let i = 0; i < 10; i++) await sabina('POST', `/checkin/${t1.id}`, { code: 'ZZZZZZ' })
@@ -1614,6 +1615,35 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   await bpHost.c('PATCH', `/rounds/${bpFinal.id}`, { status: 'completed' })
   const bpBracket = (await client()('GET', `/tournaments/${bp.id}/bracket`)).data
   ok(bpBracket.champion?.id === room.propositionTeamId, 'the BP champion is 1st in the final room')
+
+  // the final finishes the tournament by itself: the organizer never presses "complete" nor "finish"
+  {
+    const aHost = await newAccount('Автофинал Организатор')
+    const af = (await aHost.c('POST', '/tournaments', { ...tBody(96), name: `Автофинал ${jtag}`, preliminaryRounds: 1, breakSize: 2 })).data
+    await admin('PATCH', `/admin/tournaments/${af.id}`, { moderation: 'approved' })
+    for (const n of ['Арай', 'Бөрі', 'Жұлдыз', 'Самға']) await aHost.c('POST', `/tournaments/${af.id}/teams`, { name: n, institution: `Мектеп ${n}`, speakers: [`${n} Бір`, `${n} Екі`, `${n} Үш`] })
+    for (let i = 1; i <= 2; i++) await addJudge(aHost.c, af.id, `Автофинал Судья ${i}`)
+    await aHost.c('PATCH', `/tournaments/${af.id}`, { status: 'ongoing' })
+    await playRound(aHost.c, af.id, (await details(aHost.c, af.id)).rounds[0].id, wsdc('proposition'))
+    const fin = (await aHost.c('POST', `/tournaments/${af.id}/break`)).data.rounds[0]
+    await aHost.c('POST', `/rounds/${fin.id}/draw`, { addSwing: false })
+    await aHost.c('PATCH', `/rounds/${fin.id}`, { motion: 'ЭП мектеп формасын алып тастайды', status: 'released' })
+    const run = async ms => (await admin('POST', '/admin/watchdog/run', { now: new Date(Date.now() + ms).toISOString() })).data
+    const status = async () => (await client()('GET', `/tournaments/${af.id}`)).data.status
+    ok((await run(3 * 60 * 60 * 1000)) && await status() === 'ongoing', 'a final without a result does not finish the tournament')
+    for (const d of (await details(aHost.c, af.id)).debates.filter(x => x.roundId === fin.id)) await panelVote(d.id, wsdc('opposition'))
+    ok((await run(60 * 60 * 1000)) && await status() === 'ongoing', 'right after the final ballot there is time to fix a mistake: not finished yet')
+    ok((await run(2 * 60 * 60 * 1000 + 60_000)).autoFinished >= 1 && await status() === 'finished', '2 hours after the final ballot the tournament finishes by itself')
+    const rounds = (await details(aHost.c, af.id)).rounds
+    ok(rounds.every(x => x.status === 'completed'), 'the final round is completed with it')
+    let certs = 0
+    for (let i = 0; i < 30 && !certs; i++) { await sleep(200); certs = Number((await db.query('select count(*) from certificates where tournament_id = $1', [af.id])).rows[0].count) }
+    ok(certs >= 12, `the certificates are issued (${certs})`)
+    let told = false
+    for (let i = 0; i < 20 && !told; i++) { await sleep(200); told = (await notes(aHost.c)).items.some(n => n.type === 'organizer.autoFinished') }
+    ok(told, 'the organizer is told that the tournament finished by itself')
+    ok((await run(3 * 60 * 60 * 1000)).autoFinished === 0, 'a finished tournament is not finished again')
+  }
 }
 // ---------- 41. minors: parents' consent for school and mixed tournaments ----------
 {
@@ -2239,9 +2269,21 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   if (regStatus !== 'confirmed') await host.c('PATCH', `/registrations/${r.data.id}`, { status: 'confirmed' })
   let team = (await host.c('GET', `/tournaments/${t.id}`)).data.teams.find(x => x.name === 'Аудит Тим')
   ok(team?.speakers[0].userId === cap.id, 'the applicant is linked to their slot even when the name is written another way')
+  ok(team?.speakers[0].name === 'капитанов аудит', 'extra spaces inside a speaker name are not kept')
+  {
+    // a Kazakh name typed on a Russian keyboard is still the applicant's own slot
+    const kz = await newAccount('Нұрлан Әлиұлы')
+    const kzClub = (await kz.c('POST', '/clubs', { name: `Аудит клуб каз ${jtag}`, city: 'Астана' })).data
+    await admin('PATCH', `/admin/clubs/${kzClub.id}`, { status: 'approved' })
+    await kz.c('POST', `/clubs/${kzClub.id}/teams`, { name: 'Аудит Қыран', join: true })
+    const kr = await kz.c('POST', `/tournaments/${t.id}/registrations`, { teamName: 'Аудит Қыран', institution: 'Лицей', speakers: ['Нурлан Алиулы', 'Второй Спикер', 'Третий Спикер'], phone: '+7 701 555 44 33', guardianConsent: true })
+    if ((await db.query('select status from team_registrations where id = $1', [kr.data.id])).rows[0]?.status !== 'confirmed') await host.c('PATCH', `/registrations/${kr.data.id}`, { status: 'confirmed' })
+    const kt = (await host.c('GET', `/tournaments/${t.id}`)).data.teams.find(x => x.name === 'Аудит Қыран')
+    ok(kt?.speakers[0].userId === kz.id, '"Нурлан Алиулы" is the slot of the account "Нұрлан Әлиұлы"')
+  }
   r = await host.c('PATCH', `/teams/${team.id}`, { name: 'Аудит Тим 2', institution: 'Лицей', speakers: ['Капитанов Аудит', 'Новый Человек', 'Третий Спикер'] })
   ok(r.status === 200, 'the organizer renames the team and replaces a speaker')
-  ok((await db.query('select team_name from team_registrations where tournament_id = $1', [t.id])).rows[0]?.team_name === 'Аудит Тим 2', "the team's application follows the new name")
+  ok((await db.query('select team_name from team_registrations where tournament_id = $1 and user_id = $2', [t.id, cap.id])).rows[0]?.team_name === 'Аудит Тим 2', "the team's application follows the new name")
   const slots = (await db.query('select name, user_id from speakers where team_id = $1 order by position', [team.id])).rows
   ok(slots[0].user_id === cap.id, 'the same person in a slot stays linked')
   await db.query('update speakers set user_id = $1 where team_id = $2 and position = 2', [cap.id, team.id])
@@ -2607,6 +2649,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   const find = async q => (await client()('GET', `/motions?search=${encodeURIComponent(q)}`)).data.items.filter(m => m.tournament.id === t.id)
   const ru = await find(`запретит ${jtag}`), kz = await find(`интеллектіге ${jtag}`)
   ok(ru.length === 1 && ru[0].language === 'ru' && kz.length === 1 && kz[0].language === 'kz', 'the motion bank lists each league motion')
+  ok((await find(`интеллектиге тыйым ${jtag}`)).length === 1, 'a Kazakh motion is found with и typed for і')
 }
 
 // ---------- 68. rooms by league; no sample rooms ----------
@@ -2996,7 +3039,7 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   // two-step sign-in
   const me = await mk('Безопасность Владелец')
   const setup = (await me.c('POST', '/me/2fa/setup')).data
-  ok(/^[A-Z2-7]{32}$/.test(setup.secret) && setup.url.startsWith('otpauth://totp/Debate.kz'), 'setup gives a secret and an address for the app')
+  ok(/^[A-Z2-7]{32}$/.test(setup.secret) && setup.url.startsWith('otpauth://totp/Debaters.kz'), 'setup gives a secret and an address for the app')
   ok((await me.c('POST', '/me/2fa/enable', { code: '000000' })).data?.error === 'invalid_code', 'a wrong code does not turn it on')
   const on = (await me.c('POST', '/me/2fa/enable', { code: totp(setup.secret) })).data
   ok(on.user.twoFactor === true && on.recovery.length === 8, 'a code from the app turns it on and gives 8 recovery codes')
@@ -3004,14 +3047,18 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(first.twoFactor === true && first.ticket && !first.user, 'the password alone gives no session, only a ticket for the code')
   const fresh = client()
   ok((await fresh('POST', '/auth/login/2fa', { ticket: first.ticket, code: '123456' })).data?.error === 'invalid_code', 'a wrong code is refused')
-  ok((await fresh('POST', '/auth/login/2fa', { ticket: first.ticket, code: totp(setup.secret, Math.floor(Date.now() / 30_000) + 1) })).status === 200
+  // the same code is kept for the replay check below (a new 30-second window must not give a different one)
+  const nextCode = totp(setup.secret, Math.floor(Date.now() / 30_000) + 1)
+  ok((await fresh('POST', '/auth/login/2fa', { ticket: first.ticket, code: nextCode })).status === 200
     && (await fresh('GET', '/auth/me')).data?.user?.email === me.email, 'the next code from the app signs in (the one used to turn it on is spent)')
   const again = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
-  ok((await client()('POST', '/auth/login/2fa', { ticket: again.ticket, code: totp(setup.secret, Math.floor(Date.now() / 30_000) + 1) })).data?.error === 'invalid_code', 'the same code is not taken twice')
+  ok((await client()('POST', '/auth/login/2fa', { ticket: again.ticket, code: nextCode })).data?.error === 'invalid_code', 'the same code is not taken twice')
   const rec = client()
   ok((await rec('POST', '/auth/login/2fa', { ticket: again.ticket, code: on.recovery[0] })).status === 200, 'a recovery code signs in')
   const third = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
   ok((await client()('POST', '/auth/login/2fa', { ticket: third.ticket, code: on.recovery[0] })).data?.error === 'invalid_code', 'a recovery code works once')
+  const fourth = (await client()('POST', '/auth/login', { email: me.email, password: PASSWORD })).data
+  ok((await client()('POST', '/auth/login/2fa', { ticket: fourth.ticket, code: ` ${on.recovery[2].replace('-', '').toUpperCase()} ` })).status === 200, 'a recovery code typed in capitals without the dash signs in too')
   ok((await client()('POST', '/auth/login/2fa', { ticket: 'forged.ticket.value', code: totp(setup.secret) })).data?.error === 'ticket_expired', 'a forged ticket is refused')
   ok((await me.c('POST', '/me/2fa/disable', { code: '000000' })).data?.error === 'invalid_code', 'turning it off needs a real code')
   ok((await me.c('POST', '/me/2fa/disable', { code: on.recovery[1] })).data?.user?.twoFactor === false, 'a recovery code turns it off')
@@ -3681,6 +3728,67 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(ties >= 0, 'Proposition never goes to the team that has already had it more')
   ok(ties > 0 && alternated === ties, `on equal terms the team in Opposition last time opens (${alternated} of ${ties})`)
   ok([...balance.values()].every(v => Math.abs(v) <= 2), `after 4 rounds no team is more than 2 debates off balance (${[...balance.values()].join(',')})`)
+}
+
+// ---------- phone numbers as people write them ----------
+{
+  const reg = async phone => client()('POST', '/auth/register', { name: 'Телефон Тестовый', email: `ph.${Math.random().toString(36).slice(2, 9)}@example.com`, phone, password: 'secret123', consent: true })
+  for (const raw of ['8 701 555 12 34', '87015551234', '+7 (701) 555-12-34', '+7 701-555-12-34']) {
+    const r = await reg(raw)
+    ok(r.status === 201 && r.data.user.phone === '+7 701 555 12 34', `"${raw}" is taken and kept as +7 701 555 12 34 (${r.status} ${r.data?.user?.phone ?? r.data?.error})`)
+  }
+  for (const raw of ['+7 701 555 12 3', '7015551234', '+1 202 555 0101', '8 495 123 45 67', '+7 701 555 12 34 доб. 5']) ok((await reg(raw)).data?.error === 'validation_error', `"${raw}" is not a Kazakhstan mobile number`)
+}
+
+// ---------- search: Kazakh letters typed as Russian ones ----------
+{
+  const host = await newAccount('Іздеу Ұйымдастырушы')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(495), name: `Қазақстан Кубогы ${jtag}`, maxTeams: 8 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  const found = async q => (await client()('GET', `/tournaments?search=${encodeURIComponent(q)}`)).data.some(x => x.id === t.id)
+  const hits = [await found(`казакстан кубогы ${jtag}`), await found(`ҚАЗАҚСТАН КУБОГЫ ${jtag}`), await found(`Казахстан ${jtag}`)]
+  ok(hits.join() === 'true,true,false', `a tournament "Қазақстан Кубогы" is found by "казакстан кубогы" and by capitals (${hits})`)
+  ok((await client()('GET', `/tournaments?search=${encodeURIComponent('%_%')}`)).data.length === 0, '"%" and "_" in a search are plain characters, not wildcards')
+  const club = (await host.c('POST', '/clubs', { name: `Ақниет ${jtag}`, city: 'Астана', institution: 'Өскемен лицейі' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+  const clubs = async q => (await client()('GET', `/clubs?search=${encodeURIComponent(q)}`)).data.some(x => x.id === club.id)
+  ok(await clubs(`акниет ${jtag}`) && await clubs('оскемен лицейи'), 'a club is found by its name and school typed without Kazakh letters')
+}
+
+// ---------- one school written two ways is one school (fair judging, school teams apart) ----------
+{
+  const host = await newAccount('Мектеп Ұйымдастырушы')
+  const k = (await host.c('POST', '/tournaments', { ...tBody(497), name: `Мектептер ${jtag}` })).data
+  await admin('PATCH', `/admin/tournaments/${k.id}`, { moderation: 'approved' })
+  const sp = n => [`${n} Ааа`, `${n} Ббб`, `${n} Ввв`]
+  await host.c('POST', `/tournaments/${k.id}/teams`, { name: 'Мек 1', institution: `Лицей № 7 «Дарын» ${jtag}`, speakers: sp('Мек1') })
+  await host.c('POST', `/tournaments/${k.id}/teams`, { name: 'Мек 2', institution: `лицей №7 дарын ${jtag.toLowerCase()}`, speakers: sp('Мек2') })
+  await host.c('POST', `/tournaments/${k.id}/teams`, { name: 'Мек 3', institution: `Школа 3 ${jtag}`, speakers: sp('Мек3') })
+  await host.c('POST', `/tournaments/${k.id}/teams`, { name: 'Мек 4', institution: `Школа 4 ${jtag}`, speakers: sp('Мек4') })
+  const inst = Object.fromEntries((await db.query('select name, institution_id from teams where tournament_id = $1', [k.id])).rows.map(x => [x.name, x.institution_id]))
+  ok(inst['Мек 1'] && inst['Мек 1'] === inst['Мек 2'], 'a school typed another way ("лицей №7 дарын") is the same school as «Лицей № 7 «Дарын»»')
+  // an older row of the same school (made before spellings were joined) still counts as that school
+  await db.query("insert into institutions (id, name, level) values ($1, $2, 'school')", [`old${jtag}`, `ЛИЦЕЙ-7 ДАРЫН ${jtag}`])
+  await db.query('update teams set institution_id = $1 where tournament_id = $2 and name = $3', [`old${jtag}`, k.id, 'Мек 2'])
+  // a judge from that school, by their profile, joins with the invite link
+  const teacher = await newAccount('Мұғалім Дарындағы')
+  ok((await teacher.c('PATCH', '/me', { name: 'Мұғалім Дарындағы', phone: '+7 707 000 00 00', institution: `Лицей №7 Дарын ${jtag}` })).status === 200, 'the judge writes their school in the profile')
+  const link = (await host.c('POST', `/tournaments/${k.id}/invites`, { kind: 'judge' })).data.url
+  await teacher.c('POST', `/invites/${link.split('/invite/')[1]}/accept`)
+  const jt = (await db.query('select id, institution_id from judges where tournament_id = $1 and user_id = $2', [k.id, teacher.id])).rows[0]
+  ok([inst['Мек 1'], `old${jtag}`].includes(jt?.institution_id), "the judge's school from the profile is that school (one of its spellings), not a new one")
+  for (const n of ['Свободный Бір', 'Свободный Екі']) await addJudge(host.c, k.id, n)
+  const round = (await host.c('GET', `/tournaments/${k.id}`)).data.rounds[0]
+  let clean = 0
+  for (let i = 0; i < 5; i++) {
+    const res = await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false, method: 'random' })
+    const teamsOf = d => [d.propositionTeamId, d.oppositionTeamId]
+    const ids = Object.fromEntries((await db.query('select id, name from teams where tournament_id = $1', [k.id])).rows.map(x => [x.name, x.id]))
+    const mine = [ids['Мек 1'], ids['Мек 2']]
+    if (res.status === 201 && res.data.debates.every(d => !(d.judgeIds.includes(jt.id) && teamsOf(d).some(t => mine.includes(t))))
+      && res.data.debates.every(d => !(teamsOf(d).includes(mine[0]) && teamsOf(d).includes(mine[1])))) clean++
+  }
+  ok(clean === 5, 'every draw keeps the judge away from their school (both spellings) and the two school teams apart in round 1')
 }
 
 // ---------- errors are written down ----------

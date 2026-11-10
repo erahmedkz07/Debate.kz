@@ -61,7 +61,7 @@ checkinRouter.patch('/teams/:teamId/checkin', requireAuth(), async (req, res) =>
 
 // a team member scanned the venue QR
 checkinRouter.post('/checkin/:tournamentId', requireAuth(), async (req, res) => {
-  const { code } = body(req, z.object({ code: z.string().trim().toUpperCase().max(12) }))
+  const { code } = body(req, z.object({ code: z.string().max(40).transform(s => s.toUpperCase().replace(/[\s-]/g, '')).pipe(z.string().max(12)) }))
   const me = req.user!.id
   if (tooManyMisses(me)) throw new HttpError(429, 'too_many_attempts')
   const t = await prisma.tournament.findUnique({ where: { id: param(req, 'tournamentId') } })

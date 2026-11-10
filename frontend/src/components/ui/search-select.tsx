@@ -3,6 +3,7 @@ import * as P from '@radix-ui/react-popover'
 import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, PenLine, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { fold } from '@/lib/search'
 
 export interface SearchOption {
   value: string
@@ -31,7 +32,7 @@ interface Props {
 }
 
 // letters only, ё = е, so "казну", "КазНУ" and "Каз НУ" find the same option
-const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, '')
+const norm = (s: string) => fold(s).replace(/[^\p{L}\p{N}]+/gu, '')
 
 // A dropdown with a search box, for long lists (every city of Kazakhstan, every school): type a few letters, pick with
 // the arrows and Enter or a click. Grouped by `group`; can let a name that is not listed be used as typed.

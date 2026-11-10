@@ -2,6 +2,8 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
+import { phoneField } from '../lib/phone.js'
+import { personName } from '../lib/names.js'
 import type { User } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { env, isProd } from '../lib/env.js'
@@ -19,7 +21,7 @@ export const authRouter = Router()
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: isProd ? 30 : 500, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
 const mailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } })
 
-const phone = z.string().trim().regex(/^\+?7\s?\(?7\d{2}\)?\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/, 'phone')
+const phone = phoneField
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
 
 // Sends a fresh verification link; older unused links stay valid until they expire.
@@ -34,7 +36,7 @@ async function sendVerification(user: User) {
 // Registration never lets the client pick a role: everyone starts as a plain user.
 // Any extra fields (e.g. role: "admin") are stripped by zod.
 const registerSchema = z.object({
-  name: z.string().trim().min(3).max(100).refine(v => v.includes(' '), 'full name required'),
+  name: personName().refine(v => v.includes(' '), 'full name required'),
   email: z.string().trim().toLowerCase().email().max(200),
   phone,
   password: z.string().min(8).max(128),

@@ -37,7 +37,7 @@ import path from 'node:path'
 import { FORMAT_CODES, isBP, rulesOf, scoringDefaults } from '../services/formats.js'
 import { COVER_TEMPLATES, COVERS_DIR, isAllowedCover, removeUploadedCover } from '../services/covers.js'
 import { bareMotion } from '../lib/motion.js'
-import { sameName } from '../lib/names.js'
+import { personName, sameName } from '../lib/names.js'
 export const MAX_PRELIMS = 12 // preliminary rounds a tournament may have
 export const ACTIVE_TOURNAMENT_LIMIT = 3 // anti-spam: unfinished tournaments one person may own
 const day = z.string().refine(isRealDay, 'invalid_date')
@@ -410,7 +410,7 @@ const teamSchema = z.object({
   name: z.string().trim().min(2).max(60),
   institution: z.string().trim().min(2).max(150),
   city: z.string().trim().max(60).optional(),
-  speakers: z.array(z.string().trim().min(3).max(100)).min(1).max(3), // the tournament's format says how many (LD: one)
+  speakers: z.array(personName()).min(1).max(3), // the tournament's format says how many (LD: one)
   league: z.string().max(24).nullable().optional(),
 })
 
@@ -493,7 +493,7 @@ organizerRouter.post('/tournaments/:id/teams/import', org, async (req, res) => {
 // and a judge can still be linked to an account later by email. Names already in the tournament are skipped.
 organizerRouter.post('/tournaments/:id/judges/bulk', org, async (req, res) => {
   await assertCanManage(req.user, param(req, 'id'))
-  const d = body(req, z.object({ names: z.array(z.string().trim().min(3).max(100)).min(1).max(100), league: z.string().max(24).nullable().optional() }))
+  const d = body(req, z.object({ names: z.array(personName()).min(1).max(100), league: z.string().max(24).nullable().optional() }))
   const id = param(req, 'id')
   const t = await prisma.tournament.findUniqueOrThrow({ where: { id }, select: { leagues: true } })
   if (d.league && !leaguesOf(t).some(l => l.key === d.league)) throw badRequest('invalid_league')
@@ -679,7 +679,7 @@ organizerRouter.patch('/judges/:judgeId', org, async (req, res) => {
   const judge = await prisma.judge.findUnique({ where: { id: param(req, 'judgeId') }, include: { tournament: { select: { leagues: true } } } })
   if (!judge) throw notFound('judge_not_found')
   await assertCanManage(req.user, judge.tournamentId)
-  const { league, name } = body(req, z.object({ league: z.string().max(24).nullable().optional(), name: z.string().trim().min(3).max(100).optional() }))
+  const { league, name } = body(req, z.object({ league: z.string().max(24).nullable().optional(), name: personName().optional() }))
   if (league && !leaguesOf(judge.tournament).some(l => l.key === league)) throw badRequest('invalid_league')
   // a judge with an account goes by the account's name; one without is named by the organizer (a typo is fixed here)
   if (name !== undefined && judge.userId) throw forbidden('judge_has_account')

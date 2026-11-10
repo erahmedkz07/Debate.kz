@@ -81,7 +81,7 @@ export default function TournamentReport() {
           {report.judges && <section className="print:break-before-page"><ReportTable tb={report.judges} /></section>}
 
           <footer className="mt-10 border-t border-slate-200 pt-3 text-[10px] text-slate-500">
-            {t('export.generated', { date: new Date().toLocaleString() })} · debate.kz
+            {t('export.generated', { date: new Date().toLocaleString() })} · debaters.kz
           </footer>
         </article>
       </div>

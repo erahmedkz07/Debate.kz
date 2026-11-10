@@ -24,7 +24,9 @@ export function canOpen(u: User, path: string) {
   if (p === '/admin' || p.startsWith('/admin/')) return staff
   if (p.startsWith('/safety/reports')) return staff || !!u.safeguardingOfficer
   if (/^\/dashboard\/tournaments\/(?!new\b)/.test(p)) return staff || !!u.organizes
-  if (p === '/judge' || p.startsWith('/ballot/')) return staff || !!u.judges
+  if (p === '/judge') return staff || !!u.judges
+  // a ballot: the judge's own, or one an organizer enters or corrects for a judge (?as=)
+  if (p.startsWith('/ballot/')) return staff || !!u.judges || !!u.organizes
   return !['/login', '/register', '/forgot-password', '/reset-password'].includes(p)
 }
 export const landingFor = (u: User, next: string | null) => (next && canOpen(u, next) ? next : roleHome[u.role])

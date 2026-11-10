@@ -7,6 +7,7 @@ import { unlink, writeFile } from 'node:fs/promises'
 import { LOGOS_DIR } from '../lib/uploads.js'
 import { z } from 'zod'
 import type { Prisma, User } from '../generated/prisma/client.js'
+import { idsContaining } from '../lib/search.js'
 import { prisma } from '../lib/prisma.js'
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js'
 import { body, param, query } from '../middleware/validate.js'
@@ -47,7 +48,7 @@ clubsRouter.get('/clubs', async (req, res) => {
     where: {
       status: 'approved', // the catalogue shows checked clubs only
       ...(q.city && { city: q.city }),
-      ...(q.search && { OR: [{ name: { contains: q.search, mode: 'insensitive' } }, { institution: { contains: q.search, mode: 'insensitive' } }] }),
+      ...(q.search && { id: { in: await idsContaining('clubs', q.search) } }),
     },
     include: { _count: { select: { members: true, teams: true } } },
     orderBy: { name: 'asc' },

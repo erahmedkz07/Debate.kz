@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# One-time server bootstrap for Debate.kz on Ubuntu 24.04.
+# One-time server bootstrap for Debaters.kz on Ubuntu 24.04.
 # Run as root on a fresh VPS: sudo bash deploy/setup-server.sh
 set -euo pipefail
 
-APP_USER=debatekz
-APP_DIR=/opt/debatekz            # code (git checkout)
-DATA_DIR=/var/lib/debatekz       # uploads + private receipts (STORAGE_DIR)
-BACKUP_DIR=/var/backups/debatekz
-ETC_DIR=/etc/debatekz            # api.env with secrets
+APP_USER=debaters
+APP_DIR=/opt/debaters            # code (git checkout)
+DATA_DIR=/var/lib/debaters       # uploads + private receipts (STORAGE_DIR)
+BACKUP_DIR=/var/backups/debaters
+ETC_DIR=/etc/debaters            # api.env with secrets
 NODE_MAJOR=24
 
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
@@ -43,10 +43,10 @@ ufw --force enable
 systemctl enable --now fail2ban unattended-upgrades nginx postgresql
 
 # the API restarts itself without sudo rights for anything else
-cat > /etc/sudoers.d/debatekz <<EOF
-$APP_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart debatekz-api, /usr/bin/systemctl stop debatekz-api, /usr/bin/systemctl status debatekz-api
+cat > /etc/sudoers.d/debaters <<EOF
+$APP_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart debaters-api, /usr/bin/systemctl stop debaters-api, /usr/bin/systemctl status debaters-api
 EOF
-chmod 440 /etc/sudoers.d/debatekz
+chmod 440 /etc/sudoers.d/debaters
 
 echo
 echo "Done. Next: deploy/README.md, step 3 (database)."

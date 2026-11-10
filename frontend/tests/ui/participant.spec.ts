@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { admin, API, newAccount, overflowing, tag } from './helpers'
+import { admin, API, newAccount, overflowing, signIn, tag } from './helpers'
 
 // A participant on a phone, only with the screen: signs up, confirms the email from the letter, makes a club and a
 // team, and applies to an open tournament. No script error and no failed request on the way.
@@ -24,12 +24,14 @@ test('a participant on a phone: sign-up, email, club, team, application', async 
   await page.goto('/register')
   await page.locator('#name').fill('Айым Серікова')
   await page.locator('#email').fill(email)
-  await page.locator('#phone').fill('+7 701 555 12 34')
+  // written the way most people here write it, with 8 in front
+  await page.locator('#phone').fill('8 701 555 12 34')
   await page.locator('#password').fill(password)
   await page.locator('#confirm').fill(password)
   await page.locator('input[type="checkbox"]').first().check()
   await page.getByRole('button', { name: 'Зарегистрироваться' }).click()
   await expect(page).not.toHaveURL(/\/register$/)
+  await expect.poll(async () => page.evaluate(async () => (await (await fetch('/api/auth/me')).json()).user?.phone)).toBe('+7 701 555 12 34')
 
   // the letter's link confirms the email
   let link = ''
@@ -109,4 +111,17 @@ test('check-in by the venue QR: signed out → sign in → back, the team is pre
   await expect(page.getByText(/«Көкжал» — вы на месте/)).toBeVisible()
   const teams = (await host.c('GET', `/tournaments/${t.id}`)).data.teams
   expect(teams.find((x: { name: string }) => x.name === 'Көкжал').checkedIn ?? teams.find((x: { name: string }) => x.name === 'Көкжал').checkedInAt).toBeTruthy()
+})
+
+// city and school pickers: Kazakh names are found when typed with Russian letters
+test('city picker: the Kazakh name typed with Russian letters finds the city ("оскемен" → Усть-Каменогорск)', async ({ page }) => {
+  const acc = await newAccount('UI Іздеуші')
+  await signIn(page, acc.email, acc.password)
+  await page.goto('/me?tab=club')
+  for (const [typed, city] of [['оскемен', 'Усть-Каменогорск'], ['казалы', 'Казалинск'], ['байконыр', 'Байконыр']]) {
+    await page.locator('#mc-city').click()
+    await page.keyboard.type(typed)
+    await expect(page.getByRole('option', { name: city }).first()).toBeVisible()
+    await page.keyboard.press('Escape')
+  }
 })

@@ -10,7 +10,7 @@ import { ErrorState, Skeleton } from '@/components/ui/states'
 import { useAward } from '@/components/certificate/CertificateSheet'
 import { BackButton } from '@/components/layout/BackButton'
 
-// public page behind the QR on a certificate: confirms it was issued by Debate.kz
+// public page behind the QR on a certificate: confirms it was issued by Debaters.kz
 export default function VerifyCertificate() {
   const { t } = useTranslation()
   const { code = '' } = useParams()

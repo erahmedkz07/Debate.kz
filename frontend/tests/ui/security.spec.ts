@@ -22,7 +22,13 @@ test('two-step sign-in: turned on in the profile, then asked for at sign-in', as
   const dialog = page.getByRole('dialog')
   // the secret under the QR code, as the app would read it
   const secret = (await dialog.locator('button.font-mono').innerText()).replace(/\s/g, '')
-  await dialog.getByLabel('Код из приложения').fill(totp(secret))
+  // the code pasted as some apps copy it, "123 456": the space is dropped, the six digits stay
+  const code = totp(secret)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.evaluate(text => navigator.clipboard.writeText(text), `${code.slice(0, 3)} ${code.slice(3)}`)
+  await dialog.getByLabel('Код из приложения').focus()
+  await page.keyboard.press('Control+V')
+  await expect(dialog.getByLabel('Код из приложения')).toHaveValue(code)
   await dialog.getByRole('button', { name: 'Включить' }).click()
   await expect(page.getByText('Коды восстановления')).toBeVisible()
   await expect(page.getByRole('dialog').locator('li')).toHaveCount(8)

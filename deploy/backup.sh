@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Nightly backup: the database (pg_dump custom format) and the uploaded files.
-# Keeps KEEP_DAYS days. Runs from cron as debatekz (deploy/cron) and before every deploy.
+# Keeps KEEP_DAYS days. Runs from cron as debaters (deploy/cron) and before every deploy.
 set -euo pipefail
 
-ENV_FILE=/etc/debatekz/api.env
-BACKUP_DIR=${BACKUP_DIR:-/var/backups/debatekz}
-DATA_DIR=/var/lib/debatekz
+ENV_FILE=/etc/debaters/api.env
+BACKUP_DIR=${BACKUP_DIR:-/var/backups/debaters}
+DATA_DIR=/var/lib/debaters
 KEEP_DAYS=${KEEP_DAYS:-14}
 STAMP=$(date +%Y-%m-%d_%H%M)
 
@@ -24,6 +24,6 @@ find "$BACKUP_DIR" -name 'db-*.dump' -mtime +"$KEEP_DAYS" -delete
 find "$BACKUP_DIR" -name 'files-*.tar.gz' -mtime +"$KEEP_DAYS" -delete
 
 # off-server copy (recommended): uncomment after `rclone config` with any S3-compatible storage
-# rclone copy "$BACKUP_DIR" remote:debatekz-backups --max-age 25h
+# rclone copy "$BACKUP_DIR" remote:debaters-backups --max-age 25h
 
 echo "backup $STAMP: $(du -h "$BACKUP_DIR/db-$STAMP.dump" | cut -f1) db, $(du -h "$BACKUP_DIR/files-$STAMP.tar.gz" | cut -f1) files"

@@ -15,6 +15,7 @@ import { Input, Label, Textarea } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EntityLogo } from '@/components/ui/entity-logo'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
+import { fold } from '@/lib/search'
 
 // Clubs for the admins: a new club waits here until it is approved; reports about fakes and duplicates come here too.
 // Approve, reject with a reason (the members fix and resend), merge a duplicate into the real club, or delete a fake.
@@ -48,10 +49,10 @@ export function AdminClubs({ onChange }: { onChange?: () => void }) {
   }
   if (error) return <ErrorState onRetry={reload} />
   if (loading || !data) return <Skeleton className="h-96" />
-  const query = q.trim().toLowerCase()
+  const query = fold(q.trim())
   const shown = data
     .filter(c => filter === 'all' || (filter === 'reported' ? c.reports.length > 0 : c.status === filter))
-    .filter(c => !query || [c.name, c.city, c.institution, c.createdBy].some(v => v?.toLowerCase().includes(query)))
+    .filter(c => !query || [c.name, c.city, c.institution, c.createdBy].some(v => v && fold(v).includes(query)))
 
   return (
     <>

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Creates the production database and its owner with a random password,
-# then writes DATABASE_URL into /etc/debatekz/api.env (never printed).
+# then writes DATABASE_URL into /etc/debaters/api.env (never printed).
 # Run as root: sudo bash deploy/create-db.sh
 set -euo pipefail
 
-DB_NAME=debatekz
-DB_USER=debatekz_app
-ENV_FILE=/etc/debatekz/api.env
+DB_NAME=debaters
+DB_USER=debaters_app
+ENV_FILE=/etc/debaters/api.env
 
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
 [[ -f $ENV_FILE ]] || { echo "copy deploy/api.env.example to $ENV_FILE first"; exit 1; }
@@ -30,6 +30,6 @@ if grep -q '^DATABASE_URL=' "$ENV_FILE"; then
 else
   echo "DATABASE_URL=\"$URL\"" >> "$ENV_FILE"
 fi
-chown root:debatekz "$ENV_FILE"
+chown root:debaters "$ENV_FILE"
 chmod 640 "$ENV_FILE"
 echo "database $DB_NAME created; DATABASE_URL saved to $ENV_FILE"

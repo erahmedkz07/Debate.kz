@@ -1,4 +1,4 @@
-# Эксплуатация Debate.kz
+# Эксплуатация Debaters.kz
 
 Как сайт бережёт данные, следит за собой и сколько выдерживает. Все команды выполняются в папке `backend`
 и читают настройки из `backend/.env`.
@@ -14,7 +14,7 @@
 
 `npm run backup` делает два файла в `backend/backups/auto`:
 
-- `debatekz-ГГГГ-ММ-ДД_ЧЧММ.dump` — база (pg_dump, сжатый формат). Сразу после создания читается через
+- `debaters-ГГГГ-ММ-ДД_ЧЧММ.dump` — база (pg_dump, сжатый формат). Сразу после создания читается через
   `pg_restore --list`: битая копия считается ошибкой.
 - `files-ГГГГ-ММ-ДД_ЧЧММ.tar.gz` — загруженные файлы: обложки, логотипы, аватары (`uploads`) и чеки оплаты (`private`).
 
@@ -38,11 +38,11 @@
 ```bash
 # 1. остановить API, чтобы никто не писал в базу
 # 2. пустая база и восстановление в неё
-createdb -U postgres debatekz_new
-pg_restore --no-owner --no-privileges -d "postgresql://…/debatekz_new" backups/auto/debatekz-2026-10-30_0300.dump
+createdb -U postgres debaters_new
+pg_restore --no-owner --no-privileges -d "postgresql://…/debaters_new" backups/auto/debaters-2026-10-30_0300.dump
 # 3. файлы — в STORAGE_DIR (или в backend/ на этом компьютере)
 tar -xzf backups/auto/files-2026-10-30_0300.tar.gz -C "$STORAGE_DIR"
-# 4. DATABASE_URL в .env → debatekz_new, запустить API, проверить сайт
+# 4. DATABASE_URL в .env → debaters_new, запустить API, проверить сайт
 ```
 
 ## 2. Мониторинг
@@ -92,9 +92,9 @@ schtasks /Create /TN "DebateKz Monitor" /SC MINUTE /MO 5 /TR "cmd /c cd /d $b &&
 пригодятся:
 
 ```bash
-cd /opt/debatekz/backend
+cd /opt/debaters/backend
 # раз в неделю: восстановится ли копия (понимает и серверные копии db-*.dump)
-BACKUP_DIR=/var/backups/debatekz node --env-file=/etc/debatekz/api.env scripts/backup-verify.mjs
+BACKUP_DIR=/var/backups/debaters node --env-file=/etc/debaters/api.env scripts/backup-verify.mjs
 ```
 
 Проверке восстановления нужно право создавать базы (`ALTER ROLE … CREATEDB`), иначе запускайте её от `postgres`.
