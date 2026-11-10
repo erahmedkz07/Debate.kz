@@ -33,13 +33,13 @@ export function LangSwitch({ className, onDark }: { className?: string; onDark?:
     if (user && user.language !== l) setAccountLanguage(l).then(signIn, () => undefined)
   }
   return (
-    <div className={cn('flex rounded-xl p-1 text-xs font-bold', onDark ? 'bg-white/15' : 'bg-muted', className)} role="group" aria-label={t('a11y.language')}>
+    <div className={cn('flex shrink-0 rounded-xl p-1 text-xs font-bold', onDark ? 'bg-white/15' : 'bg-muted', className)} role="group" aria-label={t('a11y.language')}>
       {(['kz', 'ru'] as const).map(l => (
         <button
           key={l}
           onClick={() => choose(l)}
           aria-pressed={i18n.language === l}
-          className={cn('cursor-pointer rounded-lg px-2.5 py-1.5 uppercase transition-all', i18n.language === l ? 'bg-card text-primary shadow-sm' : onDark ? 'text-white/80 hover:text-white' : 'text-muted-foreground hover:text-foreground')}
+          className={cn('cursor-pointer whitespace-nowrap rounded-lg px-2.5 py-1.5 uppercase transition-all', i18n.language === l ? 'bg-card text-primary shadow-sm' : onDark ? 'text-white/80 hover:text-white' : 'text-muted-foreground hover:text-foreground')}
         >
           {l === 'kz' ? 'Қаз' : 'Рус'}
         </button>
