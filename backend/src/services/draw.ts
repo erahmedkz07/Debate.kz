@@ -78,7 +78,7 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
     prisma.judge.findMany({ where: { tournamentId: tId, leftAt: null }, orderBy: [{ rating: 'desc' }, { name: 'asc' }] }),
     prisma.debate.findMany({
       where: { round: { tournamentId: tId, number: { lt: round.number } } },
-      select: { propositionTeamId: true, oppositionTeamId: true, closingPropositionTeamId: true, closingOppositionTeamId: true },
+      select: { propositionTeamId: true, oppositionTeamId: true, closingPropositionTeamId: true, closingOppositionTeamId: true, round: { select: { number: true } } },
     }),
   ])
   const perRoom = isBP(round.tournament.format) ? 4 : 2
@@ -135,7 +135,7 @@ export async function generateDraw(roundId: string, opts: DrawOptions = {}) {
 }
 
 type DrawTeam = { id: string; institutionId: string | null; clubId: string | null }
-type PreviousDebate = { propositionTeamId: string; oppositionTeamId: string; closingPropositionTeamId: string | null; closingOppositionTeamId: string | null }
+type PreviousDebate = { propositionTeamId: string; oppositionTeamId: string; closingPropositionTeamId: string | null; closingOppositionTeamId: string | null; round?: { number: number } }
 
 // The rooms of one group of teams (the whole tournament, or one league): order by the table (round 1 and the random
 // method: random order), then pair by the method avoiding rematches and, in protected rounds, clubmates.
@@ -166,8 +166,6 @@ function drawGroup(teams: DrawTeam[], o: { method: DrawMethod; standings: Awaite
     return { pairs: result.rooms.map(room => assignPositions(room, counts)), sameClub: result.sameClub, rematches: 0 }
   }
   const met = new Set(previous.map(p => [p.propositionTeamId, p.oppositionTeamId].sort().join('|')))
-  const propCount = new Map<string, number>()
-  previous.forEach(p => propCount.set(p.propositionTeamId, (propCount.get(p.propositionTeamId) ?? 0) + 1))
   // round robin: the same team order every round (by when the team was added), round k of the circle
   const robin = method === 'round_robin'
     ? roundRobinPairs([...teams].sort((a, b) => a.id.localeCompare(b.id)).map(t => t.id), o.roundNumber - 1)
@@ -175,9 +173,9 @@ function drawGroup(teams: DrawTeam[], o: { method: DrawMethod; standings: Awaite
   const result = robin
     ? { pairs: robin, sameClub: 0, rematches: robin.filter(([a, b]) => met.has([a, b].sort().join('|'))).length }
     : pairTeams({ order: ordered, method, met, clubOf, protectClubs, scoreOf })
-  // side balance: Proposition to the team that has had it less often
+  const sides = sideHistory(previous)
   return {
-    pairs: result.pairs.map(([a, b]) => ((propCount.get(a) ?? 0) <= (propCount.get(b) ?? 0) ? [a, b] : [b, a])),
+    pairs: result.pairs.map(([a, b]) => (propositionFirst(a, b, sides) ? [a, b] : [b, a])),
     sameClub: result.sameClub, rematches: result.rematches,
   }
 }
@@ -313,4 +311,32 @@ async function swingTeam(tournamentId: string, index = 0, league: string | null 
     data: { tournamentId, name, swing: true, league, speakers: { create: Array.from({ length: rulesOf(t.format).speakers }, (_, i) => ({ name: `Swing ${i + 1}`, position: i + 1 })) } },
     select: { id: true, institutionId: true, clubId: true, league: true },
   })
+}
+
+// ---------- sides in two-team formats ----------
+// Each team's balance (times in Proposition minus times in Opposition) and its side in its latest debate.
+export function sideHistory(previous: PreviousDebate[]) {
+  const balance = new Map<string, number>()
+  const last = new Map<string, { round: number; side: 'proposition' | 'opposition' }>()
+  for (const p of previous) {
+    const round = p.round?.number ?? 0
+    for (const [id, side, d] of [[p.propositionTeamId, 'proposition', 1], [p.oppositionTeamId, 'opposition', -1]] as const) {
+      if (!id) continue
+      balance.set(id, (balance.get(id) ?? 0) + d)
+      if ((last.get(id)?.round ?? -1) <= round) last.set(id, { round, side })
+    }
+  }
+  return { balance, last }
+}
+
+// Which of a and b takes Proposition (true: a). The team that has been in Proposition less (counted against its
+// Opposition debates) takes it; on equal terms the team that was in Opposition last time; on equal terms again a
+// coin toss. Never the table position: the pairing lists the higher-ranked team first, and handing it Proposition on
+// every tie would favour the leaders round after round.
+export function propositionFirst(a: string, b: string, h: ReturnType<typeof sideHistory>, random = Math.random) {
+  const ba = h.balance.get(a) ?? 0, bb = h.balance.get(b) ?? 0
+  if (ba !== bb) return ba < bb
+  const la = h.last.get(a)?.side, lb = h.last.get(b)?.side
+  if (la !== lb) return la === 'opposition' || (la === undefined && lb === 'proposition')
+  return random() < 0.5
 }

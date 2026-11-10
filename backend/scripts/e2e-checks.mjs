@@ -3648,6 +3648,41 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(brk.every(x => x.status < 500) && brk.some(x => x.status === 201) && d.rounds.filter(x => x.kind === 'elimination').length === 1, `the break announced twice at once is announced once (${brk.map(x => x.status)} → ${d.rounds.filter(x => x.kind === 'elimination').length} play-off round)`)
 }
 
+// ---------- sides: fair Proposition and Opposition over the rounds ----------
+{
+  const host = await newAccount('Стороны Организатор')
+  const t = (await host.c('POST', '/tournaments', { ...tBody(880), name: `Стороны ${jtag}`, preliminaryRounds: 4, breakSize: 2 })).data
+  await admin('PATCH', `/admin/tournaments/${t.id}`, { moderation: 'approved' })
+  await host.c('POST', `/tournaments/${t.id}/teams/bulk`, { names: Array.from({ length: 8 }, (_, i) => `Сторона ${i + 1}`) })
+  await host.c('POST', `/tournaments/${t.id}/judges/bulk`, { names: ['Стор Судья 1', 'Стор Судья 2', 'Стор Судья 3', 'Стор Судья 4'] })
+  await host.c('PATCH', `/tournaments/${t.id}`, { status: 'ongoing' })
+  let d = (await host.c('GET', `/tournaments/${t.id}`)).data
+  const balance = new Map(), last = new Map()
+  let ties = 0, alternated = 0
+  for (const round of d.rounds) {
+    await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false, method: 'power' })
+    await host.c('PATCH', `/rounds/${round.id}`, { motion: 'ЭП отменит оценки', status: 'released' })
+    d = (await host.c('GET', `/tournaments/${t.id}`)).data
+    const rooms = d.debates.filter(x => x.roundId === round.id)
+    for (const r of rooms) {
+      const [p, o] = [r.propositionTeamId, r.oppositionTeamId]
+      const bp = balance.get(p) ?? 0, bo = balance.get(o) ?? 0
+      // equal balance, different last sides: the one in Opposition last time now opens
+      if (bp === bo && last.get(p) && last.get(o) && last.get(p) !== last.get(o)) { ties++; if (last.get(p) === 'opposition') alternated++ }
+      if (bp > bo) ties = -999 // Proposition went to the team that already had more of it
+    }
+    for (const r of rooms) {
+      balance.set(r.propositionTeamId, (balance.get(r.propositionTeamId) ?? 0) + 1); last.set(r.propositionTeamId, 'proposition')
+      balance.set(r.oppositionTeamId, (balance.get(r.oppositionTeamId) ?? 0) - 1); last.set(r.oppositionTeamId, 'opposition')
+      await host.c('POST', `/debates/${r.id}/forfeit`, { side: 'opposition' })
+    }
+    await host.c('PATCH', `/rounds/${round.id}`, { status: 'completed' })
+  }
+  ok(ties >= 0, 'Proposition never goes to the team that has already had it more')
+  ok(ties > 0 && alternated === ties, `on equal terms the team in Opposition last time opens (${alternated} of ${ties})`)
+  ok([...balance.values()].every(v => Math.abs(v) <= 2), `after 4 rounds no team is more than 2 debates off balance (${[...balance.values()].join(',')})`)
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')

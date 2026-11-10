@@ -36,6 +36,18 @@ async function visit(page: Page, issues: Issue[], path: string) {
   // a translation key shown instead of its text (a missing translation)
   const keys = await page.evaluate(() => (document.body.innerText.match(/(?:dashboard|tournament|tournaments|apiErrors|common|wizard|leagues|ballot|awards|certificate|speakerLink|rating|auth|profile|admin|status|level)\.[a-zA-Z_.]+/g) ?? []).slice(0, 3))
   if (keys.length) issues.push({ page: path, kind: 'untranslated', detail: keys.join(', ') })
+  // a button or a link with no name at all (an icon without a label): a screen reader says only "button"
+  const nameless = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('button, a[href], [role="button"]')]
+    .filter(el => el.offsetParent !== null && !(el.innerText || '').trim() && !el.getAttribute('aria-label') && !el.getAttribute('title')
+      && !el.getAttribute('aria-labelledby') && !el.querySelector('img[alt]:not([alt=""])'))
+    .slice(0, 3).map(el => `${el.tagName.toLowerCase()}${el.getAttribute('href') ? `[href=${el.getAttribute('href')}]` : ''}.${String(el.className).slice(0, 50)}`))
+  if (nameless.length) issues.push({ page: path, kind: 'no name', detail: nameless.join(' | ') })
+  // a field with no label: a screen reader cannot say what to type (a placeholder is not a label)
+  const unlabeled = await page.evaluate(() => [...document.querySelectorAll<HTMLInputElement>('input:not([type=hidden]), textarea, select')]
+    .filter(el => el.offsetParent !== null && el.tabIndex !== -1 && !el.getAttribute('aria-label') && !el.getAttribute('aria-labelledby') && !el.closest('label')
+      && !(el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)))
+    .slice(0, 3).map(el => `${el.tagName.toLowerCase()}#${el.id || '?'}[${el.getAttribute('placeholder') ?? ''}]`))
+  if (unlabeled.length) issues.push({ page: path, kind: 'no label', detail: unlabeled.join(' | ') })
   if (shots.has(path.split('?')[0].replace(/[a-z0-9]{20,}/g, ':id'))) await page.screenshot({ path: `test-results/crawl-${shotName}-${path.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.png`, fullPage: true })
 }
 // pages kept as pictures for a look by eye (per variant)
