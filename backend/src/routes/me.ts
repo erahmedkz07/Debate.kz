@@ -225,8 +225,9 @@ async function apply(req: Request, res: Response) {
       clubId: membership.clubId, clubTeamId: membership.teamId, ...(minors && { guardianConsentAt: new Date() }),
     },
   })
-  background(notifyNewRegistration(reg.id))
   // applications are unlimited; first come (or after a lottery) a place is given at once while places last
   const status = await onApplication(reg.id)
+  // after the place is decided: the organizers' Telegram offers a decision only when one is still needed
+  background(notifyNewRegistration(reg.id))
   res.status(201).json({ ...reg, status, createdAt: toDay(reg.createdAt) })
 }

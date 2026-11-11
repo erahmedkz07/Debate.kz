@@ -13,6 +13,8 @@ export interface SendOptions {
   buttons?: InlineButton[][] // inline keyboard under the message
   requestContact?: string // one-button reply keyboard "share my phone number"
   removeKeyboard?: boolean
+  menu?: string[][] // the bot's main menu: a keyboard of text buttons that stays under the message box
+  placeholder?: string // the hint in the empty message box while the menu is shown
 }
 
 export interface OutboxItem { method: string; chat_id?: string; text?: string; reply_markup?: unknown }
@@ -52,7 +54,8 @@ export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 export function sendMessage(chatId: string, text: string, opts: SendOptions = {}) {
   const reply_markup = opts.buttons ? { inline_keyboard: opts.buttons }
     : opts.requestContact ? { keyboard: [[{ text: opts.requestContact, request_contact: true }]], resize_keyboard: true, one_time_keyboard: true }
-      : opts.removeKeyboard ? { remove_keyboard: true } : undefined
+      : opts.menu ? { keyboard: opts.menu.map(row => row.map(text => ({ text }))), resize_keyboard: true, is_persistent: true, ...(opts.placeholder && { input_field_placeholder: opts.placeholder }) }
+        : opts.removeKeyboard ? { remove_keyboard: true } : undefined
   return call<{ message_id: number }>('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup })
 }
 

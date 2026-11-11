@@ -3951,6 +3951,144 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(!/Чужой Человек/.test(await last(H)), 'and the stranger cannot sign in to it through the bot')
 }
 
+// ---------- the bot's menu: buttons under the message box, finding a tournament, cards, tables, results,
+// an organizer's decision on an application, the reminder the day before ----------
+{
+  const botC = client()
+  let u = 70000
+  const sleep = ms => new Promise(res => setTimeout(res, ms))
+  const send = (chatId, fields) => botC('POST', '/telegram/test/update', { update_id: ++u + 900000, message: { message_id: u, from: { id: chatId, username: `m${chatId}` }, chat: { id: chatId, type: 'private' }, ...fields } })
+  const tap = (chatId, data, text = '') => botC('POST', '/telegram/test/update', { update_id: ++u + 900000, callback_query: { id: `mb${u}`, from: { id: chatId }, data, message: { message_id: 9, chat: { id: chatId, type: 'private' }, text } } })
+  const said = async chatId => (await botC('GET', `/telegram/test/outbox?chat=${chatId}`)).data.filter(m => m.method === 'sendMessage' || m.method === 'editMessageText')
+  const last = async chatId => (await said(chatId)).at(-1)?.text ?? ''
+  const all = async chatId => (await said(chatId)).map(m => m.text ?? '').join('\n')
+  const buttons = async chatId => (await said(chatId)).flatMap(m => m.reply_markup?.inline_keyboard?.flat() ?? []).map(b => b.callback_data ?? '')
+  const keyboardOf = async chatId => (await said(chatId)).map(m => m.reply_markup?.keyboard).filter(Boolean).at(-1)
+  const html = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const waitFor = async (check, tries = 25) => { for (let i = 0; i < tries; i++) { if (await check()) return true; await sleep(200) } return false }
+  const linkTelegram = async (acc, chatId) => {
+    const url = (await acc.c('POST', '/me/telegram/link')).data.url
+    await send(chatId, { text: `/start ${url.split('start=')[1]}` })
+  }
+
+  // a club with a team, its head linked to the bot (phone confirmed, so the menu comes right away)
+  const head = await newAccount('Мәзір Клуб Басшысы')
+  const club = (await head.c('POST', '/clubs', { name: `Мәзір клубы ${jtag}`, city: 'Астана' })).data
+  await admin('PATCH', `/admin/clubs/${club.id}`, { status: 'approved' })
+  const team = (await head.c('POST', `/clubs/${club.id}/teams`, { name: 'Мәзір Қырандары', join: true })).data
+  ok(!!team?.id, 'the head has a team in the club')
+  const H = 7300000 + Math.floor(Math.random() * 99999)
+  await linkTelegram(head, H)
+  await send(H, { contact: { phone_number: `7701${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`, user_id: H } })
+  const kb = await keyboardOf(H)
+  const labels = (kb ?? []).flat().map(b => b.text)
+  ok(labels.includes('🔎 Найти турнир') && labels.includes('📊 Мои результаты') && labels.length === 8 && (await said(H)).at(-1)?.reply_markup?.is_persistent === true,
+    'after the phone the main menu stays under the message box: 8 buttons')
+
+  // tournaments to find: one taking applications through the site, one that needs the organizer's decision
+  const hostA = await newAccount('Мәзір Турнир Иесі')
+  const tOpen = (await hostA.c('POST', '/tournaments', { ...tBody(601), name: `Мәзір <ашық> & ${jtag}`, kind: 'open', requireApproval: true, venue: 'НИШ ФМН' })).data
+  await admin('PATCH', `/admin/tournaments/${tOpen.id}`, { moderation: 'approved' })
+
+  // 🔎 find: a tap on the menu button is the command
+  await send(H, { text: '🔎 Найти турнир' })
+  ok(/Ближайшие турниры/.test(await all(H)) && (await buttons(H)).some(b => b.startsWith('tc:')), 'the menu button "find a tournament" lists cards, each with "details"')
+  const total = Number((await all(H)).match(/Ближайшие турниры<\/b> — (\d+)/)?.[1])
+  if (total > 5) {
+    ok((await buttons(H)).includes('find:5'), 'more than five tournaments: a "more" button')
+    const before = (await said(H)).length
+    await tap(H, 'find:5')
+    ok((await said(H)).length > before, '"more" shows the next cards')
+  }
+  // a tournament's card
+  await tap(H, `tc:${tOpen.id}`)
+  let card = await last(H)
+  ok(card.includes(html(`Мәзір <ашық> & ${jtag}`)) && /идёт регистрация/.test(card) && /НИШ ФМН/.test(card) && /Команд: <b>0<\/b> из 8/.test(card) && /школьники/.test(card),
+    'the card: name (safe), status, venue, places, level')
+  ok((await buttons(H)).includes(`ta:${tOpen.id}`), 'the card offers to apply')
+  // without an account: the same card, with "sign up" instead of "apply"
+  const G = H + 1
+  await send(G, { text: '/find' })
+  ok(/Ближайшие турниры/.test(await all(G)), '/find works without an account')
+  await tap(G, `tc:${tOpen.id}`)
+  ok((await said(G)).at(-1)?.reply_markup?.inline_keyboard?.flat().some(b => b.callback_data === 'reg:start'), 'without an account the card offers to sign up')
+
+  // a menu button in the middle of a dialog leaves the dialog and does what it says
+  await tap(H, 'club:new')
+  ok((await db.query('select step from bot_dialogs where chat_id = $1', [String(H)])).rows[0]?.step === 'club.newteam', 'the bot waits for a team name')
+  await send(H, { text: '🏆 Мои турниры' })
+  ok(!(await db.query('select 1 from bot_dialogs where chat_id = $1', [String(H)])).rows.length && /активных турниров|Мои турниры/.test(await last(H))
+    && !(await db.query("select 1 from club_teams where club_id = $1 and name like '%Мои турниры%'", [club.id])).rows.length, 'a menu button is not taken as the answer: no team called "Мои турниры"')
+
+  // "apply" on the card: the dialog of /apply for this tournament
+  await tap(H, `ta:${tOpen.id}`)
+  ok(/спикеров/.test(await last(H)), '"apply" on a card starts the application for that tournament')
+  await send(H, { text: '❌ не меню' })
+  await send(H, { text: '/cancel' })
+  ok((await said(H)).at(-1)?.reply_markup?.keyboard, '/cancel brings the menu back')
+
+  // the organizer decides in Telegram, right under the notification
+  const O = H + 2
+  await linkTelegram(hostA, O)
+  await head.c('POST', `/tournaments/${tOpen.id}/registrations`, { teamName: 'Мәзір Қырандары', institution: 'Лицей Мәзір', speakers: ['Айдос Мәзір', 'Бекзат Мәзір', 'Дана Мәзір'], phone: '+7 701 555 44 33', guardianConsent: true })
+  ok(await waitFor(async () => (await buttons(O)).some(b => b.startsWith('rd:'))), 'the organizer gets the application with "accept / waitlist / reject" buttons')
+  const note = (await said(O)).filter(m => m.reply_markup?.inline_keyboard?.flat().some(b => b.callback_data?.startsWith('rd:'))).at(-1)
+  ok(/Айдос Мәзір/.test(note.text) && /Лицей Мәзір/.test(note.text) && /Мест занято: 0 из 8/.test(note.text), 'with the speakers, the school and the places taken')
+  const regId = note.reply_markup.inline_keyboard.flat().find(b => b.callback_data?.startsWith('rd:')).callback_data.split(':')[1]
+  // only the tournament's organizers may decide
+  await tap(H, `rd:${regId}:confirmed`, 'x')
+  ok((await db.query('select status from team_registrations where id = $1', [regId])).rows[0].status === 'pending', 'someone else cannot accept it')
+  await tap(O, `rd:${regId}:confirmed`, note.text.replace(/<[^>]+>/g, ''))
+  ok((await db.query('select status from team_registrations where id = $1', [regId])).rows[0].status === 'confirmed', 'one tap accepts the application')
+  ok(/Вы приняли заявку/.test(await last(O)) && (await botC('GET', `/telegram/test/outbox?chat=${O}`)).data.at(-1)?.method === 'editMessageText', 'the notification says what was decided, its buttons are gone')
+  ok(await waitFor(async () => /подтверждена/.test(await all(H))), 'the team learns it in Telegram')
+  await tap(O, `rd:${regId}:rejected`, 'x')
+  ok(/уже рассмотрели/.test(await last(O)) && (await db.query('select status from team_registrations where id = $1', [regId])).rows[0].status === 'confirmed', 'an old button cannot change the decision')
+
+  // the day before: the reminder, once
+  const hostB = await newAccount('Ертеңгі Турнир Иесі')
+  const tSoon = (await hostB.c('POST', '/tournaments', { ...tBody(602), name: `Ертеңгі турнир ${jtag}`, startDate: '2031-03-15', endDate: '2031-03-15', kind: 'open', requireApproval: false, venue: 'Мектеп №1' })).data
+  await admin('PATCH', `/admin/tournaments/${tSoon.id}`, { moderation: 'approved' })
+  await hostB.c('PATCH', `/tournaments/${tSoon.id}`, { selectionMode: 'first_come' })
+  r = await head.c('POST', `/tournaments/${tSoon.id}/registrations`, { teamName: 'Мәзір Қырандары', institution: 'Лицей Мәзір', speakers: ['Айдос Мәзір', 'Бекзат Мәзір', 'Дана Мәзір'], phone: '+7 701 555 44 33', guardianConsent: true })
+  ok(r.data?.status === 'confirmed', 'a team has a place in tomorrow\'s tournament')
+  await admin('POST', '/admin/watchdog/run', { today: '2031-03-13' })
+  ok(!/Завтра, 15.03/.test(await all(H)), 'two days before: no reminder yet')
+  const w = (await admin('POST', '/admin/watchdog/run', { today: '2031-03-14' })).data
+  ok(w.tomorrowReminders >= 1 && /Завтра, 15\.03, — турнир/.test(await all(H)) && /Мектеп №1/.test(await all(H)), 'the day before the team gets a reminder with the place')
+  const tomorrowNotes = async () => Number((await db.query("select count(*) from notifications where user_id = $1 and type = 'participant.tournamentTomorrow' and link = $2", [head.id, `/tournaments/${tSoon.id}`])).rows[0].count)
+  ok(await tomorrowNotes() === 1, 'the reminder is also in the notification centre of the site')
+  await admin('POST', '/admin/watchdog/run', { today: '2031-03-14' })
+  ok(await tomorrowNotes() === 1, 'the watchdog runs every 15 minutes, the reminder comes once')
+
+  // 📋 a table: the same as the public table on the site
+  const played = (await db.query(`select t.id from tournaments t join rounds r on r.tournament_id = t.id
+    where r.status = 'completed' and r.kind = 'preliminary' and t.visible and t.moderation = 'approved' and t.abandoned_at is null and t.status = 'finished' limit 1`)).rows[0]
+  if (played) {
+    const pub = (await client()('GET', `/tournaments/${played.id}/standings`)).data
+    await tap(G, `tt:${played.id}`)
+    ok((await last(G)).includes(`1. ${html(pub.teams[0].team.name)} — ${pub.teams[0].points}`), 'the table in the bot is the public table: the leader with its points')
+  }
+
+  // 📊 results of a person who played
+  const player = (await db.query(`select s.user_id, t.name from speakers s join teams tm on tm.id = s.team_id join tournaments t on t.id = tm.tournament_id
+    join users u on u.id = s.user_id where t.status = 'finished' and t.visible and t.moderation = 'approved' and t.abandoned_at is null and not tm.swing and not u.blocked limit 1`)).rows[0]
+  if (player) {
+    const P = H + 3
+    await db.query("update users set telegram_chat_id = $1, language = 'ru' where id = $2", [String(P), player.user_id])
+    await send(P, { text: '📊 Мои результаты' })
+    const profile = (await client()('GET', `/people/${player.user_id}`)).data
+    ok(/Мои результаты/.test(await last(P)) && (await last(P)).includes(`Турниров: <b>${profile.speaker.tournaments.length}</b> · дебатов: <b>${profile.speaker.debates}</b> · побед: <b>${profile.speaker.wins}</b>`),
+      'the results: the same tournaments, debates and wins as the public profile')
+  }
+  // in Kazakh the menu is in Kazakh, and its buttons work
+  await head.c('PUT', '/me/language', { language: 'kz' })
+  await send(H, { text: '/menu' })
+  ok(((await keyboardOf(H)) ?? []).flat().some(b => b.text === '🔎 Турнир іздеу'), 'the menu speaks the person\'s language')
+  await send(H, { text: '🔎 Турнир іздеу' })
+  ok(/Жақын турнирлер/.test(await all(H)), 'and the Kazakh buttons work')
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')

@@ -1782,6 +1782,10 @@
         "claimRejected": {
           "title": "Запрос не подтверждён",
           "text": "«{{tournament}}»: организатор не подтвердил, что спикер «{{speaker}}» — это вы."
+        },
+        "tournamentTomorrow": {
+          "title": "Завтра турнир",
+          "text": "«{{tournament}}» — {{date}}, {{city}}. Жеребьёвка придёт в уведомления."
         }
       },
       "judge": {
@@ -1800,6 +1804,10 @@
         "ballotEdited": {
           "title": "Ваш бюллетень изменён",
           "text": "«{{tournament}}», {{round}}, {{room}}: {{by}} внёс или исправил ваш бюллетень."
+        },
+        "tournamentTomorrow": {
+          "title": "Завтра вы судите",
+          "text": "«{{tournament}}» — {{date}}, {{city}}. Назначение придёт после жеребьёвки."
         }
       },
       "organizer": {

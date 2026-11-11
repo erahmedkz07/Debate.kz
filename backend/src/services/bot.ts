@@ -8,6 +8,8 @@ import { campNames, sideLabel, sidesInDebate } from './formats.js'
 import { motionFor } from './tournaments.js'
 import { continueDialog, endDialog, flowCallback, greet, onApply, onCheckin, onClub, onLoginLink, startRegistration } from './botFlows.js'
 import { F } from './botFlowTexts.js'
+import { M, menuCommand, menuOptions } from './botMenuTexts.js'
+import { menuCallback, onFind, onResults, sendMenu } from './botMenu.js'
 
 // Telegram bot logic (transport-independent: fed by long polling, or by e2e in test mode).
 // Private chats only. Linking: the site creates a one-time token -> t.me/<bot>?start=<token>.
@@ -45,7 +47,7 @@ async function onStart(msg: TgMessage, token: string | undefined) {
     return startRegistration(chat, guess)
   }
   if (!token) {
-    if (current) return sendMessage(chat, `${T[guess].alreadyLinked(current.name)}\n\n${T[guess].help}`)
+    if (current) return sendMessage(chat, `${T[guess].alreadyLinked(current.name)}\n\n${T[guess].help}`, menuOptions(guess))
     return greet(msg)
   }
   const row = await prisma.emailToken.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: true } })
@@ -59,7 +61,9 @@ async function onStart(msg: TgMessage, token: string | undefined) {
     return tx.user.update({ where: { id: row.userId }, data: { telegramChatId: chat, telegramUsername: msg.from?.username ?? null, telegramNotify: true } })
   })
   await sendMessage(chat, `${T[l].linked(user.name)}\n\n${T[l].help}`, { buttons: [langButtons()] })
+  // a reply keyboard cannot sit under a message with inline buttons: the phone request (or the menu) goes separately
   if (!user.phoneVerifiedAt) await sendMessage(chat, T[l].askPhone, { requestContact: T[l].sharePhone })
+  else await sendMenu(chat, l)
 }
 
 async function onContact(msg: TgMessage, user: User) {
@@ -69,11 +73,13 @@ async function onContact(msg: TgMessage, user: User) {
   // only your own contact counts (a forwarded contact card has someone else's user_id or none)
   if (!msg.from || c.user_id !== msg.from.id) return sendMessage(chat, t.ownContact, { requestContact: t.sharePhone })
   const phone = normalizePhone(c.phone_number)
-  if (!phone) return sendMessage(chat, t.kzOnly, { removeKeyboard: true })
+  // the phone keyboard gives way to the main menu
+  const menu = menuOptions(langOf(user))
+  if (!phone) return sendMessage(chat, t.kzOnly, menu)
   const other = await prisma.user.findUnique({ where: { verifiedPhone: phone } })
-  if (other && other.id !== user.id) return sendMessage(chat, t.phoneTaken, { removeKeyboard: true })
+  if (other && other.id !== user.id) return sendMessage(chat, t.phoneTaken, menu)
   await prisma.user.update({ where: { id: user.id }, data: { verifiedPhone: phone, phoneVerifiedAt: new Date(), phone: pretty(phone) } })
-  return sendMessage(chat, t.phoneOk(pretty(phone)), { removeKeyboard: true })
+  return sendMessage(chat, t.phoneOk(pretty(phone)), menu)
 }
 
 // /next: what matters right now — the published draw for a speaker, ballots for a judge, new applications for an organizer
@@ -148,24 +154,24 @@ async function onTournaments(chat: string, user: User) {
     prisma.tournament.findMany({ where: { ...active, teams: { some: { speakers: { some: { userId: user.id } } } } }, select: { id: true, name: true } }),
     prisma.tournament.findMany({ where: { ...active, registrations: { some: { userId: user.id, status: { not: 'rejected' } } } }, select: { id: true, name: true } }),
   ])
-  const rows = new Map<string, { name: string; roles: Set<string>; path: string }>()
-  const add = (list: { id: string; name: string }[], role: string, path: (id: string) => string) => {
+  const rows = new Map<string, { name: string; roles: Set<string> }>()
+  const add = (list: { id: string; name: string }[], role: string) => {
     for (const x of list) {
-      const row = rows.get(x.id) ?? { name: x.name, roles: new Set<string>(), path: path(x.id) }
+      const row = rows.get(x.id) ?? { name: x.name, roles: new Set<string>() }
       row.roles.add(role)
       rows.set(x.id, row)
     }
   }
-  add(org, 'organizer', id => `/dashboard/tournaments/${id}`)
-  add(judge, 'judge', id => `/tournaments/${id}`)
-  add([...speaker, ...applied], 'speaker', id => `/tournaments/${id}`)
-  if (!rows.size) return sendMessage(chat, `${t.noTournaments}${site('/tournaments')}`)
-  const lines = [...rows.values()].slice(0, 15).map(r => {
-    const url = site(r.path)
-    const name = linkable(url) ? `<a href="${esc(url)}">${esc(r.name)}</a>` : `<b>${esc(r.name)}</b>\n   ${url}`
-    return `• ${name} — ${[...r.roles].map(x => t.asRole[x]).join(', ')}`
+  add(org, 'organizer')
+  add(judge, 'judge')
+  add([...speaker, ...applied], 'speaker')
+  if (!rows.size) return sendMessage(chat, t.noTournaments, { buttons: [[{ text: M[langOf(user)].menu.find, callback_data: 'find:0' }]] })
+  const list = [...rows.entries()].slice(0, 15)
+  const lines = list.map(([, r]) => `• <b>${esc(r.name)}</b> — ${[...r.roles].map(x => t.asRole[x]).join(', ')}`)
+  // one button per tournament: it opens the tournament's card (table, draw, site page)
+  return sendMessage(chat, [t.tournamentsHead, '', ...lines].join('\n'), {
+    buttons: list.map(([id, r]) => [{ text: r.name.length > 40 ? `${r.name.slice(0, 39)}…` : r.name, callback_data: `tc:${id}` }]),
   })
-  return sendMessage(chat, [t.tournamentsHead, '', ...lines].join('\n'))
 }
 
 // taps on the inline buttons: language and notifications
@@ -174,6 +180,9 @@ async function onCallback(cb: TgCallback) {
   const chat = String(cb.from.id)
   // the dialogs' buttons (sign-up, sign-in, club, application, check-in)
   if (cb.data && await flowCallback(chat, cb.data, user, cb.from.language_code, cb.message?.message_id)) return answerCallback(cb.id)
+  // the menu's buttons: finding a tournament, its card and table, an organizer's decision on an application
+  if (cb.data === 'menu:next' && user) { await answerCallback(cb.id); return onNext(chat, user) }
+  if (cb.data && await menuCallback(chat, cb.data, user, user ? langOf(user) : fromTelegram(cb.from.language_code), cb.message)) return answerCallback(cb.id)
   if (!user) {
     await answerCallback(cb.id)
     return sendMessage(chat, T[fromTelegram(cb.from.language_code)].linkFirst(site('/me')))
@@ -204,21 +213,29 @@ export async function handleUpdate(update: TgUpdate) {
   const msg = update.message
   if (!msg || msg.chat.type !== 'private') return // groups are ignored
   const chat = String(msg.chat.id)
-  const text = msg.text?.trim() ?? ''
+  // a tap on the main menu is its command
+  const raw = msg.text?.trim() ?? ''
+  const fromMenu = menuCommand(raw)
+  const text = fromMenu ? `/${fromMenu}` : raw
   if (command(text) === '/start') { await endDialog(chat); return onStart(msg, text.split(/\s+/)[1]) }
   const user = await linkedUser(msg.chat.id)
   // a command leaves an open dialog; anything else is the dialog's answer
   if (text.startsWith('/')) await endDialog(chat)
   else if (await continueDialog(msg, user)) return
+  // finding a tournament needs no account
+  if (!user && command(text) === '/find') return onFind(chat, fromTelegram(msg.from?.language_code), null)
   if (!user) return greet(msg)
-  const t = T[langOf(user)]
+  const l = langOf(user), t = T[l]
   if (msg.contact) return onContact(msg, user)
   switch (command(text)) {
-    case '/cancel': return sendMessage(chat, F[langOf(user)].cancelled, { removeKeyboard: true })
+    case '/cancel': return sendMessage(chat, F[l].cancelled, menuOptions(l))
+    case '/menu': return sendMenu(chat, l)
+    case '/find': return onFind(chat, l, user)
+    case '/results': return onResults(chat, user)
     case '/apply': return onApply(chat, user)
     case '/club': return onClub(chat, user)
     case '/checkin': return onCheckin(chat, user)
-    case '/help': return sendMessage(chat, t.help)
+    case '/help': return sendMessage(chat, t.help, menuOptions(l))
     case '/me':
       await sendMessage(chat, meText(user), { buttons: settingsButtons(user) })
       // a reply keyboard cannot sit under the same message as inline buttons: the phone request goes separately
@@ -234,9 +251,9 @@ export async function handleUpdate(update: TgUpdate) {
       await prisma.user.update({ where: { id: user.id }, data: { telegramNotify: true } })
       return sendMessage(chat, t.notifyOn)
     default:
-      return sendMessage(chat, `${t.unknown}\n\n${t.help}`)
+      return sendMessage(chat, `${t.unknown}\n\n${t.help}`, menuOptions(l))
   }
 }
 
 // the "/" menu in Telegram, in each language
-export const botCommands = (l: Lang) => ['next', 'apply', 'checkin', 'club', 'tournaments', 'me', 'lang', 'stop', 'on', 'help'].map(command => ({ command, description: T[l].commands[command] }))
+export const botCommands = (l: Lang) => ['menu', 'next', 'find', 'apply', 'checkin', 'tournaments', 'results', 'club', 'me', 'lang', 'stop', 'on', 'help'].map(command => ({ command, description: T[l].commands[command] }))
