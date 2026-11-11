@@ -1716,6 +1716,10 @@
         "claimRejected": {
           "title": "Сұрау расталмады",
           "text": "«{{tournament}}»: ұйымдастырушы «{{speaker}}» спикері сіз екеніңізді растамады."
+        },
+        "tournamentTomorrow": {
+          "title": "Ертең турнир",
+          "text": "«{{tournament}}» — {{date}}, {{city}}. Жеребе хабарламаға келеді."
         }
       },
       "judge": {
@@ -1734,6 +1738,10 @@
         "ballotEdited": {
           "title": "Бюллетеніңіз өзгертілді",
           "text": "«{{tournament}}», {{round}}, {{room}}: {{by}} бюллетеніңізді енгізді немесе түзетті."
+        },
+        "tournamentTomorrow": {
+          "title": "Ертең сіз төрешісіз",
+          "text": "«{{tournament}}» — {{date}}, {{city}}. Тағайындау жеребеден кейін келеді."
         }
       },
       "organizer": {

@@ -9,6 +9,7 @@ import { personName } from '../lib/names.js'
 import { editMessage, linkable, sendMessage, type InlineButton, type TgMessage } from '../lib/telegram.js'
 import { asLang, fromTelegram, type Lang } from './botTexts.js'
 import { F } from './botFlowTexts.js'
+import { menuOptions } from './botMenuTexts.js'
 import { asUser, explain } from './botApi.js'
 import { rulesOf } from './formats.js'
 import { publicWhere } from './tournaments.js'
@@ -96,7 +97,7 @@ async function registrationStep(msg: TgMessage, step: string, data: Data) {
     }
     await endDialog(chat)
     await sendVerification(user).catch(() => undefined)
-    await say(chat, t.registered(user.name))
+    await sendMessage(chat, t.registered(user.name), menuOptions(l))
     // the sign-up started from "Sign in with Telegram" on the site: now confirm that sign-in
     if (typeof data.login === 'string') await askLogin(chat, user, data.login)
     return
@@ -184,10 +185,10 @@ async function clubStep(msg: TgMessage, user: User, step: string) {
 
 // ---------- an application ----------
 
-async function openTournaments(userId: string) {
+async function openTournaments(userId: string, id?: string) {
   return prisma.tournament.findMany({
     where: {
-      ...publicWhere, status: 'registration', registrationOpen: true, kind: { not: 'local' },
+      ...publicWhere, ...(id && { id }), status: 'registration', registrationOpen: true, kind: { not: 'local' },
       registrations: { none: { userId, status: { not: 'rejected' } } },
     },
     orderBy: { startDate: 'asc' }, take: 20,
@@ -204,6 +205,17 @@ export async function onApply(chat: string, user: User) {
   const list = await openTournaments(user.id)
   if (!list.length) return say(chat, t.noOpen(site('/tournaments')))
   return say(chat, t.pickTournament, list.map(x => [{ text: `${x.name} · ${x.city}, ${toDay(x.startDate).split('-').reverse().slice(0, 2).join('.')}`, callback_data: `apply:t:${x.id}` }]))
+}
+
+// "Apply" on a tournament's card: the same checks as /apply (a club, its review, a team), then this tournament
+export async function applyTo(chat: string, user: User, tournamentId: string) {
+  const t = F[asLang(user.language)]
+  const m = await membershipOf(user.id)
+  if (!m) return say(chat, t.noClub)
+  if (m.club.status !== 'approved') return say(chat, t.clubPending)
+  if (!m.team) return say(chat, t.noTeam)
+  if (!(await openTournaments(user.id, tournamentId)).length) return say(chat, t.noOpen(site(`/tournaments/${tournamentId}`)))
+  return applyPick(chat, user, tournamentId)
 }
 
 async function applyPick(chat: string, user: User, tournamentId: string) {
@@ -330,7 +342,7 @@ export async function continueDialog(msg: TgMessage, user: User | null) {
 // taps on the dialogs' buttons: true when handled here
 export async function flowCallback(chat: string, data: string, user: User | null, tgLang: string | undefined, messageId?: number) {
   const l = user ? asLang(user.language) : fromTelegram(tgLang), t = F[l]
-  if (data === 'flow:cancel') { await endDialog(chat); await say(chat, t.cancelled); return true }
+  if (data === 'flow:cancel') { await endDialog(chat); await sendMessage(chat, t.cancelled, user ? menuOptions(l) : {}); return true }
   if (data === 'reg:have') { await say(chat, t.haveAccountText(site('/me'))); return true }
   if (data === 'reg:start') {
     if (user) { await say(chat, t.alreadyRegistered(user.name)); return true }

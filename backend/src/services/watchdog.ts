@@ -3,6 +3,7 @@ import { fromDay, toDay, todayKz } from '../lib/dates.js'
 import { admins, notify, organizersOf } from './notify.js'
 import { autoFinish } from './autoFinish.js'
 
+// The day before a tournament its speakers and judges get a reminder (date, place, check-in on arrival).
 // Keeping tournaments alive, without banning people. Prevention first, a strike only when a tournament is abandoned:
 //   - 3 days before the start: the organizers are reminded if preliminary rounds still have no motion;
 //   - 1 day after the end: "finish the tournament" (results and certificates wait for it);
@@ -31,7 +32,7 @@ export async function giveStrike(userId: string, tournament: { id: string; name:
 
 // one pass over the tournaments; `today` (YYYY-MM-DD, Kazakhstan date) can be given by the e2e run
 export async function runWatchdog(today = todayKz(), now = new Date()) {
-  const done = { motionReminders: 0, finishReminders: 0, archived: 0, autoFinished: 0 }
+  const done = { motionReminders: 0, finishReminders: 0, archived: 0, autoFinished: 0, tomorrowReminders: 0 }
   // first the tournaments whose final is played: they finish by themselves, no reminder is needed
   done.autoFinished = await autoFinish(now)
   const live = await prisma.tournament.findMany({
@@ -41,6 +42,8 @@ export async function runWatchdog(today = todayKz(), now = new Date()) {
   for (const t of live) {
     const start = toDay(t.startDate), end = toDay(t.endDate)
     const toStart = days(today, start), sinceEnd = days(end, today)
+    // the day before: speakers and judges, once each (the reminder already sent is found among the notifications)
+    if (toStart === 1) done.tomorrowReminders += await remindTomorrow(t)
     // motions: once, in the last 3 days before the start
     if (toStart >= 0 && toStart <= 3 && !t.remindedMotionsAt && t.rounds.some(r => !r.motion.trim())) {
       await notify(await organizersOf(t.id), 'organizer.motionsMissing', { tournament: t.name, days: toStart }, `/dashboard/tournaments/${t.id}/rounds`)
@@ -64,6 +67,24 @@ export async function runWatchdog(today = todayKz(), now = new Date()) {
     }
   }
   return done
+}
+
+async function remindTomorrow(t: { id: string; name: string; city: string; venue: string | null; startDate: Date; checkinCode: string | null }) {
+  const link = `/tournaments/${t.id}`
+  const [teams, regs, judges, sent] = await Promise.all([
+    prisma.speaker.findMany({ where: { userId: { not: null }, team: { tournamentId: t.id, swing: false, withdrawnAt: null } }, select: { userId: true } }),
+    // the applicant of a confirmed team, even when the speakers are not linked to accounts
+    prisma.teamRegistration.findMany({ where: { tournamentId: t.id, status: 'confirmed' }, select: { userId: true } }),
+    prisma.judge.findMany({ where: { tournamentId: t.id, userId: { not: null } }, select: { userId: true } }),
+    prisma.notification.findMany({ where: { link, type: { in: ['participant.tournamentTomorrow', 'judge.tournamentTomorrow'] } }, select: { userId: true } }),
+  ])
+  const done = new Set(sent.map(n => n.userId))
+  const judgeIds = new Set(judges.map(j => j.userId!).filter(id => !done.has(id)))
+  const speakerIds = new Set([...teams, ...regs].map(x => x.userId!).filter(id => !done.has(id) && !judgeIds.has(id)))
+  const data = { tournament: t.name, date: toDay(t.startDate).split('-').reverse().slice(0, 2).join('.'), city: t.city, ...(t.venue && { venue: t.venue }), checkin: !!t.checkinCode }
+  if (speakerIds.size) await notify([...speakerIds], 'participant.tournamentTomorrow', data, link)
+  if (judgeIds.size) await notify([...judgeIds], 'judge.tournamentTomorrow', data, link)
+  return speakerIds.size + judgeIds.size
 }
 
 // runs every 15 minutes in the API process (one process per server: see deploy/README.md): a finished final turns

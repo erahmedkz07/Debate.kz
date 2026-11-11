@@ -2,7 +2,8 @@ import type { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../lib/prisma.js'
 import { env } from '../lib/env.js'
 import { linkable, sendMessage, telegramEnabled, TelegramError, type InlineButton, type SendOptions } from '../lib/telegram.js'
-import { asLang, buttonLabel, renderNotification } from './botTexts.js'
+import { asLang, buttonLabel, renderNotification, type Lang } from './botTexts.js'
+import { M, registrationButtons } from './botMenuTexts.js'
 import { getStandings, motionFor } from './tournaments.js'
 import { campNames, resultOf, sideLabel, sidesInDebate } from './formats.js'
 import { finalPlaces } from './playoffs.js'
@@ -35,17 +36,22 @@ export async function inbox(userIds: (string | null | undefined)[], type: string
   if (to.length) await prisma.notification.createMany({ data: to.map(userId => ({ userId, type, data, link })) })
 }
 
+// what only the Telegram copy has: more lines of text and buttons that act right in the chat
+export interface TelegramExtra { text?: (l: Lang) => string; buttons?: (l: Lang) => InlineButton[][] }
+
 // Telegram copy of a notification, for people who linked the bot and did not mute it
-async function telegram(userIds: (string | null | undefined)[], type: string, data: Data, link?: string) {
+async function telegram(userIds: (string | null | undefined)[], type: string, data: Data, link?: string, extra?: TelegramExtra) {
   if (!telegramEnabled()) return
   const ids = uniq(userIds)
   if (!ids.length) return
   const users = await prisma.user.findMany({ where: { id: { in: ids }, telegramChatId: { not: null }, telegramNotify: true, blocked: false } })
   for (const [i, u] of users.entries()) {
     const lang = asLang(u.language)
-    const text = renderNotification(type, data as Record<string, unknown>, lang)
-    if (!text) continue
-    const [body, opts] = link ? withLink(text, buttonLabel(type, lang), link) : [text, {}]
+    const rendered = renderNotification(type, data as Record<string, unknown>, lang)
+    if (!rendered) continue
+    const text = `${rendered}${extra?.text?.(lang) ?? ''}`
+    const buttons = extra?.buttons?.(lang) ?? []
+    const [body, opts] = link ? withLink(text, buttonLabel(type, lang), link, buttons) : [text, buttons.length ? { buttons } : {}]
     try {
       await sendMessage(u.telegramChatId!, body, opts)
     } catch (e) {
@@ -60,9 +66,9 @@ async function telegram(userIds: (string | null | undefined)[], type: string, da
 }
 
 // one event: the notification centre and Telegram
-export async function notify(userIds: (string | null | undefined)[], type: string, data: Data, link?: string) {
+export async function notify(userIds: (string | null | undefined)[], type: string, data: Data, link?: string, extra?: TelegramExtra) {
   await inbox(userIds, type, data, link)
-  await telegram(userIds, type, data, link)
+  await telegram(userIds, type, data, link, extra)
 }
 
 export const organizersOf = async (tournamentId: string) =>
@@ -151,11 +157,20 @@ export async function notifyBreakAnnounced(tournamentId: string) {
 
 // a team applied: the tournament's organizers should review it
 export async function notifyNewRegistration(regId: string) {
-  const r = await prisma.teamRegistration.findUnique({ where: { id: regId }, include: { tournament: { select: { id: true, name: true } } } })
+  const r = await prisma.teamRegistration.findUnique({
+    where: { id: regId },
+    include: { tournament: { select: { id: true, name: true, maxTeams: true, _count: { select: { teams: { where: { swing: false } } } } } } },
+  })
   if (!r) return
   const to = await organizersOf(r.tournamentId)
   const link = `/dashboard/tournaments/${r.tournamentId}/registrations`
-  await notify(to, 'organizer.newRegistration', { tournament: r.tournament.name, team: r.teamName }, link)
+  // in Telegram: who the speakers are, how many places are taken, and the decision in one tap
+  const info = { speakers: r.speakers, institution: r.institution, taken: r.tournament._count.teams, max: r.tournament.maxTeams }
+  await notify(to, 'organizer.newRegistration', { tournament: r.tournament.name, team: r.teamName }, link, {
+    text: l => M[l].regInfo(info),
+    // an application confirmed at once (no review needed) has nothing left to decide
+    ...((r.status === 'pending' || r.status === 'waitlisted') && { buttons: l => registrationButtons(l, r.id) }),
+  })
 }
 
 export async function notifyRegistration(regId: string) {
