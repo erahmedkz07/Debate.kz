@@ -5,7 +5,7 @@ import { animate, motion, useInView } from 'framer-motion'
 import {
   ArrowRight, Bell, CheckCircle2, ClipboardCheck, Gavel, Languages, Plus, Quote, Radio, Shuffle, Sparkles, Trophy, UserPlus, Users,
 } from 'lucide-react'
-import { getLive, getPlans, getPlatformStats, getTestimonials, getUpcomingTournaments } from '@/api'
+import { getHomeTournaments, getLive, getPlans, getPlatformStats, getTelegramConfig, getTestimonials } from '@/api'
 import { useAuth } from '@/lib/auth'
 import { images } from '@/mocks/images'
 import { useAsync } from '@/lib/hooks'
@@ -13,7 +13,7 @@ import { FREE_TEAM_LIMIT } from '@/lib/plans'
 import { formatNumber, initials } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ErrorState, Skeleton } from '@/components/ui/states'
-import { Ornament, OrnamentPattern } from '@/components/brand'
+import { Ornament, OrnamentPattern, TelegramIcon } from '@/components/brand'
 import { Reveal } from '@/components/motion'
 import { TournamentCard, TournamentCardSkeleton } from '@/components/tournament/TournamentCard'
 import { quoted } from '@/lib/motion'
@@ -163,23 +163,59 @@ function HowItWorks() {
   )
 }
 
+// Never an empty block: tournaments taking applications, else the ones going on, else the latest results,
+// else an invitation to hold the first one (with the bot that tells about new tournaments)
 function Upcoming() {
   const { t } = useTranslation()
-  const { data, loading, error, reload } = useAsync(() => getUpcomingTournaments(3))
+  const { data, loading, error, reload } = useAsync(() => getHomeTournaments(3))
+  const mode = data?.mode ?? 'open'
   return (
     <section className="bg-muted/50 py-20 sm:py-28">
       <div className="container-page">
         <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
-          <SectionTitle center={false} title={t('home.upcoming.title')} subtitle={t('home.upcoming.subtitle')} />
-          <Button asChild variant="outline" className="shrink-0"><Link to="/tournaments">{t('common.viewAll')}<ArrowRight className="size-4" /></Link></Button>
+          <SectionTitle center={false} title={t(`home.upcoming.${mode}.title`)} subtitle={t(`home.upcoming.${mode}.subtitle`)} />
+          <Button asChild variant="outline" className="shrink-0"><Link to={mode === 'past' ? '/tournaments?status=finished' : '/tournaments'}>{t('common.viewAll')}<ArrowRight className="size-4" /></Link></Button>
         </div>
-        <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {error ? <div className="sm:col-span-2 lg:col-span-3"><ErrorState onRetry={reload} /></div>
-            : loading || !data ? Array.from({ length: 3 }, (_, i) => <TournamentCardSkeleton key={i} />)
-              : data.map((item, i) => <Reveal key={item.id} delay={i * 0.1}><TournamentCard t={item} /></Reveal>)}
-        </div>
+        {error ? <div className="mt-10"><ErrorState onRetry={reload} /></div>
+          : mode === 'empty' ? <NoTournamentsYet />
+            : (
+              <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {loading || !data ? Array.from({ length: 3 }, (_, i) => <TournamentCardSkeleton key={i} />)
+                  : data.list.map((item, i) => <Reveal key={item.id} delay={i * 0.1}><TournamentCard t={item} /></Reveal>)}
+                {/* fewer tournaments than places in the row: the free place invites to hold one */}
+                {data && data.list.length < 3 && <Reveal delay={data.list.length * 0.1} className={data.list.length === 1 ? 'lg:col-span-2' : ''}><NoTournamentsYet compact /></Reveal>}
+              </div>
+            )}
       </div>
     </section>
+  )
+}
+
+// no tournaments at all: a large invitation; a free place in the row: the same as a tile
+function NoTournamentsYet({ compact = false }: { compact?: boolean }) {
+  const { t } = useTranslation()
+  const { data: tg } = useAsync(getTelegramConfig)
+  const box = compact
+    ? 'flex h-full min-h-80 items-center rounded-2xl border-2 border-dashed border-primary/30 bg-card/60 p-8 text-center'
+    : 'mt-10 rounded-3xl border border-border bg-card p-8 text-center shadow-sm sm:p-12'
+  const Wrap = compact ? 'div' : Reveal
+  return (
+    <Wrap className={`relative overflow-hidden ${box}`}>
+      <OrnamentPattern className="pointer-events-none absolute inset-0 opacity-[0.04]" />
+      <div className="relative mx-auto flex max-w-xl flex-col items-center">
+        <span className="flex size-16 items-center justify-center rounded-2xl bg-primary-soft text-primary"><Trophy className="size-8" /></span>
+        <h3 className={`mt-5 font-extrabold tracking-tight ${compact ? 'text-xl' : 'text-2xl'}`}>{t(compact ? 'home.upcoming.moreTitle' : 'home.upcoming.emptyTitle')}</h3>
+        <p className="mt-2 text-muted-foreground">{t(compact ? 'home.upcoming.moreText' : 'home.upcoming.emptyText')}</p>
+        <div className="mt-7 flex flex-wrap justify-center gap-3">
+          <Button asChild size={compact ? 'md' : 'lg'}><Link to="/dashboard/tournaments/new"><Plus className="size-5" />{t('home.hero.create')}</Link></Button>
+          {tg?.enabled && tg.username && (
+            <Button asChild size={compact ? 'md' : 'lg'} variant="outline">
+              <a href={`https://t.me/${tg.username}`} target="_blank" rel="noreferrer"><TelegramIcon className="size-5" />{t('home.upcoming.emptyBot')}</a>
+            </Button>
+          )}
+        </div>
+      </div>
+    </Wrap>
   )
 }
 

@@ -28,6 +28,19 @@ export const getTournaments = (f: TournamentFilters = {}) =>
 export const getUpcomingTournaments = (limit = 3) =>
   http<Tournament[]>('GET', `/tournaments${qs({ status: 'registration', sort: 'date-asc', limit })}`)
 
+// The home page never shows an empty block: tournaments taking applications first, then the ones going on now,
+// then the latest finished ones (their results). `mode` names what leads, so the heading can say it.
+export type HomeTournamentsMode = 'open' | 'live' | 'past' | 'empty'
+export async function getHomeTournaments(limit = 3): Promise<{ mode: HomeTournamentsMode; list: Tournament[] }> {
+  const [open, live, past] = await Promise.all([
+    getUpcomingTournaments(limit),
+    http<Tournament[]>('GET', `/tournaments${qs({ status: 'ongoing', sort: 'date-asc', limit })}`),
+    http<Tournament[]>('GET', `/tournaments${qs({ status: 'finished', sort: 'date-desc', limit })}`),
+  ])
+  const mode: HomeTournamentsMode = open.length ? 'open' : live.length ? 'live' : past.length ? 'past' : 'empty'
+  return { mode, list: [...open, ...live, ...past].slice(0, limit) }
+}
+
 export const getTournamentById = (id: string) => or404(http<TournamentDetails>('GET', `/tournaments/${encodeURIComponent(id)}`))
 
 export const getStandings = (id: string) =>
