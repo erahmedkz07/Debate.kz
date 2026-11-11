@@ -9,7 +9,7 @@ import { personName } from '../lib/names.js'
 import { editMessage, linkable, sendMessage, type InlineButton, type TgMessage } from '../lib/telegram.js'
 import { asLang, fromTelegram, type Lang } from './botTexts.js'
 import { F } from './botFlowTexts.js'
-import { menuOptions } from './botMenuTexts.js'
+import { M, menuOptions } from './botMenuTexts.js'
 import { asUser, explain } from './botApi.js'
 import { rulesOf } from './formats.js'
 import { publicWhere } from './tournaments.js'
@@ -40,7 +40,7 @@ const say = (chat: string, text: string, buttons?: InlineButton[][]) => sendMess
 
 export async function greet(msg: TgMessage) {
   const chat = String(msg.chat.id), l = fromTelegram(msg.from?.language_code)
-  return say(chat, F[l].welcome, [[{ text: F[l].register, callback_data: 'reg:start' }], [{ text: F[l].haveAccount, callback_data: 'reg:have' }]])
+  return say(chat, F[l].welcome, [[{ text: F[l].register, callback_data: 'reg:start' }], [{ text: F[l].haveAccount, callback_data: 'reg:have' }], [{ text: M[l].subscribeButton, callback_data: 'sb:show' }]])
 }
 
 export async function startRegistration(chat: string, l: Lang, extra: Data = {}) {
@@ -318,6 +318,36 @@ async function checkinStep(msg: TgMessage, user: User, data: Data) {
   return say(chat, t.checkedIn(r.data?.team ?? ''))
 }
 
+// ---------- an announcement to the whole tournament (organizers) ----------
+
+export async function onAnnounce(chat: string, user: User, tid: string) {
+  const l = asLang(user.language)
+  const t = await prisma.tournament.findUnique({ where: { id: tid }, select: { name: true } })
+  // only the tournament's organizers (and admins) write to everyone in it
+  const allowed = user.role === 'admin' || !!(await prisma.tournamentOrganizer.findFirst({ where: { tournamentId: tid, userId: user.id } }))
+  if (!t || !allowed) return say(chat, M[l].notFound)
+  await setDialog(chat, 'announce.text', { lang: l, tid, tname: t.name })
+  return say(chat, M[l].announceAsk(t.name), [cancelRow(l)])
+}
+
+async function announceStep(msg: TgMessage, user: User, data: Data) {
+  const chat = String(msg.chat.id), l = asLang(user.language), m = M[l]
+  const text = (msg.text ?? '').trim()
+  if (text.length < 3 || text.length > 1000) return say(chat, m.announceBad, [cancelRow(l)])
+  await setDialog(chat, 'announce.confirm', { ...data, text })
+  return say(chat, m.announcePreview(String(data.tname), text), [[{ text: m.announceSend, callback_data: 'an:send' }, { text: m.announceEdit, callback_data: `an:${data.tid}` }], cancelRow(l)])
+}
+
+async function announceSend(chat: string, user: User) {
+  const l = asLang(user.language), m = M[l]
+  const d = await dialogOf(chat)
+  if (d?.step !== 'announce.confirm') return say(chat, F[l].expired)
+  const r = await asUser<{ sent: number }>(user, 'POST', `/tournaments/${d.data.tid}/announcements`, { text: d.data.text })
+  if (r.status === 429) return say(chat, m.announceSoon)
+  await endDialog(chat)
+  return say(chat, r.ok ? m.announceDone(r.data?.sent ?? 0) : explain(l, r.error, F[l].failed))
+}
+
 // ---------- routing ----------
 
 // a message while a dialog is open: true when the dialog took it
@@ -335,6 +365,7 @@ export async function continueDialog(msg: TgMessage, user: User | null) {
   if (d.step.startsWith('club.')) await clubStep(msg, user, d.step)
   else if (d.step.startsWith('apply.')) await applyStep(msg, user, d.step, d.data)
   else if (d.step === 'checkin.code') await checkinStep(msg, user, d.data)
+  else if (d.step.startsWith('announce.')) await announceStep(msg, user, d.data)
   else { await endDialog(chat); return false }
   return true
 }
@@ -373,6 +404,8 @@ export async function flowCallback(chat: string, data: string, user: User | null
   }
   if (data === 'club:new') { await setDialog(chat, 'club.newteam', { lang: l }); await say(chat, t.askTeamName, [cancelRow(l)]); return true }
   if (data.startsWith('apply:t:')) { await applyPick(chat, user, data.slice('apply:t:'.length)); return true }
+  if (data === 'an:send') { await announceSend(chat, user); return true }
+  if (data.startsWith('an:')) { await onAnnounce(chat, user, data.slice(3)); return true }
   if (data.startsWith('checkin:t:')) { await checkinPick(chat, user, data.slice('checkin:t:'.length)); return true }
   if (data.startsWith('apply:')) {
     const d = await dialogOf(chat)

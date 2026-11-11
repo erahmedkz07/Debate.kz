@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { RichTextEditor } from '@/components/ui/rich-text-editor'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -10,7 +11,7 @@ import { errorMessage } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Input, Label, Textarea } from '@/components/ui/input'
+import { Input, Label } from '@/components/ui/input'
 import { ManageClub } from './ManageClub'
 import { CitySelect } from '@/components/ui/city-select'
 import { InstitutionSelect } from '@/components/ui/institution-select'
@@ -69,7 +70,7 @@ function NoClub({ onJoined }: { onJoined: () => Promise<void> }) {
             <div className="sm:col-span-2"><Label htmlFor="mc-name">{t('club.name')}</Label><Input id="mc-name" maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={t('club.namePlaceholder')} /></div>
             <div><Label htmlFor="mc-city">{t('common.city')}</Label><CitySelect id="mc-city" value={f.city} onChange={v => setF({ ...f, city: v })} allowCustom /></div>
             <div><Label htmlFor="mc-inst">{t('common.institution')}</Label><InstitutionSelect id="mc-inst" city={f.city} value={f.institution} onChange={v => setF({ ...f, institution: v })} /></div>
-            <div className="sm:col-span-2"><Label htmlFor="mc-desc">{t('club.description')}</Label><Textarea id="mc-desc" rows={3} maxLength={2000} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
+            <div className="sm:col-span-2"><Label htmlFor="mc-desc">{t('club.description')}</Label><RichTextEditor id="mc-desc" rows={6} maxLength={2000} value={f.description} onChange={v => setF({ ...f, description: v })} /></div>
             <div className="flex justify-end sm:col-span-2">
               <Button type="submit" disabled={!!busy || f.name.trim().length < 2 || f.city.trim().length < 2}>{busy === 'create' && <Loader2 className="size-4 animate-spin" />}{t('club.create')}</Button>
             </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { RichTextEditor } from '@/components/ui/rich-text-editor'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -17,7 +18,7 @@ import { LogoPicker } from './LogoPicker'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input, Label, Textarea } from '@/components/ui/input'
+import { Input, Label } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
 import { CitySelect } from '@/components/ui/city-select'
@@ -287,7 +288,7 @@ function MemberTools({ club, onDone, onLeft }: { club: ClubDetails; onDone: () =
             <div className="sm:col-span-2"><Label htmlFor="c-name">{t('club.name')}</Label><Input id="c-name" maxLength={80} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
             <div><Label htmlFor="c-city">{t('common.city')}</Label><CitySelect id="c-city" value={f.city} onChange={v => setF({ ...f, city: v })} allowCustom /></div>
             <div><Label htmlFor="c-inst">{t('common.institution')}</Label><InstitutionSelect id="c-inst" city={f.city} value={f.institution} onChange={v => setF({ ...f, institution: v })} /></div>
-            <div className="sm:col-span-2"><Label htmlFor="c-desc">{t('club.description')}</Label><Textarea id="c-desc" rows={4} maxLength={2000} value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
+            <div className="sm:col-span-2"><Label htmlFor="c-desc">{t('club.description')}</Label><RichTextEditor id="c-desc" rows={6} maxLength={2000} value={f.description} onChange={v => setF({ ...f, description: v })} /></div>
             <div className="flex justify-end gap-2 sm:col-span-2">
               <DialogClose asChild><Button type="button" variant="ghost">{t('common.cancel')}</Button></DialogClose>
               <Button type="submit" disabled={busy || f.name.trim().length < 2 || f.city.trim().length < 2}>{t('common.save')}</Button>

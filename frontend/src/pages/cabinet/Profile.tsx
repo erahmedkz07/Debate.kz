@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { AlertCircle, Award, Shield, BadgeCheck, Bell, BellOff, Building2, CalendarDays, CheckCircle2, ChevronRight, DoorOpen, ExternalLink, KeyRound, Mail, MapPin, Phone, RefreshCw, Send, Settings, ShieldCheck, Swords, Trash2, Star, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
-import { type MyDebate, changePassword, createTelegramLink, deleteAccount, getGoogleConfig, getMe, requestPasswordSetup, unlinkGoogle, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
+import { AlertCircle, Award, Shield, BadgeCheck, Bell, Building2, CalendarDays, CheckCircle2, ChevronRight, Gavel, DoorOpen, ExternalLink, Eye, EyeOff, KeyRound, Mail, MapPin, Phone, RefreshCw, Settings, ShieldCheck, Swords, Trash2, Star, TrendingUp, Trophy, Unlink, UserRound, Users } from 'lucide-react'
+import { type MyDebate, getJudgeAssignments, setProfileVisible, changePassword, createTelegramLink, deleteAccount, getGoogleConfig, getMe, requestPasswordSetup, unlinkGoogle, getMyDebates, getMyRegistrations, getTelegramConfig, setTelegramNotify, unlinkTelegram, updateProfile } from '@/api'
 import { errorMessage } from '@/lib/errors'
 import type { TeamRegistration } from '@/types'
 import { useAuth } from '@/lib/auth'
@@ -15,12 +15,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
-import { Input, Label } from '@/components/ui/input'
+import { Input, Label, Switch } from '@/components/ui/input'
 import { SideTabsList, SideTabsTrigger, Tabs, TabsContent } from '@/components/ui/tabs'
 import { EmptyState, Skeleton } from '@/components/ui/states'
-import { OrnamentPattern } from '@/components/brand'
+import { OrnamentPattern, TelegramIcon } from '@/components/brand'
 import { ProgressPanel } from '@/components/profile/ProgressPanel'
 import { CertificatesPanel } from '@/components/profile/CertificatesPanel'
+import { JudgingPanel } from '@/components/profile/JudgingPanel'
 import { MyClub } from '@/components/club/MyClub'
 import { OnlineLink } from '@/components/tournament/OnlineLink'
 import { RateJudgesDialog } from '@/components/tournament/JudgeFeedback'
@@ -54,45 +55,71 @@ function TelegramCard() {
     if (me) signIn(me)
     if (me?.telegramLinked) { setLink(null); toast.success(t('telegram.connected')) } else toast(t('telegram.notYet'))
   })
+  // what the bot does, as four tiles
+  const features = [
+    { icon: CalendarDays, key: 'f1' }, { icon: CheckCircle2, key: 'f2' }, { icon: Bell, key: 'f3' }, { icon: KeyRound, key: 'f4' },
+  ] as const
   return (
-    <Card className="flex h-full flex-col p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="flex items-center gap-2 font-bold"><Send className="size-4 text-primary" />Telegram</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{t('telegram.text')}</p>
+    <Card className="flex h-full flex-col overflow-hidden">
+      {/* the Telegram-blue head: the bot, its status */}
+      <div className="relative bg-gradient-to-br from-[#2AABEE] to-[#1A6FB0] px-6 py-5 text-white">
+        <OrnamentPattern className="text-white/[0.08]" />
+        <div className="relative flex items-center gap-3">
+          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-white/15 backdrop-blur"><TelegramIcon className="size-6" /></span>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold">Telegram</h3>
+            <p className="truncate text-sm text-white/80">@{config.data.username}</p>
+          </div>
+          {user.telegramLinked
+            ? <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold"><CheckCircle2 className="size-3.5" />{t('telegram.linked')}</span>
+            : <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold">{t('telegram.notLinked')}</span>}
         </div>
-        {user.telegramLinked && <Badge variant="success"><CheckCircle2 className="size-3" />{t('telegram.linked')}{user.telegramUsername && ` · @${user.telegramUsername}`}</Badge>}
       </div>
-      <ul className="mb-5 mt-4 space-y-1.5 text-sm">
-        <li className="flex items-center gap-2"><Bell className="size-4 text-primary" />{t('telegram.f1')}</li>
-        <li className="flex items-center gap-2"><CheckCircle2 className="size-4 text-primary" />{t('telegram.f2')}</li>
-        <li className="flex items-center gap-2"><BadgeCheck className="size-4 text-primary" />{t('telegram.f3')}</li>
-        <li className="flex items-center gap-2"><Send className="size-4 text-primary" />{t('telegram.f4')}</li>
-      </ul>
-      {user.telegramLinked ? (
-        <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-border pt-4">
-          <p className="mr-auto text-sm">{user.phoneVerified ? <span className="flex items-center gap-1.5 text-success"><BadgeCheck className="size-4" />{t('telegram.phoneOk')}</span> : t('telegram.phoneHint')}</p>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => act(async () => { signIn(await setTelegramNotify(!user.telegramNotify)) })}>
-            {user.telegramNotify ? <><BellOff className="size-4" />{t('telegram.mute')}</> : <><Bell className="size-4" />{t('telegram.unmute')}</>}
-          </Button>
-          <Button size="sm" variant="ghost" className="text-danger" disabled={busy} onClick={() => act(async () => { signIn(await unlinkTelegram()); toast(t('telegram.unlinked')) })}>
-            <Unlink className="size-4" />{t('telegram.unlink')}
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-auto border-t border-border pt-4">
-          {link ? (
-            <div className="space-y-3">
-              <p className="text-sm">{t('telegram.step')}</p>
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="outline"><a href={link} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4" />{t('telegram.openAgain')}</a></Button>
-                <Button disabled={busy} onClick={refresh}><RefreshCw className="size-4" />{t('telegram.done')}</Button>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('telegram.linkTtl')}</p>
+      <div className="flex flex-1 flex-col p-6">
+        <p className="text-sm text-muted-foreground">{t('telegram.text')}</p>
+        <ul className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {features.map(({ icon: Icon, key }) => (
+            <li key={key} className="flex items-start gap-2.5 rounded-xl bg-muted/50 p-3 text-sm">
+              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-[#2AABEE]/15 text-[#1A8BC9]"><Icon className="size-4" /></span>
+              <span className="leading-snug">{t(`telegram.${key}`)}</span>
+            </li>
+          ))}
+        </ul>
+        {user.telegramLinked ? (
+          <div className="mt-auto space-y-3 pt-5">
+            <div className={cn('rounded-xl border border-border px-4 py-2', busy && 'pointer-events-none opacity-60')}>
+              <Switch checked={!!user.telegramNotify} onChange={v => void act(async () => { signIn(await setTelegramNotify(v)) })} label={t('telegram.notifySwitch')} />
             </div>
-          ) : <Button disabled={busy} onClick={connect}><Send className="size-4" />{t('telegram.connect', { bot: config.data.username })}</Button>}
-        </div>
-      )}
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="mr-auto text-sm">{user.phoneVerified
+                ? <span className="flex items-center gap-1.5 text-success"><BadgeCheck className="size-4" />{t('telegram.phoneOk')}</span>
+                : <span className="text-muted-foreground">{t('telegram.phoneHint')}</span>}</p>
+              <Button asChild size="sm" variant="outline"><a href={`https://t.me/${config.data.username}`} target="_blank" rel="noopener noreferrer"><TelegramIcon className="size-4" />{t('telegram.openBot')}</a></Button>
+              <Button size="sm" variant="ghost" className="text-danger" disabled={busy} onClick={() => act(async () => { signIn(await unlinkTelegram()); toast(t('telegram.unlinked')) })}>
+                <Unlink className="size-4" />{t('telegram.unlink')}
+              </Button>
+            </div>
+            {user.telegramUsername && <p className="text-xs text-muted-foreground">{t('telegram.account', { name: user.telegramUsername })}</p>}
+          </div>
+        ) : (
+          <div className="mt-auto pt-5">
+            {link ? (
+              <div className="space-y-3">
+                <p className="text-sm">{t('telegram.step')}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild variant="outline"><a href={link} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4" />{t('telegram.openAgain')}</a></Button>
+                  <Button disabled={busy} onClick={refresh}><RefreshCw className="size-4" />{t('telegram.done')}</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">{t('telegram.linkTtl')}</p>
+              </div>
+            ) : (
+              <Button disabled={busy} onClick={connect} className="w-full bg-[#2AABEE] text-white hover:bg-[#229ED9] sm:w-auto">
+                <TelegramIcon className="size-5" />{t('telegram.connect', { bot: config.data.username })}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
     </Card>
   )
 }
@@ -189,16 +216,40 @@ function DeleteAccountDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 }
 
 // password and account removal live here as compact rows; the forms open in dialogs
-// the public career page: every debater has one, open to everyone (the user decided against a "hide" switch)
+// the public career page and its switch (like on a phone, saved at once): off = the page is closed to others and
+// names in tables are no longer links to it; tournament results themselves stay public
 function PublicProfileCard() {
   const { t } = useTranslation()
-  const { user } = useAuth()
+  const { user, signIn } = useAuth()
+  const [busy, setBusy] = useState(false)
   if (!user) return null
+  const visible = !user.profileHidden
+  const toggle = async (v: boolean) => {
+    setBusy(true)
+    try {
+      signIn(await setProfileVisible(v))
+      toast.success(v ? t('person.shownToast') : t('person.hiddenToast'))
+    } catch (e) {
+      toast.error(errorMessage(e, t))
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <Card className="p-6">
-      <h3 className="flex items-center gap-2 font-bold"><UserRound className="size-4 text-primary" />{t('person.cardTitle')}</h3>
-      <p className="mt-1 text-sm text-muted-foreground">{t('person.cardText')}</p>
-      <Link to={`/people/${user.id}`} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">{t('person.open')} →</Link>
+      <div className="flex items-start gap-3">
+        <span className={cn('grid size-10 shrink-0 place-items-center rounded-xl', visible ? 'bg-primary-soft text-primary' : 'bg-muted text-muted-foreground')}>
+          {visible ? <Eye className="size-5" /> : <EyeOff className="size-5" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-bold">{t('person.cardTitle')}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{visible ? t('person.cardText') : t('person.cardHiddenText')}</p>
+        </div>
+      </div>
+      <div className={cn('mt-4 rounded-xl border border-border px-4 py-2', busy && 'pointer-events-none opacity-60')}>
+        <Switch checked={visible} onChange={v => void toggle(v)} label={t('person.switch')} />
+      </div>
+      <Link to={`/people/${user.id}`} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">{visible ? t('person.open') : t('person.preview')} →</Link>
     </Card>
   )
 }
@@ -278,6 +329,9 @@ export default function Profile() {
   // admins don't compete, so their participant data is not loaded at all
   const regs = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyRegistrations()), [user?.id])
   const debates = useAsync(() => (isAdmin ? Promise.resolve([]) : getMyDebates()), [user?.id])
+  // the rounds this person judged: the "Judging" section appears only for people who have judged
+  const judging = useAsync(() => (isAdmin ? Promise.resolve([]) : getJudgeAssignments()), [user?.id])
+  const judged = (judging.data?.length ?? 0) > 0
   // rating the judges of one of my debates
   const [rating, setRating] = useState<MyDebate | null>(null)
   const [form, setForm] = useState({ name: user!.name, phone: user!.phone ?? '', institution: user!.institution ?? '', city: user!.city ?? '' })
@@ -286,7 +340,7 @@ export default function Profile() {
   // the open section lives in the address (?tab=), so "back" returns to the section seen before
   const asked = params.get('tab') ?? (params.has('club') ? 'club' : null)
   const tab = params.has('welcome') || params.has('google') || params.has('google_error') ? 'settings'
-    : asked && ['club', 'registrations', 'debates', 'progress', 'certificates', 'settings'].includes(asked) ? asked : isAdmin ? 'settings' : !user?.clubTeam ? 'club' : 'registrations'
+    : asked && (['club', 'registrations', 'debates', 'progress', 'certificates', 'settings'].includes(asked) || (asked === 'judging' && (judged || judging.loading))) ? asked : isAdmin ? 'settings' : !user?.clubTeam ? 'club' : 'registrations'
   const setTab = (v: string) => { if (!shownInUrl('tab', v, tab)) setParams({ tab: v }, { preventScrollReset: true }) }
   // the server sends people back here after Google: ?welcome=1 (new account), ?google=linked, ?google_error=…
   useEffect(() => {
@@ -372,6 +426,7 @@ export default function Profile() {
             <SideTabsTrigger value="club"><Shield className="size-4" />{t('profile.tabs.club')}{!user.clubTeam && <span className="ml-auto size-2 rounded-full bg-danger" aria-label={t('club.required')} />}</SideTabsTrigger>
             <SideTabsTrigger value="registrations"><Users className="size-4" />{t('profile.tabs.registrations')}<Count n={regs.data?.length} /></SideTabsTrigger>
             <SideTabsTrigger value="debates"><Swords className="size-4" />{t('profile.tabs.debates')}<Count n={debates.data?.length} /></SideTabsTrigger>
+            {judged && <SideTabsTrigger value="judging"><Gavel className="size-4" />{t('profile.tabs.judging')}<Count n={judging.data?.length} /></SideTabsTrigger>}
             <SideTabsTrigger value="progress"><TrendingUp className="size-4" />{t('profile.tabs.progress')}</SideTabsTrigger>
             <SideTabsTrigger value="certificates"><Award className="size-4" />{t('profile.tabs.certificates')}</SideTabsTrigger>
             <SideTabsTrigger value="settings"><Settings className="size-4" />{t('profile.tabs.settings')}</SideTabsTrigger>
@@ -403,6 +458,10 @@ export default function Profile() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="judging" className="mt-0">
+          {judging.loading || !judging.data ? <Skeleton className="h-40" /> : <JudgingPanel items={judging.data} />}
         </TabsContent>
 
         <TabsContent value="debates" className="mt-0">

@@ -32,19 +32,19 @@ function siteButton(text: string, label: string, path: string, rows: InlineButto
 const dm = (d: Date) => toDay(d).split('-').reverse().slice(0, 2).join('.')
 const dates = (a: Date, b: Date) => (toDay(a) === toDay(b) ? `${dm(a)}.${toDay(a).slice(0, 4)}` : `${dm(a)} – ${dm(b)}.${toDay(b).slice(0, 4)}`)
 
-type CardRow = Awaited<ReturnType<typeof findCards>>[number]
-const cardSelect = {
+export type CardRow = Awaited<ReturnType<typeof findCards>>[number]
+export const cardSelect = {
   id: true, name: true, city: true, venue: true, startDate: true, endDate: true, format: true, level: true, status: true, maxTeams: true,
   registrationDeadline: true, registrationOpen: true, kind: true, registrationUrl: true, organizerName: true,
   _count: { select: { teams: { where: { swing: false } } } },
 } as const
-const findCards = (where: object, skip = 0, take = PAGE) =>
+export const findCards = (where: object, skip = 0, take = PAGE) =>
   prisma.tournament.findMany({ where: { ...publicWhere, ...where }, select: cardSelect, orderBy: [{ status: 'asc' }, { startDate: 'asc' }], skip, take })
 
 const deadlinePassed = (t: Pick<CardRow, 'registrationDeadline'>) => !!t.registrationDeadline && toDay(t.registrationDeadline) < todayKz()
-const canApply = (t: CardRow) => t.status === 'registration' && t.registrationOpen && t.kind !== 'local' && !deadlinePassed(t)
+export const canApply = (t: CardRow) => t.status === 'registration' && t.registrationOpen && t.kind !== 'local' && !deadlinePassed(t)
 
-function cardText(t: CardRow, l: Lang) {
+export function cardText(t: CardRow, l: Lang) {
   const m = M[l]
   return m.card({
     name: t.name, dates: dates(t.startDate, t.endDate), city: t.city, venue: t.venue ?? undefined, format: m.format[t.format] ?? t.format,
@@ -97,6 +97,8 @@ export async function onTournamentCard(chat: string, l: Lang, user: User | null,
   if (t.kind === 'local' && t.registrationUrl && t.status === 'registration') lines.push('', m.outside(t.registrationUrl))
   const rows: InlineButton[][] = []
   if (canApply(t)) rows.push([{ text: user ? m.apply : m.register, callback_data: user ? `ta:${t.id}` : 'reg:start' }])
+  // the organizer's tournament day: the round, the ballots, check-in; an announcement to everyone
+  if (roles.includes('organizer') && t.status !== 'finished') rows.push([{ text: m.dayButton, callback_data: `td:${t.id}` }, { text: m.announceButton, callback_data: `an:${t.id}` }])
   if (t.status !== 'registration') rows.push([{ text: m.table, callback_data: `tt:${t.id}` }, ...(user && t.status === 'ongoing' && roles.some(r => r !== 'organizer') ? [{ text: m.myDraw, callback_data: 'menu:next' }] : [])])
   const [text, opts] = siteButton(lines.join('\n'), m.onSite, roles.includes('organizer') ? `/dashboard/tournaments/${id}` : `/tournaments/${id}`, rows)
   return sendMessage(chat, text, opts)
@@ -130,7 +132,7 @@ const escName = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 
 export async function onResults(chat: string, user: User) {
   const l = asLang(user.language), m = M[l]
-  const p = await publicProfile(user.id)
+  const p = await publicProfile(user.id, user)
   const rows: ResultRow[] = p.speaker.tournaments.slice(0, 8).map(x => ({
     name: x.name, date: x.startDate.split('-').reverse().join('.'), team: x.team, place: x.place, teams: x.teams, inBreak: x.inBreak,
     speakerRank: 'speakerRank' in x ? x.speakerRank : undefined, average: 'average' in x ? x.average : undefined, live: x.status !== 'finished',
@@ -142,6 +144,47 @@ export async function onResults(chat: string, user: User) {
   const url = site('/me?tab=certificates')
   const buttons: InlineButton[][] = linkable(url) ? [[{ text: m.certificates, url }, { text: m.profile, url: site(`/people/${user.id}`) }]] : []
   return sendMessage(chat, linkable(url) ? lines.join('\n') : `${lines.join('\n')}\n\n${url}`, buttons.length ? { buttons } : {})
+}
+
+// ---------- 📊 the tournament day (organizers) ----------
+
+type Day = {
+  tournament: { id: string; name: string }
+  round: { id: string; name: string; status: string } | null
+  ballots: { done: number; total: number; waiting: { room: string; judges: { name: string; account: boolean }[] }[] }
+  checkin: { open: boolean; present: number; total: number; absent: string[] }
+}
+
+export async function onDay(chat: string, user: User, id: string) {
+  const l = asLang(user.language), m = M[l]
+  const r = await asUser<Day>(user, 'GET', `/tournaments/${id}/day`)
+  if (!r.ok || !r.data) return sendMessage(chat, explain(l, r.error, m.notFound))
+  const d = r.data
+  const lines = [m.dayHead(d.tournament.name), '']
+  if (!d.round) lines.push(m.dayNoRound)
+  else {
+    lines.push(m.dayRound(d.round.name, d.round.status === 'released'), m.dayBallots(d.ballots.done, d.ballots.total))
+    if (d.ballots.waiting.length) {
+      lines.push('', m.dayWaiting, ...d.ballots.waiting.slice(0, 15).map(w => m.dayRoom(w.room, w.judges.map(j => escName(j.name) + (j.account ? '' : ` (${m.noAccount})`)).join(', '))))
+      if (d.ballots.waiting.length > 15) lines.push(`… +${d.ballots.waiting.length - 15}`)
+    } else if (d.round.status === 'released') lines.push('', m.dayAllIn)
+  }
+  if (d.checkin.open || d.checkin.present) {
+    lines.push('', m.dayCheckin(d.checkin.present, d.checkin.total))
+    if (d.checkin.absent.length && d.checkin.absent.length < d.checkin.total) lines.push(m.dayAbsent(d.checkin.absent.slice(0, 10), Math.max(0, d.checkin.absent.length - 10)))
+  }
+  const rows: InlineButton[][] = []
+  if (d.round?.status === 'released' && d.ballots.waiting.length) rows.push([{ text: m.remind, callback_data: `rj:${d.round.id}` }])
+  rows.push([{ text: m.refresh, callback_data: `td:${id}` }, { text: m.announceButton, callback_data: `an:${id}` }])
+  const [text, opts] = siteButton(lines.join('\n'), m.manage, `/dashboard/tournaments/${id}/rounds`, rows)
+  return sendMessage(chat, text, opts)
+}
+
+async function onRemind(chat: string, user: User, roundId: string) {
+  const l = asLang(user.language), m = M[l]
+  const r = await asUser<{ sent: number; withoutAccount: number }>(user, 'POST', `/rounds/${roundId}/remind-judges`)
+  if (!r.ok || !r.data) return sendMessage(chat, explain(l, r.error, T[l].open))
+  return sendMessage(chat, r.data.sent ? m.reminded(r.data.sent, r.data.withoutAccount) : m.remindedNone(r.data.withoutAccount))
 }
 
 // ---------- an organizer decides on an application from the notification ----------
@@ -165,6 +208,8 @@ export async function menuCallback(chat: string, data: string, user: User | null
   if (data.startsWith('tt:')) { await onTable(chat, l, user, data.slice(3)); return true }
   if (!user) return false
   if (data.startsWith('ta:')) { await applyTo(chat, user, data.slice(3)); return true }
+  if (data.startsWith('td:')) { await onDay(chat, user, data.slice(3)); return true }
+  if (data.startsWith('rj:')) { await onRemind(chat, user, data.slice(3)); return true }
   if (data.startsWith('rd:')) {
     const [, regId, status] = data.split(':')
     if (['confirmed', 'waitlisted', 'rejected'].includes(status)) await decideRegistration(chat, user, regId, status, message)

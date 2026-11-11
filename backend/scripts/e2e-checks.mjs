@@ -4089,6 +4089,219 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(/Жақын турнирлер/.test(await all(H)), 'and the Kazakh buttons work')
 }
 
+// ---------- "show my public profile": off closes the career page to others, names lose the link ----------
+{
+  const hp = await newAccount('Жасырын Профиль')
+  ok((await client()('GET', `/people/${hp.id}`)).status === 200, 'a profile is open by default')
+  r = await hp.c('PUT', '/me/profile-visibility', { visible: false })
+  ok(r.status === 200 && r.data.user.profileHidden === true, 'the person switches the public profile off')
+  ok((await client()('GET', `/people/${hp.id}`)).status === 404, 'others cannot open it any more')
+  r = await hp.c('GET', `/people/${hp.id}`)
+  ok(r.status === 200 && r.data.hidden === true, 'the person still sees their own page, marked as hidden')
+  ok((await admin('GET', `/people/${hp.id}`)).status === 200, 'an admin can open it')
+  ok((await client()('PUT', '/me/profile-visibility', { visible: false })).status === 401, 'only for a signed-in person')
+  // a speaker slot of a public tournament linked to this account: the name stays, the link goes
+  const slot = (await db.query(`select s.id, tm.tournament_id from speakers s join teams tm on tm.id = s.team_id join tournaments t on t.id = tm.tournament_id
+    where s.user_id is null and t.visible and t.moderation = 'approved' and t.abandoned_at is null and not tm.swing limit 1`)).rows[0]
+  if (slot) {
+    await db.query('update speakers set user_id = $1 where id = $2', [hp.id, slot.id])
+    // the public page of a tournament is kept for 5 seconds
+    const fresh5 = () => new Promise(res => setTimeout(res, 5500))
+    await fresh5()
+    const sp = (await client()('GET', `/tournaments/${slot.tournament_id}`)).data.teams.flatMap(x => x.speakers).find(x => x.id === slot.id)
+    ok(sp?.hidden === true, 'in the tournament the speaker is marked hidden (the name is not a link)')
+    const page = (await client()('GET', `/tournaments/${slot.tournament_id}/speakers/${slot.id}`)).data
+    ok(page.hidden === true && page.userId === undefined, "the speaker's tournament page has no link to the career")
+    await hp.c('PUT', '/me/profile-visibility', { visible: true })
+    await fresh5()
+    const sp2 = (await client()('GET', `/tournaments/${slot.tournament_id}`)).data.teams.flatMap(x => x.speakers).find(x => x.id === slot.id)
+    ok(sp2?.userId === hp.id && !sp2.hidden, 'switched back on, the name links to the career again')
+    await db.query('update speakers set user_id = null where id = $1', [slot.id])
+  }
+}
+
+// ---------- the tournament day in the bot: the round, ballots, check-in, reminders to judges, announcements ----------
+{
+  const botC = client()
+  let u = 90000
+  const send = (chatId, fields) => botC('POST', '/telegram/test/update', { update_id: ++u + 900000, message: { message_id: u, from: { id: chatId }, chat: { id: chatId, type: 'private' }, ...fields } })
+  const tap = (chatId, data) => botC('POST', '/telegram/test/update', { update_id: ++u + 900000, callback_query: { id: `dy${u}`, from: { id: chatId }, data, message: { message_id: 3, chat: { id: chatId, type: 'private' }, text: '' } } })
+  const said = async chatId => (await botC('GET', `/telegram/test/outbox?chat=${chatId}`)).data.filter(m => m.method === 'sendMessage')
+  const all = async chatId => (await said(chatId)).map(m => m.text ?? '').join('\n')
+  const last = async chatId => (await said(chatId)).at(-1)?.text ?? ''
+  const buttons = async chatId => (await said(chatId)).flatMap(m => m.reply_markup?.inline_keyboard?.flat() ?? []).map(b => b.callback_data ?? '')
+  const link = async (acc, chatId) => { const url = (await acc.c('POST', '/me/telegram/link')).data.url; await send(chatId, { text: `/start ${url.split('start=')[1]}` }) }
+  const sleep = ms => new Promise(res => setTimeout(res, ms))
+  const reminders = async userId => Number((await db.query("select count(*) from notifications where user_id = $1 and type = 'judge.ballotReminder'", [userId])).rows[0].count)
+
+  const host = await newAccount('Турнир Күні Иесі')
+  const day0 = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Almaty' }).format(new Date())
+  const td = (await host.c('POST', '/tournaments', { ...tBody(701), name: `Турнир күні ${jtag}`, startDate: day0, endDate: day0, maxTeams: 8 })).data
+  await admin('PATCH', `/admin/tournaments/${td.id}`, { moderation: 'approved' })
+  for (const n of ['Күн А', 'Күн Б', 'Күн В', 'Күн Г']) await host.c('POST', `/tournaments/${td.id}/teams`, { name: n, institution: `Мектеп ${n}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+  const judgeAcc = await newAccount('Күн Төрешісі')
+  const inv = (await host.c('POST', `/tournaments/${td.id}/invites`, { kind: 'judge' })).data.url
+  await judgeAcc.c('POST', `/invites/${inv.split('/invite/')[1]}/accept`)
+  await host.c('POST', `/tournaments/${td.id}/judges/bulk`, { names: ['Аккаунтсыз Төреші'] })
+  await host.c('PATCH', `/tournaments/${td.id}`, { status: 'ongoing' })
+  const r1 = (await host.c('GET', `/tournaments/${td.id}`)).data.rounds[0]
+  ok((await host.c('POST', `/rounds/${r1.id}/draw`, { addSwing: false })).status === 201, 'the tournament day: the draw is made')
+  await host.c('PATCH', `/rounds/${r1.id}`, { motion: 'Бұл палата мектеп формасын жояды', status: 'released' })
+  ok(!!(await db.query('select released_at from rounds where id = $1', [r1.id])).rows[0].released_at, 'the moment of publishing is kept (for the late-ballot reminder)')
+
+  const dayInfo = (await host.c('GET', `/tournaments/${td.id}/day`)).data
+  ok(dayInfo.round?.id === r1.id && dayInfo.ballots.total === 2 && dayInfo.ballots.done === 0 && dayInfo.ballots.waiting.length === 2
+    && dayInfo.ballots.waiting.some(w => w.judges.some(j => j.name === 'Күн Төрешісі' && j.account)) && dayInfo.ballots.waiting.some(w => w.judges.some(j => !j.account))
+    && dayInfo.checkin.total === 4, 'the day: the round, 0 of 2 ballots, which judges are late (with or without an account), check-in')
+  ok((await judgeAcc.c('GET', `/tournaments/${td.id}/day`)).status === 403, 'only organizers see the tournament day')
+
+  const O = 7600000 + Math.floor(Math.random() * 99999), J = O + 1, X = O + 2
+  await link(host, O); await link(judgeAcc, J)
+  // the watchdog: too early for a reminder
+  await admin('POST', '/admin/watchdog/run', { now: new Date(Date.now() + 30 * 60_000).toISOString() })
+  ok(await reminders(judgeAcc.id) === 0, 'half an hour after the draw: no ballot reminder yet')
+
+  await send(O, { text: '/next' })
+  ok((await buttons(O)).includes(`td:${td.id}`) && (await buttons(O)).includes(`an:${td.id}`), '"now" offers the organizer the tournament day and an announcement')
+  await tap(O, `td:${td.id}`)
+  ok(/ход турнира/.test(await last(O)) && /Бюллетени: <b>0 из 2<\/b>/.test(await last(O)) && /Күн Төрешісі/.test(await last(O)) && /без аккаунта/.test(await last(O)), 'the day screen in the bot: ballots and the late judges')
+  ok((await buttons(O)).includes(`rj:${r1.id}`), 'with a "remind the judges" button')
+  await tap(O, `rj:${r1.id}`)
+  ok(/Напоминание отправлено судьям: <b>1<\/b>/.test(await last(O)) && /напомните лично: <b>1<\/b>/.test(await last(O)), 'one judge reminded in Telegram, one without an account to remind in person')
+  ok(/бюллетень ещё не сдан/.test(await all(J)) && await reminders(judgeAcc.id) === 1, 'the judge gets the reminder with the ballot link')
+  await tap(O, `rj:${r1.id}`)
+  ok(await reminders(judgeAcc.id) === 1 && /напомните лично/.test(await last(O)), 'a second tap right after reminds nobody twice')
+  ok((await judgeAcc.c('POST', `/rounds/${r1.id}/remind-judges`)).status === 403, 'only organizers remind')
+  // the watchdog after 90 minutes: one reminder per judge and debate, the organizer's counts
+  await admin('POST', '/admin/watchdog/run', { now: new Date(Date.now() + 91 * 60_000).toISOString() })
+  ok(await reminders(judgeAcc.id) === 1, 'the watchdog does not repeat a reminder already sent')
+  await db.query("delete from notifications where user_id = $1 and type = 'judge.ballotReminder'", [judgeAcc.id])
+  await admin('POST', '/admin/watchdog/run', { now: new Date(Date.now() + 91 * 60_000).toISOString() })
+  ok(await reminders(judgeAcc.id) === 1, '90 minutes after the draw a late judge is reminded by itself')
+
+  // an announcement to everyone in the tournament
+  await tap(O, `an:${td.id}`)
+  ok(/Напишите текст/.test(await last(O)), 'the organizer starts an announcement')
+  await send(O, { text: 'ok' })
+  ok(/от 3 до 1000/.test(await last(O)), 'too short a text is asked again')
+  await send(O, { text: 'Сбор в актовом зале в 10:30 <b>не жирный</b>' })
+  ok(/Так увидят все/.test(await last(O)) && (await buttons(O)).includes('an:send') && /&lt;b&gt;/.test(await last(O)), 'the preview shows the text (safely) before sending')
+  await tap(O, 'an:send')
+  ok(/Объявление отправлено: <b>1<\/b>/.test(await last(O)), 'sent: the judge with an account (the teams have no accounts here)')
+  ok(/объявление организатора/.test(await all(J)) && /Сбор в актовом зале в 10:30/.test(await all(J)), 'the judge reads it in Telegram')
+  ok((await notes(judgeAcc.c)).items.some(n => n.type === 'participant.announcement' && n.data.text.startsWith('Сбор')), 'and in the notifications on the site')
+  ok((await host.c('POST', `/tournaments/${td.id}/announcements`, { text: 'Ещё одно сразу' })).status === 429, 'the next announcement only after a minute')
+  ok((await judgeAcc.c('POST', `/tournaments/${td.id}/announcements`, { text: 'Я не организатор' })).status === 403, 'only organizers announce')
+  // someone else taps an organizer's button
+  await send(X, { text: '/start' })
+  const stranger = await newAccount('Бөгде Адам')
+  await link(stranger, X)
+  await tap(X, `an:${td.id}`)
+  ok(!(await db.query('select 1 from bot_dialogs where chat_id = $1', [String(X)])).rows.length, "a stranger cannot start an announcement for someone else's tournament")
+  await sleep(1)
+}
+
+// ---------- the bot for growth: subscription to new tournaments, ratings in one tap, sharing in any chat ----------
+{
+  const botC = client()
+  let u = 120000
+  const send = (chatId, fields) => botC('POST', '/telegram/test/update', { update_id: ++u + 900000, message: { message_id: u, from: { id: chatId }, chat: { id: chatId, type: 'private' }, ...fields } })
+  const tap = (chatId, data) => botC('POST', '/telegram/test/update', { update_id: ++u + 900000, callback_query: { id: `gr${u}`, from: { id: chatId }, data, message: { message_id: 4, chat: { id: chatId, type: 'private' }, text: '' } } })
+  const out = async chatId => (await botC('GET', `/telegram/test/outbox?chat=${chatId}`)).data
+  const said = async chatId => (await out(chatId)).filter(m => m.method === 'sendMessage')
+  const all = async chatId => (await said(chatId)).map(m => m.text ?? '').join('\n')
+  const last = async chatId => (await said(chatId)).at(-1)?.text ?? ''
+  const buttons = async chatId => (await said(chatId)).flatMap(m => m.reply_markup?.inline_keyboard?.flat() ?? []).map(b => b.callback_data ?? b.url ?? '')
+  const sleep = ms => new Promise(res => setTimeout(res, ms))
+  const waitFor = async check => { for (let i = 0; i < 25; i++) { if (await check()) return true; await sleep(200) } return false }
+
+  // a subscription without an account
+  const S = 7700000 + Math.floor(Math.random() * 99999), S2 = S + 1, P = S + 2
+  await send(S, { text: '/start' })
+  ok((await buttons(S)).includes('sb:show'), 'a new chat is offered the subscription to new tournaments')
+  await send(S, { text: '/subscribe' })
+  ok(/не подписаны/.test(await last(S)) && (await buttons(S)).includes('sb:city'), '/subscribe works without an account')
+  await tap(S, 'sb:city')
+  ok((await buttons(S)).includes('sb:c:Астана') && (await buttons(S)).includes('sb:c:*'), 'the cities to choose, and "all cities"')
+  await tap(S, 'sb:c:Астана')
+  ok((await buttons(S)).includes('sb:l:school:Астана'), 'then the level')
+  await tap(S, 'sb:l:school:Астана')
+  ok(/Готово/.test(await last(S)), 'subscribed')
+  const subRow = (await db.query('select * from bot_subscribers where chat_id = $1', [String(S)])).rows[0]
+  ok(subRow?.city === 'Астана' && subRow.level === 'school', 'the subscription is kept: Astana, schools')
+  await send(S2, { text: '/start' }); await tap(S2, 'sb:city'); await tap(S2, 'sb:c:Алматы'); await tap(S2, 'sb:l:university:Алматы')
+
+  // a school tournament in Astana opens: the matching subscriber gets its card, once
+  const host = await newAccount('Жазылым Турнир Иесі')
+  const gname = `Жазылым турнирі ${jtag}`
+  const gt = (await host.c('POST', '/tournaments', { ...tBody(801), name: gname, kind: 'open', city: 'Астана' })).data
+  await admin('PATCH', `/admin/tournaments/${gt.id}`, { moderation: 'approved' })
+  ok(await waitFor(async () => (await all(S)).includes(gname)), 'approved with registration open: the Astana school subscriber gets the card')
+  ok(/Открыта регистрация/.test(await all(S)) && (await buttons(S)).includes('reg:start') && (await buttons(S)).includes(`tc:${gt.id}`), 'with "sign up" (no account yet) and "details"')
+  ok(!(await all(S2)).includes(gname), 'the Almaty university subscriber does not')
+  await host.c('PATCH', `/tournaments/${gt.id}`, { registrationOpen: true })
+  await admin('PATCH', `/admin/tournaments/${gt.id}`, { moderation: 'approved' })
+  await sleep(500)
+  ok((await all(S)).split(gname).length - 1 === 1, 'the same tournament is announced once')
+  await tap(S, 'sb:off')
+  ok(!(await db.query('select 1 from bot_subscribers where chat_id = $1', [String(S)])).rows.length, 'unsubscribing removes the subscription')
+
+  // sharing in any chat: "@bot name" gives the card to send
+  await botC('POST', '/telegram/test/update', { update_id: ++u + 900000, inline_query: { id: `iq${u}`, from: { id: S }, query: gname.slice(0, 14) } })
+  const answer = (await botC('GET', '/telegram/test/outbox')).data.filter(m => m.method === 'answerInlineQuery').at(-1)
+  const card = answer?.results?.find(x => x.id === gt.id)
+  ok(card?.title === gname && card.input_message_content.message_text.includes(gname) && card.reply_markup.inline_keyboard[0][0].url.endsWith(`?start=t_${gt.id}`), 'inline mode: the tournament card with a link into the bot')
+  await send(S, { text: `/start t_${gt.id}` })
+  ok((await last(S)).includes(gname) && /Команд:/.test(await last(S)), 'the shared link opens the tournament card in the bot')
+
+  // ratings: the judges after a round, the tournament after it ends
+  const rt = (await host.c('POST', '/tournaments', { ...tBody(802), name: `Бағалау турнирі ${jtag}`, maxTeams: 8 })).data
+  await admin('PATCH', `/admin/tournaments/${rt.id}`, { moderation: 'approved' })
+  for (const n of ['Баға А', 'Баға Б', 'Баға В', 'Баға Г']) await host.c('POST', `/tournaments/${rt.id}/teams`, { name: n, institution: `Мектеп ${n}`, speakers: ['Ааа Ббб', 'Ввв Ггг', 'Ддд Еее'] })
+  await host.c('POST', `/tournaments/${rt.id}/judges/bulk`, { names: ['Баға Төреші Бір', 'Баға Төреші Екі'] })
+  const player = await newAccount('Баға Спикері')
+  const slot = (await db.query("select s.id from speakers s join teams t on t.id = s.team_id where t.tournament_id = $1 and t.name = 'Баға А' order by s.position limit 1", [rt.id])).rows[0]
+  await db.query('update speakers set user_id = $1 where id = $2', [player.id, slot.id])
+  const url = (await player.c('POST', '/me/telegram/link')).data.url
+  await send(P, { text: `/start ${url.split('start=')[1]}` })
+  await host.c('PATCH', `/tournaments/${rt.id}`, { status: 'ongoing' })
+  const round = (await host.c('GET', `/tournaments/${rt.id}`)).data.rounds[0]
+  await host.c('POST', `/rounds/${round.id}/draw`, { addSwing: false })
+  await host.c('PATCH', `/rounds/${round.id}`, { motion: 'Бұл палата бағалауды қолдайды', status: 'released' })
+  for (const d of (await host.c('GET', `/tournaments/${rt.id}`)).data.debates.filter(x => x.roundId === round.id)) {
+    await panelVote(d.id, bd => {
+      const sc = {}
+      bd.proposition.speakers.forEach(x => (sc[x.id] = 74)); bd.opposition.speakers.forEach(x => (sc[x.id] = 73))
+      return { winner: 'proposition', scores: sc, reply: { proposition: 36, opposition: 35 }, replySpeakers: { proposition: bd.proposition.speakers[0].id, opposition: bd.opposition.speakers[0].id } }
+    })
+  }
+  ok((await host.c('PATCH', `/rounds/${round.id}`, { status: 'completed' })).status === 200, 'ratings: the round is completed')
+  ok(await waitFor(async () => (await buttons(P)).some(b => b.startsWith('fr:'))), 'the result comes with "rate the judges"')
+  const fr = (await buttons(P)).find(b => b.startsWith('fr:'))
+  await tap(P, fr)
+  const star = (await buttons(P)).find(b => b.startsWith('fs:') && b.endsWith(':4'))
+  ok(!!star && /Оцените судей/.test(await all(P)), 'each judge with five stars')
+  await tap(P, star)
+  const [, debateId, judgeId] = star.split(':')
+  ok(/Спасибо! ⭐⭐⭐⭐/.test(await last(P)) && (await db.query('select score from judge_feedback where debate_id = $1 and judge_id = $2 and user_id = $3', [debateId, judgeId, player.id])).rows[0]?.score === 4,
+    'one tap: the judge is rated (the organizers see it)')
+  await tap(P, `fs:${debateId}:${judgeId}:2`)
+  ok((await db.query('select score from judge_feedback where debate_id = $1 and judge_id = $2 and user_id = $3', [debateId, judgeId, player.id])).rows[0]?.score === 2, 'another star changes the rating')
+  const other = 7799999
+  const stranger = await newAccount('Бөгде Бағалаушы')
+  const surl = (await stranger.c('POST', '/me/telegram/link')).data.url
+  await send(other, { text: `/start ${surl.split('start=')[1]}` })
+  await tap(other, `fs:${debateId}:${judgeId}:1`)
+  ok(!(await db.query('select 1 from judge_feedback where debate_id = $1 and user_id = $2', [debateId, stranger.id])).rows.length, 'someone outside the debate cannot rate its judges')
+  // the tournament
+  r = await host.c('PATCH', `/tournaments/${rt.id}`, { status: 'finished' })
+  if (r.status === 200) {
+    ok(await waitFor(async () => (await buttons(P)).includes(`rt:${rt.id}:5`)), 'the tournament ends: the stars come with the question')
+    await tap(P, `rt:${rt.id}:5`)
+    ok(/Спасибо за оценку/.test(await last(P)) && Number((await db.query('select count(*) from tournament_reviews where tournament_id = $1 and user_id = $2', [rt.id, player.id])).rows[0].count) === 1, 'one tap: the tournament is rated')
+  }
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')

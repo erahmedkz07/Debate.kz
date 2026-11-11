@@ -14,6 +14,7 @@ import { PageHeader } from '@/components/layout/Layout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { RichText } from '@/components/ui/rich-text'
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/input'
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states'
@@ -77,7 +78,8 @@ export default function ClubPage() {
 
   return (
     <>
-      <PageHeader title={data.name} subtitle={data.description || t('club.noDescription')} back={<BackButton fallback="/clubs" />}
+      {/* the description is formatted text (paragraphs, lists): it has its own block below, the header keeps the name */}
+      <PageHeader title={data.name} subtitle={data.description ? undefined : t('club.noDescription')} back={<BackButton fallback="/clubs" />}
         media={<EntityLogo src={data.logoUrl} name={data.name} size="xl" className="shadow-md sm:size-24" />}>
         <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
           <span className="flex items-center gap-1.5"><MapPin className="size-4 text-primary" />{data.city}</span>
@@ -100,6 +102,12 @@ export default function ClubPage() {
             {data.status === 'rejected' ? <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" /> : <Clock className="mt-0.5 size-4 shrink-0" />}
             <span>{data.status === 'rejected' ? t('club.rejectedNote', { reason: data.moderationNote ?? '' }) : t('club.pendingNote')}</span>
           </p>
+        )}
+        {data.description && (
+          <section>
+            <h2 className="mb-4 text-xl font-bold">{t('club.about')}</h2>
+            <Card className="max-w-3xl p-6 sm:p-7"><RichText text={data.description} className="text-[15px] text-muted-foreground" /></Card>
+          </section>
         )}
         <section>
           <h2 className="mb-4 text-xl font-bold">{t('club.teams')}</h2>
