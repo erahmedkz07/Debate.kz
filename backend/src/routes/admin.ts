@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { notifySubscribers } from '../services/botGrowth.js'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { badRequest, notFound } from '../lib/errors.js'
@@ -110,6 +111,8 @@ adminRouter.patch('/admin/tournaments/:id', async (req, res) => {
   if (d.moderation) {
     background(notifyModeration(t.id, t.name, d.moderation, d.moderationNote))
   }
+  // approved (or shown again) with registration open: the bot's subscribers hear about it, once
+  if (d.moderation === 'approved' || d.visible) background(notifySubscribers(t.id))
   if (d.moderation && owner) {
     const approved = d.moderation === 'approved'
     await sendMail({

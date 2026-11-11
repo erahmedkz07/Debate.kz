@@ -1762,6 +1762,10 @@
         "tournamentTomorrow": {
           "title": "Ертең турнир",
           "text": "«{{tournament}}» — {{date}}, {{city}}. Жеребе хабарламаға келеді."
+        },
+        "announcement": {
+          "title": "Ұйымдастырушының хабарландыруы",
+          "text": "«{{tournament}}»: {{text}}"
         }
       },
       "judge": {
@@ -1784,6 +1788,10 @@
         "tournamentTomorrow": {
           "title": "Ертең сіз төрешісіз",
           "text": "«{{tournament}}» — {{date}}, {{city}}. Тағайындау жеребеден кейін келеді."
+        },
+        "ballotReminder": {
+          "title": "Бюллетень әлі тапсырылмаған",
+          "text": "«{{tournament}}» · {{round}}, {{room}} аудиториясы: бюллетеньді толтырыңыз — командалар нәтижені күтіп отыр."
         }
       },
       "organizer": {

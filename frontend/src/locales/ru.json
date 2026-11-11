@@ -1830,6 +1830,10 @@
         "tournamentTomorrow": {
           "title": "Завтра турнир",
           "text": "«{{tournament}}» — {{date}}, {{city}}. Жеребьёвка придёт в уведомления."
+        },
+        "announcement": {
+          "title": "Объявление организатора",
+          "text": "«{{tournament}}»: {{text}}"
         }
       },
       "judge": {
@@ -1852,6 +1856,10 @@
         "tournamentTomorrow": {
           "title": "Завтра вы судите",
           "text": "«{{tournament}}» — {{date}}, {{city}}. Назначение придёт после жеребьёвки."
+        },
+        "ballotReminder": {
+          "title": "Бюллетень ещё не сдан",
+          "text": "«{{tournament}}» · {{round}}, аудитория {{room}}: заполните бюллетень — команды ждут результат."
         }
       },
       "organizer": {

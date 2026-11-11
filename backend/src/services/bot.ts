@@ -9,7 +9,8 @@ import { motionFor } from './tournaments.js'
 import { continueDialog, endDialog, flowCallback, greet, onApply, onCheckin, onClub, onLoginLink, startRegistration } from './botFlows.js'
 import { F } from './botFlowTexts.js'
 import { M, menuCommand, menuOptions } from './botMenuTexts.js'
-import { menuCallback, onFind, onResults, sendMenu } from './botMenu.js'
+import { menuCallback, onFind, onResults, onTournamentCard, sendMenu } from './botMenu.js'
+import { growthCallback, onInlineQuery, onSubscribe } from './botGrowth.js'
 
 // Telegram bot logic (transport-independent: fed by long polling, or by e2e in test mode).
 // Private chats only. Linking: the site creates a one-time token -> t.me/<bot>?start=<token>.
@@ -33,6 +34,7 @@ const langButtons = (): InlineButton[] => LANGS.map(l => ({ text: l === 'kz' ? '
 const settingsButtons = (u: User): InlineButton[][] => [
   langButtons(),
   [u.telegramNotify ? { text: T[langOf(u)].turnOff, callback_data: 'notify:off' } : { text: T[langOf(u)].turnOn, callback_data: 'notify:on' }],
+  [{ text: M[langOf(u)].subscribeButton, callback_data: 'sb:show' }],
 ]
 const meText = (u: User) => T[langOf(u)].me(u.name, !!u.phoneVerifiedAt, u.telegramNotify)
 
@@ -42,6 +44,9 @@ async function onStart(msg: TgMessage, token: string | undefined) {
   const guess = current ? langOf(current) : fromTelegram(msg.from?.language_code)
   // "Sign in with Telegram" on the site, and "Sign up in Telegram" from the sign-up page
   if (token?.startsWith('login_')) return onLoginLink(msg, token.slice('login_'.length), current)
+  // "subscribe to new tournaments" from the site, and a tournament's card shared in a chat (start=t_<id>)
+  if (token === 'subscribe') return onSubscribe(chat, guess)
+  if (token?.startsWith('t_')) return onTournamentCard(chat, guess, current, token.slice(2))
   if (token === 'register') {
     if (current) return sendMessage(chat, F[guess].alreadyRegistered(current.name))
     return startRegistration(chat, guess)
@@ -136,7 +141,11 @@ async function onNext(chat: string, user: User) {
     }), t.open, `/ballot/${d.id}`])
   }
   for (const o of organizing) parts.push([t.nextOrganizer({ tournament: o.name, count: o._count.registrations }), t.open, `/dashboard/tournaments/${o.id}/registrations`])
-  if (!parts.length) return sendMessage(chat, t.nothingNow)
+  // an organizer on the tournament day: the round, the ballots and check-in in one tap
+  const running = await prisma.tournament.findMany({ where: { status: 'ongoing', organizers: { some: { userId: user.id } } }, select: { id: true, name: true }, take: 5 })
+  const m = M[langOf(user)]
+  for (const x of running) await sendMessage(chat, m.nextDay(x.name), { buttons: [[{ text: m.dayButton, callback_data: `td:${x.id}` }, { text: m.announceButton, callback_data: `an:${x.id}` }]] })
+  if (!parts.length && !running.length) return sendMessage(chat, t.nothingNow)
   // one message per item, each with its own button: a judge opens the ballot in one tap
   for (const [text, label, path] of parts) {
     const url = site(path)
@@ -182,6 +191,7 @@ async function onCallback(cb: TgCallback) {
   if (cb.data && await flowCallback(chat, cb.data, user, cb.from.language_code, cb.message?.message_id)) return answerCallback(cb.id)
   // the menu's buttons: finding a tournament, its card and table, an organizer's decision on an application
   if (cb.data === 'menu:next' && user) { await answerCallback(cb.id); return onNext(chat, user) }
+  if (cb.data && await growthCallback(chat, cb.data, user, cb.from.language_code)) return answerCallback(cb.id)
   if (cb.data && await menuCallback(chat, cb.data, user, user ? langOf(user) : fromTelegram(cb.from.language_code), cb.message)) return answerCallback(cb.id)
   if (!user) {
     await answerCallback(cb.id)
@@ -209,6 +219,7 @@ async function onCallback(cb: TgCallback) {
 const command = (text: string) => text.split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
 
 export async function handleUpdate(update: TgUpdate) {
+  if (update.inline_query) return onInlineQuery(update.inline_query)
   if (update.callback_query) return onCallback(update.callback_query)
   const msg = update.message
   if (!msg || msg.chat.type !== 'private') return // groups are ignored
@@ -224,6 +235,7 @@ export async function handleUpdate(update: TgUpdate) {
   else if (await continueDialog(msg, user)) return
   // finding a tournament needs no account
   if (!user && command(text) === '/find') return onFind(chat, fromTelegram(msg.from?.language_code), null)
+  if (!user && command(text) === '/subscribe') return onSubscribe(chat, fromTelegram(msg.from?.language_code))
   if (!user) return greet(msg)
   const l = langOf(user), t = T[l]
   if (msg.contact) return onContact(msg, user)
@@ -232,6 +244,7 @@ export async function handleUpdate(update: TgUpdate) {
     case '/menu': return sendMenu(chat, l)
     case '/find': return onFind(chat, l, user)
     case '/results': return onResults(chat, user)
+    case '/subscribe': return onSubscribe(chat, l)
     case '/apply': return onApply(chat, user)
     case '/club': return onClub(chat, user)
     case '/checkin': return onCheckin(chat, user)
@@ -256,4 +269,4 @@ export async function handleUpdate(update: TgUpdate) {
 }
 
 // the "/" menu in Telegram, in each language
-export const botCommands = (l: Lang) => ['menu', 'next', 'find', 'apply', 'checkin', 'tournaments', 'results', 'club', 'me', 'lang', 'stop', 'on', 'help'].map(command => ({ command, description: T[l].commands[command] }))
+export const botCommands = (l: Lang) => ['menu', 'next', 'find', 'apply', 'checkin', 'tournaments', 'results', 'club', 'subscribe', 'me', 'lang', 'stop', 'on', 'help'].map(command => ({ command, description: T[l].commands[command] }))

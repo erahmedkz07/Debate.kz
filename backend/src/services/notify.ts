@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma.js'
 import { env } from '../lib/env.js'
 import { linkable, sendMessage, telegramEnabled, TelegramError, type InlineButton, type SendOptions } from '../lib/telegram.js'
 import { asLang, buttonLabel, renderNotification, type Lang } from './botTexts.js'
-import { M, registrationButtons } from './botMenuTexts.js'
+import { M, rateJudgesButton, registrationButtons, tournamentStars } from './botMenuTexts.js'
 import { getStandings, motionFor } from './tournaments.js'
 import { campNames, resultOf, sideLabel, sidesInDebate } from './formats.js'
 import { finalPlaces } from './playoffs.js'
@@ -123,6 +123,7 @@ export async function notifyRoundCompleted(roundId: string) {
         include: {
           proposition: { include: { speakers: { select: { userId: true } } } }, opposition: { include: { speakers: { select: { userId: true } } } },
           closingProposition: { include: { speakers: { select: { userId: true } } } }, closingOpposition: { include: { speakers: { select: { userId: true } } } },
+          judges: { select: { judgeId: true } },
         },
       },
     },
@@ -134,8 +135,10 @@ export async function notifyRoundCompleted(roundId: string) {
     const teams = { proposition: d.proposition, opposition: d.opposition, closingProposition: d.closingProposition, closingOpposition: d.closingOpposition }
     for (const { side } of sidesInDebate(d)) {
       // result: win / loss, or the place in BP (place1 … place4)
+      // in Telegram: "rate the judges" of this debate, one tap away
       await notify(teams[side]!.speakers.map(s => s.userId), 'participant.roundResult',
-        { tournament: round.tournament.name, round: round.name, result: resultOf(d, side) }, `/tournaments/${round.tournament.id}?tab=results`)
+        { tournament: round.tournament.name, round: round.name, result: resultOf(d, side) }, `/tournaments/${round.tournament.id}?tab=results`,
+        d.judges.length ? { buttons: l => rateJudgesButton(l, d.id) } : undefined)
     }
   }
 }
@@ -234,7 +237,8 @@ export async function notifyTournamentFinished(tournamentId: string) {
   await notify(t.judges.map(j => j.userId), 'judge.tournamentFinished', { tournament: t.name }, '/me?tab=certificates')
   // like rating a ride: everyone who took part is asked how the tournament went
   const people = [...t.teams.flatMap(x => x.speakers.map(s => s.userId)), ...t.judges.map(j => j.userId)]
-  await notify(people, 'participant.rateTournament', { tournament: t.name }, `/tournaments/${t.id}?tab=reviews`)
+  // in Telegram the stars are right under the question
+  await notify(people, 'participant.rateTournament', { tournament: t.name }, `/tournaments/${t.id}?tab=reviews`, { buttons: () => tournamentStars(t.id) })
   await notify(await organizersOf(t.id), 'organizer.tournamentFinished',
     { tournament: t.name, winner: t.teams.find(x => place.get(x.id) === 1)?.name ?? '', teams: st.teams.length }, `/dashboard/tournaments/${t.id}/results`)
 }

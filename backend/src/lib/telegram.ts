@@ -66,11 +66,13 @@ export function editMessage(chatId: string, messageId: number, text: string, opt
     reply_markup: opts.buttons ? { inline_keyboard: opts.buttons } : undefined,
   })
 }
+// the answer to "@bot words" typed in any chat: the cards to choose from (inline mode must be on in @BotFather)
+export const answerInline = (id: string, results: unknown[]) => call('answerInlineQuery', { inline_query_id: id, results, cache_time: 30, is_personal: false })
 // the "loading" spinner on an inline button stops only when the bot answers the tap
 export const answerCallback = (id: string, text?: string) => call('answerCallbackQuery', { callback_query_id: id, ...(text && { text }) })
 
 export const getUpdates = (offset: number) =>
-  call<TgUpdate[]>('getUpdates', { offset, timeout: 30, allowed_updates: ['message', 'callback_query'] })
+  call<TgUpdate[]>('getUpdates', { offset, timeout: 30, allowed_updates: ['message', 'callback_query', 'inline_query'] })
 // the command menu and the bot's profile texts; language_code "kk" = people whose Telegram is in Kazakh
 export const setCommands = (commands: { command: string; description: string }[], languageCode?: string) =>
   call('setMyCommands', { commands, ...(languageCode && { language_code: languageCode }) })
@@ -101,8 +103,10 @@ export interface TgCallback {
   data?: string
   message?: TgMessage
 }
+export interface TgInlineQuery { id: string; from: TgUser; query: string }
 export interface TgUpdate {
   update_id: number
   message?: TgMessage
   callback_query?: TgCallback
+  inline_query?: TgInlineQuery
 }

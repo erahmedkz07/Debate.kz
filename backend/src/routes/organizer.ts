@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express'
+import { notifySubscribers } from '../services/botGrowth.js'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { fromDay, isRealDay, toDay, todayKz } from '../lib/dates.js'
@@ -311,6 +312,8 @@ organizerRouter.patch('/tournaments/:id', org, async (req, res) => {
   }
   // a higher limit, a looser quota or another mode can open places for the waitlist
   if (d.maxTeams !== undefined || d.clubQuota !== undefined || d.selectionMode !== undefined) await withLock(`places:${cur.id}`, () => fillFromWaitlist(cur.id))
+  // registration opened (or the tournament shown again): the bot's subscribers hear about it, once
+  if (d.registrationOpen || d.visible || d.status === 'registration') background(notifySubscribers(cur.id))
   res.json(toSummary(t))
 })
 
@@ -772,7 +775,7 @@ organizerRouter.patch('/rounds/:roundId', org, oneAtATime(async (req, res) => {
     // completing a round locks all its ballots
     if (d.status === 'completed') await tx.debate.updateMany({ where: { roundId: round.id }, data: { ballotStatus: 'confirmed' } })
     // an emptied info slide is removed
-    return tx.round.update({ where: { id: round.id }, data: { ...d, ...(d.infoSlide !== undefined && { infoSlide: d.infoSlide || null }) } })
+    return tx.round.update({ where: { id: round.id }, data: { ...d, ...(d.infoSlide !== undefined && { infoSlide: d.infoSlide || null }), ...(d.status === 'released' && { releasedAt: new Date() }) } })
   })
   // participants and judges learn their rooms in Telegram
   if (d.status === 'released') background(notifyRoundReleased(round.id))

@@ -2,8 +2,10 @@ import { prisma } from '../lib/prisma.js'
 import { fromDay, toDay, todayKz } from '../lib/dates.js'
 import { admins, notify, organizersOf } from './notify.js'
 import { autoFinish } from './autoFinish.js'
+import { missingJudges } from '../routes/tournamentDay.js'
 
 // The day before a tournament its speakers and judges get a reminder (date, place, check-in on arrival).
+// BALLOT_REMINDER_MIN after a draw is published, a judge whose ballot is still missing gets one reminder.
 // Keeping tournaments alive, without banning people. Prevention first, a strike only when a tournament is abandoned:
 //   - 3 days before the start: the organizers are reminded if preliminary rounds still have no motion;
 //   - 1 day after the end: "finish the tournament" (results and certificates wait for it);
@@ -16,6 +18,8 @@ import { autoFinish } from './autoFinish.js'
 export const STRIKE_LIMIT = 3
 export const ABANDON_AFTER_DAYS = 7
 export const LATE_CANCEL_DAYS = 3
+// preparation (15–30 min) and the debate itself (about an hour): after that a ballot is late
+export const BALLOT_REMINDER_MIN = 90
 
 const days = (from: string, to: string) => Math.round((fromDay(to).getTime() - fromDay(from).getTime()) / 86_400_000)
 
@@ -32,9 +36,10 @@ export async function giveStrike(userId: string, tournament: { id: string; name:
 
 // one pass over the tournaments; `today` (YYYY-MM-DD, Kazakhstan date) can be given by the e2e run
 export async function runWatchdog(today = todayKz(), now = new Date()) {
-  const done = { motionReminders: 0, finishReminders: 0, archived: 0, autoFinished: 0, tomorrowReminders: 0 }
+  const done = { motionReminders: 0, finishReminders: 0, archived: 0, autoFinished: 0, tomorrowReminders: 0, ballotReminders: 0 }
   // first the tournaments whose final is played: they finish by themselves, no reminder is needed
   done.autoFinished = await autoFinish(now)
+  done.ballotReminders = await remindLateBallots(now)
   const live = await prisma.tournament.findMany({
     where: { status: { not: 'finished' }, abandonedAt: null, moderation: 'approved' },
     include: { rounds: { where: { kind: 'preliminary' }, select: { motion: true } }, organizers: { where: { role: 'owner' } } },
@@ -67,6 +72,31 @@ export async function runWatchdog(today = todayKz(), now = new Date()) {
     }
   }
   return done
+}
+
+// one reminder per judge and debate (one sent by the organizer counts too); judges without an account cannot get one
+async function remindLateBallots(now: Date) {
+  const rounds = await prisma.round.findMany({
+    where: { status: 'released', releasedAt: { lte: new Date(now.getTime() - BALLOT_REMINDER_MIN * 60_000) }, tournament: { status: { not: 'finished' } } },
+    include: {
+      tournament: { select: { name: true, format: true } },
+      debates: { select: { id: true, room: true, judges: { select: { judgeId: true, isChair: true, judge: { select: { name: true, userId: true } } } }, ballots: { select: { judgeId: true } } } },
+    },
+  })
+  let sent = 0
+  for (const r of rounds) {
+    for (const d of r.debates) {
+      for (const j of missingJudges(d, r.tournament.format)) {
+        const userId = j.judge.userId
+        if (!userId) continue
+        const link = `/ballot/${d.id}`
+        if (await prisma.notification.findFirst({ where: { userId, type: 'judge.ballotReminder', link } })) continue
+        await notify([userId], 'judge.ballotReminder', { tournament: r.tournament.name, round: r.name, room: d.room }, link)
+        sent++
+      }
+    }
+  }
+  return sent
 }
 
 async function remindTomorrow(t: { id: string; name: string; city: string; venue: string | null; startDate: Date; checkinCode: string | null }) {
