@@ -106,6 +106,10 @@ export const googleSignInUrl = (mode: 'login' | 'link', next?: string | null, la
 export const unlinkGoogle = () => http<{ user: User }>('DELETE', '/auth/google').then(r => r.user)
 // ---------- Telegram bot ----------
 export const getTelegramConfig = () => http<{ enabled: boolean; username?: string }>('GET', '/telegram/config')
+// "Sign in with Telegram": a bot link plus a secret this browser keeps; then asking until the person confirms in the bot
+export const startTelegramLogin = () => http<{ url: string; secret: string; expiresInSeconds: number }>('POST', '/auth/telegram/start')
+export const pollTelegramLogin = (secret: string) =>
+  http<{ status: 'pending' } | { status: 'ok'; user: User } | { status: 'two_factor'; ticket: string }>('POST', '/auth/telegram/poll', { secret })
 // the bot will speak the language the site is shown in right now
 export const createTelegramLink = (language: 'ru' | 'kz') => http<{ url: string; expiresInMinutes: number }>('POST', '/me/telegram/link', { language })
 export const setAccountLanguage = (language: 'ru' | 'kz') => http<{ user: User }>('PUT', '/me/language', { language }).then(r => r.user)

@@ -45,6 +45,8 @@ export function redactUrl(url: string) {
   return `${safePath}?${query}`
 }
 
+const isBotCall = (req: express.Request) => !req.headers['x-forwarded-for'] && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')
+
 export function createApp() {
   const app = express()
   app.disable('x-powered-by')
@@ -54,7 +56,8 @@ export function createApp() {
   // cookies are sent cross-origin only to the known frontend
   app.use(cors({ origin: env.CLIENT_ORIGIN, credentials: true }))
   // a ceiling against floods and scrapers, generous on purpose: a whole school class can share one address
-  if (isProd) app.use('/api', rateLimit({ windowMs: 60_000, limit: 1200, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' } }))
+  // (the Telegram bot's own calls come from this machine without a proxy header: they are every bot user's, not one address's)
+  if (isProd) app.use('/api', rateLimit({ windowMs: 60_000, limit: 1200, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'too_many_requests' }, skip: isBotCall }))
   app.use(express.json({ limit: '100kb' }))
   app.use(cookieParser())
   // secrets never reach the access log: Google's one-time code and state, invite tokens in the path

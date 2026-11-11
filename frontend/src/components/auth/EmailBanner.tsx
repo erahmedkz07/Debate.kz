@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Loader2, MailCheck, Send } from 'lucide-react'
 import { resendVerification } from '@/api'
-import { useAuth } from '@/lib/auth'
+import { useAuth, isVerified } from '@/lib/auth'
 import { errorMessage } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
 
@@ -33,7 +33,7 @@ export function ResendVerification() {
 export function EmailBanner() {
   const { t } = useTranslation()
   const { user } = useAuth()
-  if (!user || user.emailVerified) return null
+  if (!user || isVerified(user)) return null
   return (
     <div className="border-b border-accent/50 bg-accent-soft">
       <div className="mx-auto flex max-w-[90rem] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">

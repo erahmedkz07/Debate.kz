@@ -29,6 +29,9 @@ export function canOpen(u: User, path: string) {
   if (p.startsWith('/ballot/')) return staff || !!u.judges || !!u.organizes
   return !['/login', '/register', '/forgot-password', '/reset-password'].includes(p)
 }
+// a real person: a confirmed email, or a phone confirmed in Telegram (an account made in the bot) — the server's rule
+export const isVerified = (u?: { emailVerified?: boolean; phoneVerified?: boolean } | null) => !!(u?.emailVerified || u?.phoneVerified)
+
 export const landingFor = (u: User, next: string | null) => (next && canOpen(u, next) ? next : roleHome[u.role])
 
 interface AuthState {
@@ -47,8 +50,8 @@ const KEY = 'auth-user-v1'
 const remember = (u: User | null) => {
   try {
     if (!u) return localStorage.removeItem(KEY)
-    const { id, name, email, role, createdAt, emailVerified, organizes, judges, safeguardingOfficer } = u
-    localStorage.setItem(KEY, JSON.stringify({ id, name, email, role, createdAt, emailVerified, organizes, judges, safeguardingOfficer }))
+    const { id, name, email, role, createdAt, emailVerified, phoneVerified, organizes, judges, safeguardingOfficer } = u
+    localStorage.setItem(KEY, JSON.stringify({ id, name, email, role, createdAt, emailVerified, phoneVerified, organizes, judges, safeguardingOfficer }))
   } catch {
     // storage blocked: offline restore is simply unavailable
   }

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { AlertTriangle, Building2, Check, Clock, Flag, MapPin, Send, Settings, ShieldCheck, Users, X } from 'lucide-react'
 import { cancelClubRequest, getClub, NotFoundError, reportClub, requestToJoinClub } from '@/api'
-import { useAuth } from '@/lib/auth'
+import { useAuth, isVerified } from '@/lib/auth'
 import { useAsync } from '@/lib/hooks'
 import { errorMessage } from '@/lib/errors'
 import { Avatar } from '@/components/auth/UserMenu'
@@ -43,7 +43,7 @@ export default function ClubPage() {
 
   const openAsk = () => {
     if (!user) return setGate(true)
-    if (!user.emailVerified) return void toast.info(t('apiErrors.email_not_verified'))
+    if (!isVerified(user)) return void toast.info(t('apiErrors.email_not_verified'))
     setAsking(true)
   }
   const send = async () => {

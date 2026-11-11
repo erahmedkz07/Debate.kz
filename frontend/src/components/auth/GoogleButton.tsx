@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { getGoogleConfig, googleSignInUrl } from '@/api'
+import { getGoogleConfig, getTelegramConfig, googleSignInUrl } from '@/api'
 import { useAsync } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 
@@ -29,11 +29,12 @@ export function GoogleButton({ mode = 'login', next, label, className }: { mode?
   )
 }
 
-// "or" line between the Google button and the email form; hidden together with the button
+// "or" line between the Google / Telegram buttons and the email form; hidden when neither is on
 export function OrDivider() {
   const { t } = useTranslation()
   const { data } = useAsync(getGoogleConfig)
-  if (!data?.enabled) return null
+  const { data: telegram } = useAsync(getTelegramConfig)
+  if (!data?.enabled && !telegram?.enabled) return null
   return (
     <div className="my-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
       <span className="h-px flex-1 bg-border" />{t('google.or')}<span className="h-px flex-1 bg-border" />

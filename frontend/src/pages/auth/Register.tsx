@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { FieldError, Input, Label } from '@/components/ui/input'
 import { AuthLayout } from './AuthLayout'
 import { GoogleButton, OrDivider } from '@/components/auth/GoogleButton'
+import { TelegramSignUpLink } from '@/components/auth/TelegramLogin'
 
 // No role picker: everyone registers as a plain user. Organizing comes from creating a tournament,
 // judging from an organizer's invite, admin rights are granted only by another admin.
@@ -56,7 +57,10 @@ export default function Register() {
 
   return (
     <AuthLayout title={t('auth.registerTitle')} subtitle={t('auth.registerSubtitle')} image={images.studentsLaugh}>
-      <GoogleButton next={next} label={t('google.signUp')} />
+      <div className="space-y-3">
+        <TelegramSignUpLink />
+        <GoogleButton next={next} label={t('google.signUp')} />
+      </div>
       <GoogleConsentNote />
       <OrDivider />
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>

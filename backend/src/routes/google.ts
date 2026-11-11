@@ -178,7 +178,7 @@ googleRouter.get('/google/callback', limiter, async (req: Request, res: Response
           where: { id: byEmail.id },
           data: {
             googleId: c.sub, googleEmail: email,
-            ...(unverified && { emailVerifiedAt: new Date(), passwordHash: null, passwordChangedAt: new Date() }),
+            ...(unverified && { emailVerifiedAt: new Date(), passwordHash: null, passwordChangedAt: new Date(), telegramChatId: null, telegramUsername: null, verifiedPhone: null, phoneVerifiedAt: null }),
           },
         })
         await googleLinkedLetter(user, email, unverified && !!byEmail.passwordHash)

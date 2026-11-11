@@ -26,7 +26,7 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
 
 // Sends a fresh verification link; older unused links stay valid until they expire.
 // In development the raw token is also returned so automated tests can verify without a mailbox.
-async function sendVerification(user: User) {
+export async function sendVerification(user: User) {
   const { token, hash } = newToken()
   await prisma.emailToken.create({ data: { userId: user.id, purpose: 'verify_email', tokenHash: hash, expiresAt: new Date(Date.now() + VERIFY_TTL_MS) } })
   await verifyEmailLetter(user, token)
@@ -132,6 +132,8 @@ authRouter.post('/forgot-password', mailLimiter, async (req, res) => {
   res.json({ ok: true, ...(devToken && { devResetToken: devToken }) })
 })
 
+const notOwnersAnyMore = { telegramChatId: null, telegramUsername: null, verifiedPhone: null, phoneVerifiedAt: null }
+
 authRouter.post('/reset-password', limiter, async (req, res) => {
   const { token, password } = body(req, z.object({ token: z.string().min(20).max(200), password: z.string().min(8).max(128) }))
   const row = await prisma.emailToken.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: true } })
@@ -147,6 +149,9 @@ authRouter.post('/reset-password', limiter, async (req, res) => {
         passwordChangedAt: now,
         // the link came to this mailbox, so the address is confirmed as well
         emailVerifiedAt: row.user.emailVerifiedAt ?? now,
+        // the address was never confirmed: whoever made the account (e.g. in the bot with someone else's email) may not
+        // be this mailbox's owner — their Telegram and phone stop signing in here
+        ...(!row.user.emailVerifiedAt && notOwnersAnyMore),
       },
     }),
     prisma.emailToken.updateMany({ where: { userId: row.userId, purpose: 'reset_password', usedAt: null }, data: { usedAt: now } }),
