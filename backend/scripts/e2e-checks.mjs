@@ -4089,6 +4089,37 @@ ok((await notes(fresh)).items.some(n => n.type === 'organizer.tournamentFinished
   ok(/Жақын турнирлер/.test(await all(H)), 'and the Kazakh buttons work')
 }
 
+// ---------- "show my public profile": off closes the career page to others, names lose the link ----------
+{
+  const hp = await newAccount('Жасырын Профиль')
+  ok((await client()('GET', `/people/${hp.id}`)).status === 200, 'a profile is open by default')
+  r = await hp.c('PUT', '/me/profile-visibility', { visible: false })
+  ok(r.status === 200 && r.data.user.profileHidden === true, 'the person switches the public profile off')
+  ok((await client()('GET', `/people/${hp.id}`)).status === 404, 'others cannot open it any more')
+  r = await hp.c('GET', `/people/${hp.id}`)
+  ok(r.status === 200 && r.data.hidden === true, 'the person still sees their own page, marked as hidden')
+  ok((await admin('GET', `/people/${hp.id}`)).status === 200, 'an admin can open it')
+  ok((await client()('PUT', '/me/profile-visibility', { visible: false })).status === 401, 'only for a signed-in person')
+  // a speaker slot of a public tournament linked to this account: the name stays, the link goes
+  const slot = (await db.query(`select s.id, tm.tournament_id from speakers s join teams tm on tm.id = s.team_id join tournaments t on t.id = tm.tournament_id
+    where s.user_id is null and t.visible and t.moderation = 'approved' and t.abandoned_at is null and not tm.swing limit 1`)).rows[0]
+  if (slot) {
+    await db.query('update speakers set user_id = $1 where id = $2', [hp.id, slot.id])
+    // the public page of a tournament is kept for 5 seconds
+    const fresh5 = () => new Promise(res => setTimeout(res, 5500))
+    await fresh5()
+    const sp = (await client()('GET', `/tournaments/${slot.tournament_id}`)).data.teams.flatMap(x => x.speakers).find(x => x.id === slot.id)
+    ok(sp?.hidden === true, 'in the tournament the speaker is marked hidden (the name is not a link)')
+    const page = (await client()('GET', `/tournaments/${slot.tournament_id}/speakers/${slot.id}`)).data
+    ok(page.hidden === true && page.userId === undefined, "the speaker's tournament page has no link to the career")
+    await hp.c('PUT', '/me/profile-visibility', { visible: true })
+    await fresh5()
+    const sp2 = (await client()('GET', `/tournaments/${slot.tournament_id}`)).data.teams.flatMap(x => x.speakers).find(x => x.id === slot.id)
+    ok(sp2?.userId === hp.id && !sp2.hidden, 'switched back on, the name links to the career again')
+    await db.query('update speakers set user_id = null where id = $1', [slot.id])
+  }
+}
+
 // ---------- errors are written down ----------
 {
   const { existsSync, readFileSync } = await import('node:fs')

@@ -46,7 +46,8 @@ export const leaguesOf = (t: { leagues: unknown }) => {
 }
 
 export const teamInclude = {
-  institution: true, speakers: { orderBy: { position: 'asc' } },
+  // the speaker's account: whether its career page is shown (a hidden one keeps the name, loses the link)
+  institution: true, speakers: { orderBy: { position: 'asc' }, include: { user: { select: { profileHidden: true } } } },
   club: { select: { id: true, name: true, logoUrl: true } }, clubTeam: { select: { id: true, name: true, logoUrl: true } },
 } satisfies Prisma.TeamInclude
 type TeamRow = Prisma.TeamGetPayload<{ include: typeof teamInclude }>
@@ -54,7 +55,8 @@ type TeamRow = Prisma.TeamGetPayload<{ include: typeof teamInclude }>
 export const toTeam = (t: TeamRow) => ({
   id: t.id, tournamentId: t.tournamentId, name: t.name, institution: t.institution?.name ?? '', city: t.city ?? '',
   // userId: a link to the person's public page (an account that did not hide its profile)
-  speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id, ...(s.userId && { userId: s.userId }) })),
+  // hidden: the person switched the public profile off; the account stays known (invites, "it's me"), the page is not linked
+  speakers: t.speakers.map(s => ({ id: s.id, name: s.name, teamId: t.id, ...(s.userId && { userId: s.userId }), ...(s.user?.profileHidden && { hidden: true }) })),
   checkedIn: !!t.checkedInAt, swing: t.swing, ...(t.league && { league: t.league }), ...(t.withdrawnAt && { withdrawn: true }),
   club: t.club ? { id: t.club.id, name: t.club.name, logoUrl: t.club.logoUrl ?? undefined } : undefined, // where the team comes from
   clubTeam: t.clubTeam ? { id: t.clubTeam.id, name: t.clubTeam.name } : undefined,
@@ -132,7 +134,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
       rounds: { orderBy: { number: 'asc' }, include: { debates: { include: debateInclude, orderBy: { room: 'asc' } } } },
       teams: { include: teamInclude, orderBy: { createdAt: 'asc' } },
       judges: {
-        include: { institution: true, conflicts: { select: { teamId: true } }, user: { select: { clubMembership: { select: { clubId: true } } } } },
+        include: { institution: true, conflicts: { select: { teamId: true } }, user: { select: { profileHidden: true, clubMembership: { select: { clubId: true } } } } },
         orderBy: [{ rating: 'desc' }, { name: 'asc' }],
       },
       registrations: { where: { status: 'pending' }, select: { id: true } },
@@ -192,7 +194,7 @@ export async function getTournamentDetails(id: string, viewer?: User) {
     judges: t.judges.map(j => ({
       id: j.id, tournamentId: j.tournamentId, name: j.name, institution: j.institution?.name ?? '', rating: j.rating, isChair: chairIds.has(j.id),
       hasAccount: !!j.userId, // a judge without an account judges by their personal link
-      ...(j.userId && { userId: j.userId }), ...(j.league && { league: j.league }), ...(j.leftAt && { left: true }),
+      ...(j.userId && { userId: j.userId }), ...(j.user?.profileHidden && { hidden: true }), ...(j.league && { league: j.league }), ...(j.leftAt && { left: true }),
       // organizers: the personal link of a judge without an account
       ...(manager && j.accessKey && { accessKey: j.accessKey }),
       // organizers: conflicts the draw respects (personal ones and the judge's club)
@@ -297,7 +299,7 @@ export async function getStandings(tournamentId: string, hide: Set<string> = new
 
   const speakerRows = teams.flatMap(team => team.speakers.map(s => {
     const total = speakerSum.get(s.id) ?? 0, n = speakerRounds.get(s.id) ?? 0
-    return { speaker: { id: s.id, name: s.name, teamId: team.id, ...(s.userId && { userId: s.userId }) }, team: toTeam(team), total: round1(total), average: n ? round1(total / n) : 0, rounds: n, byRound: speakerByRound.get(s.id) ?? {} }
+    return { speaker: { id: s.id, name: s.name, teamId: team.id, ...(s.userId && { userId: s.userId }), ...(s.user?.profileHidden && { hidden: true }) }, team: toTeam(team), total: round1(total), average: n ? round1(total / n) : 0, rounds: n, byRound: speakerByRound.get(s.id) ?? {} }
   })).sort((a, b) => b.total - a.total)
 
   // a full tie (every tie-break equal) shares the place; the organizer decides at the break line (services/playoffs.ts)

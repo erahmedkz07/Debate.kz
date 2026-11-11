@@ -130,6 +130,7 @@ export const setTelegramNotify = (notify: boolean) => http<{ user: User }>('PATC
 export const unlinkTelegram = () => http<{ user: User }>('DELETE', '/me/telegram').then(r => r.user)
 // confirmed by the password, or by typing the email for accounts without a password
 export const deleteAccount = (confirm: { password: string } | { email: string }) => http<void>('DELETE', '/me', confirm)
+export const setProfileVisible = (visible: boolean) => http<{ user: User }>('PUT', '/me/profile-visibility', { visible }).then(r => r.user)
 export const updateProfile = (data: { name: string; phone?: string; institution?: string; city?: string }) =>
   http<{ user: User }>('PATCH', '/me', data).then(r => r.user)
 
@@ -200,7 +201,7 @@ export const setTournamentAward = (id: string, kind: AwardKind, personId: string
   http<{ kind: AwardKind; name: string | null }>('PUT', `/tournaments/${encodeURIComponent(id)}/awards`, { kind, personId, ...(league && { league }) })
 // a person's public page: career as a speaker and a judge, awards
 export interface PublicProfile {
-  id: string; name: string; avatarUrl?: string; city?: string; since: string; club?: { id: string; name: string }
+  id: string; name: string; avatarUrl?: string; city?: string; since: string; hidden?: boolean; club?: { id: string; name: string }
   speaker: {
     tournaments: { id: string; name: string; startDate: string; status: string; team: string; place?: number; teams: number; inBreak: boolean; speakerRank?: number; average?: number }[]
     debates: number; wins: number; average: number | null; best: number | null
@@ -213,7 +214,7 @@ export interface PublicProfile {
 }
 // every speaker's page inside a tournament (an account is not needed)
 export interface SpeakerPageData {
-  id: string; name: string; userId?: string
+  id: string; name: string; userId?: string; hidden?: boolean
   tournament: { id: string; name: string; startDate: string; status: string }
   team: { id: string; name: string; institution?: string; place?: number; teams: number; inBreak: boolean }
   rank?: number; average?: number; total?: number; speakers?: number

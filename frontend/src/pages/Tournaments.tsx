@@ -137,14 +137,25 @@ export default function Tournaments() {
             <motion.div id="filters-panel" key="panel"
               initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
-              <div className="mt-4 grid grid-cols-1 gap-6 rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6 md:grid-cols-[minmax(0,16rem)_1fr_1fr] [&>*]:min-w-0">
+              {/* two even columns, the same order everywhere: where and what kind on top, level and status below */}
+              <div className="mt-4 grid grid-cols-1 gap-x-10 gap-y-6 rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6 md:grid-cols-2 [&>*]:min-w-0">
                 <div>
-                  <Label htmlFor="f-region">{t('place.region')}</Label>
+                  <Label htmlFor="f-region" className="mb-2 block">{t('place.region')}</Label>
                   <Select id="f-region" value={filters.region} onValueChange={v => setFilters({ ...filters, region: v })}
                     options={[{ value: 'all', label: t('place.allRegions') }, ...REGIONS.map(r => ({ value: r.code, label: r[lang] }))]} />
                 </div>
                 <div>
-                  <Label>{t('tournaments.level')}</Label>
+                  <Label className="mb-2 block">{t('tournaments.kind')}</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {(['all', 'open', 'local'] as const).map(k => (
+                      <Chip key={k} active={filters.kind === k} onClick={() => setFilters({ ...filters, kind: k })}>
+                        {k === 'all' ? t('common.all') : t(`tournamentKind.${k}`)}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-2 block">{t('tournaments.level')}</Label>
                   <div className="flex flex-wrap gap-2">
                     {(['all', 'school', 'university', 'mixed'] as const).map(l => (
                       <Chip key={l} active={filters.level === l} onClick={() => setFilters({ ...filters, level: l })}>
@@ -154,7 +165,7 @@ export default function Tournaments() {
                   </div>
                 </div>
                 <div>
-                  <Label>{t('tournaments.status')}</Label>
+                  <Label className="mb-2 block">{t('tournaments.status')}</Label>
                   <div className="flex flex-wrap gap-2">
                     {(['all', 'registration', 'ongoing', 'finished'] as const).map(s => (
                       <Chip key={s} active={filters.status === s} onClick={() => setFilters({ ...filters, status: s })}>
@@ -163,17 +174,7 @@ export default function Tournaments() {
                     ))}
                   </div>
                 </div>
-                <div>
-                  <Label>{t('tournaments.kind')}</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {(['all', 'open', 'local'] as const).map(k => (
-                      <Chip key={k} active={filters.kind === k} onClick={() => setFilters({ ...filters, kind: k })}>
-                        {k === 'all' ? t('common.all') : t(`tournamentKind.${k}`)}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-3 border-t border-border pt-4 md:col-span-3">
+                <div className="flex items-center justify-between gap-3 border-t border-border pt-4 md:col-span-2">
                   <p className="text-sm font-semibold text-muted-foreground">{data && t('tournaments.found', { count: data.length })}</p>
                   <div className="flex gap-2">
                     {active.length > 0 && <Button variant="ghost" size="sm" onClick={reset}><RotateCcw className="size-4" />{t('tournaments.reset')}</Button>}

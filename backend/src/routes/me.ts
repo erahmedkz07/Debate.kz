@@ -47,6 +47,13 @@ meRouter.patch('/me', requireAuth(), async (req, res) => {
   res.json({ user: await sessionUser(user) })
 })
 
+// "show my public profile" (a switch, saved at once): off = the career page is closed to others and names lose the link
+meRouter.put('/me/profile-visibility', requireAuth(), async (req, res) => {
+  const { visible } = body(req, z.object({ visible: z.boolean() }))
+  const user = await prisma.user.update({ where: { id: req.user!.id }, data: { profileHidden: !visible } })
+  res.json({ user: await sessionUser(user) })
+})
+
 // password change from the profile; every other session is signed out
 meRouter.post('/me/password', requireAuth(), async (req, res) => {
   const d = body(req, z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(8).max(128) }))

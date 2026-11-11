@@ -130,7 +130,7 @@ const escName = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 
 export async function onResults(chat: string, user: User) {
   const l = asLang(user.language), m = M[l]
-  const p = await publicProfile(user.id)
+  const p = await publicProfile(user.id, user)
   const rows: ResultRow[] = p.speaker.tournaments.slice(0, 8).map(x => ({
     name: x.name, date: x.startDate.split('-').reverse().join('.'), team: x.team, place: x.place, teams: x.teams, inBreak: x.inBreak,
     speakerRank: 'speakerRank' in x ? x.speakerRank : undefined, average: 'average' in x ? x.average : undefined, live: x.status !== 'finished',

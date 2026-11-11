@@ -34,7 +34,7 @@ export default function SpeakerPage() {
         </div>
       </PageHeader>
       <div className="container-page space-y-8 py-10">
-        {data.userId
+        {data.hidden ? null : data.userId
           ? <Link to={`/people/${data.userId}`} className="inline-flex items-center gap-1.5 font-semibold text-primary hover:underline">{t('speakerPage.career')}<ArrowRight className="size-4" /></Link>
           : <p className="rounded-2xl bg-muted px-4 py-3 text-sm text-muted-foreground">{t('speakerPage.noAccount')}</p>}
 

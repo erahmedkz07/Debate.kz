@@ -46,7 +46,8 @@ export interface Speaker {
   id: string
   name: string
   teamId: string
-  userId?: string // links to the person's public page (an account that did not hide it)
+  userId?: string // the speaker's account
+  hidden?: boolean // the account switched its public profile off: the name is not a link
 }
 
 export interface Team {
@@ -78,6 +79,7 @@ export interface Judge {
   isChair?: boolean
   hasAccount?: boolean // a judge without an account judges by their personal link
   userId?: string // links to the judge's public page
+  hidden?: boolean // the judge's public profile is switched off
   league?: string // with leagues: the league this judge judges (none = any)
   left?: boolean // the judge left the tournament: their sent ballots stay, no new rooms
   accessKey?: string // organizers only: the personal link of a judge without an account
@@ -265,6 +267,7 @@ export interface User {
   telegramLinked?: boolean
   telegramUsername?: string
   telegramNotify?: boolean
+  profileHidden?: boolean // "show my public profile" is off
   language?: 'ru' | 'kz' // the Telegram bot and notifications speak it
   organizes?: boolean // owns or co-organizes at least one tournament
   judges?: boolean // judges in at least one tournament

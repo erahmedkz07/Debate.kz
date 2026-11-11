@@ -1,4 +1,6 @@
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { RichText } from '@/components/ui/rich-text'
+import { RichTextEditor } from '@/components/ui/rich-text-editor'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -23,18 +25,9 @@ import { BackButton } from '@/components/layout/BackButton'
 const dateOf = (n: NewsItem) => formatDate((n.publishedAt ?? n.updatedAt).slice(0, 10), { day: 'numeric', month: 'long', year: 'numeric' })
 
 // plain text with paragraphs; bare https:// links become clickable (no HTML from the author is rendered)
+// a post is formatted text, like a tournament's description: paragraphs, lists, headings, bold, links
 function Body({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(/\n{2,}/).map((p, i) => (
-        <p key={i} className="mb-4 leading-relaxed">
-          {p.split(/(https:\/\/[^\s]+)/g).map((part, j) => part.startsWith('https://')
-            ? <a key={j} href={part} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline">{part}</a>
-            : <Fragment key={j}>{part.split('\n').map((line, k) => <Fragment key={k}>{k > 0 && <br />}{line}</Fragment>)}</Fragment>)}
-        </p>
-      ))}
-    </>
-  )
+  return <RichText text={text} className="space-y-4" />
 }
 
 // admin editor: create or edit a post, save as a draft or publish
@@ -69,7 +62,7 @@ function NewsEditor({ open, onOpenChange, item, onSaved }: { open: boolean; onOp
           <div><Label htmlFor="n-sum">{t('news.fields.summary')}</Label><Textarea id="n-sum" rows={2} maxLength={300} value={f.summary} onChange={e => setF({ ...f, summary: e.target.value })} /></div>
           <div>
             <Label htmlFor="n-body">{t('news.fields.body')}</Label>
-            <Textarea id="n-body" rows={10} maxLength={20000} value={f.body} onChange={e => setF({ ...f, body: e.target.value })} />
+            <RichTextEditor id="n-body" rows={12} maxLength={20000} value={f.body} onChange={v => setF({ ...f, body: v })} />
             <p className="mt-1 text-xs text-muted-foreground">{t('news.fields.bodyHint')}</p>
           </div>
           <div><Label htmlFor="n-cover">{t('news.fields.cover')}</Label><Input id="n-cover" type="url" maxLength={1000} value={f.coverUrl} onChange={e => setF({ ...f, coverUrl: e.target.value })} placeholder="https://…" /></div>

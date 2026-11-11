@@ -13,7 +13,8 @@ export function FormatPicker({ value, onChange, label, className }: { value: str
   const [open, setOpen] = useState(false)
   const current = formatById(value) ?? FORMATS[0]
   const badge = (f: typeof current, size = 'size-10') => (
-    <span className={cn('grid shrink-0 place-items-center rounded-xl bg-gradient-to-br text-xs font-extrabold text-white shadow-sm', size, f.accent)}>{f.short}</span>
+    // a four-letter code (WSDC) gets a smaller font so it stays on one line
+    <span className={cn('grid shrink-0 place-items-center whitespace-nowrap rounded-xl bg-gradient-to-br font-extrabold tracking-tight text-white shadow-sm', f.short.length > 3 ? 'text-[10px]' : 'text-xs', size, f.accent)}>{f.short}</span>
   )
   return (
     <div className={className}>

@@ -142,7 +142,7 @@ publicRouter.post('/client-errors', clientErrorLimit, async (req, res) => {
 
 // a person's public page: the career as a speaker and a judge, the awards (404 when the profile is hidden)
 publicRouter.get('/people/:id', async (req, res) => {
-  res.json(await publicProfile(param(req, 'id')))
+  res.json(await publicProfile(param(req, 'id'), req.user))
 })
 
 // selection: how many applied for how many places, and the lottery order after the draw
@@ -234,7 +234,7 @@ publicRouter.get('/rating', async (_req, res) => {
   // teams: the same club team is one row across tournaments even if it entered under different names
   const teamAgg = new Map<string, { name: string; institution: string; club: Ref; logoUrl?: string; city: string; level: Level; tournaments: Set<string>; wins: number; points: number }>()
   // a speaker links to their account's page, or else to their page in the latest tournament they played
-  const speakerAgg = new Map<string, { name: string; team: string; club: Ref; city: string; level: Level; tournaments: Set<string>; total: number; n: number; userId?: string; last: { tournamentId: string; speakerId: string; date: string } }>()
+  const speakerAgg = new Map<string, { name: string; team: string; club: Ref; city: string; level: Level; tournaments: Set<string>; total: number; n: number; userId?: string; hidden?: boolean; last: { tournamentId: string; speakerId: string; date: string } }>()
   const clubAgg = new Map<string, { club: { id: string; name: string; logoUrl?: string }; city: string; levels: Set<Level>; tournaments: Set<string>; teams: Set<string>; wins: number; debates: number; points: number; speakerAvg: number[] }>()
 
   for (const t of tournaments) {
@@ -262,6 +262,7 @@ publicRouter.get('/rating', async (_req, res) => {
       const a = speakerAgg.get(key) ?? { name: row.speaker.name, team: row.team.clubTeam?.name ?? row.team.name, club: row.team.club, city: row.team.city || t.city, level: rowLevel(row.team.institution, t.level), tournaments: new Set(), total: 0, n: 0, last: { tournamentId: t.id, speakerId: row.speaker.id, date } }
       a.tournaments.add(t.id); a.total += row.average; a.n += 1
       a.userId ??= row.speaker.userId
+      if ('hidden' in row.speaker && row.speaker.hidden) a.hidden = true
       if (date > a.last.date) a.last = { tournamentId: t.id, speakerId: row.speaker.id, date }
       speakerAgg.set(key, a)
       if (row.team.club) clubAgg.get(row.team.club.id)?.speakerAvg.push(row.average)
@@ -274,7 +275,8 @@ publicRouter.get('/rating', async (_req, res) => {
   const speakers = [...speakerAgg.values()].map(a => ({ ...a, average: a.total / a.n })).sort((a, b) => b.average - a.average).slice(0, 50)
     .map((a, i) => ({
       rank: i + 1, name: a.name, team: a.team, club: a.club, city: a.city, level: a.level, tournaments: a.tournaments.size, average: r1(a.average),
-      ...(a.userId && { userId: a.userId }), last: { tournamentId: a.last.tournamentId, speakerId: a.last.speakerId },
+      // a hidden profile stays in the rating (its results are public), linked to its tournament page instead
+      ...(a.userId && !a.hidden && { userId: a.userId }), last: { tournamentId: a.last.tournamentId, speakerId: a.last.speakerId },
     }))
   // clubs: by wins, then speaker points; a club that plays both school and university events is "mixed"
   const clubs = [...clubAgg.values()].sort((a, b) => b.wins - a.wins || b.points - a.points).slice(0, 50)

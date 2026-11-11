@@ -10,7 +10,7 @@ import { useAuth } from '@/lib/auth'
 import { images } from '@/mocks/images'
 import { useAsync } from '@/lib/hooks'
 import { FREE_TEAM_LIMIT } from '@/lib/plans'
-import { formatNumber, initials } from '@/lib/utils'
+import { cn, formatNumber, initials } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { ErrorState, Skeleton } from '@/components/ui/states'
 import { Ornament, OrnamentPattern, TelegramIcon } from '@/components/brand'
@@ -24,6 +24,23 @@ function SectionTitle({ title, subtitle, center = true }: { title: string; subti
       <h2 className="text-3xl font-extrabold tracking-tight sm:text-4xl">{title}</h2>
       {subtitle && <p className="mt-3 text-base text-muted-foreground sm:text-lg">{subtitle}</p>}
     </Reveal>
+  )
+}
+
+// The national ram-horn ornament (oyu) across the page, quietly: a large one in the margin of the white sections,
+// a fading band of the pattern on the tinted ones — so no part of the page is a plain empty field
+function SideOrnament({ side }: { side: 'left' | 'right' }) {
+  return (
+    <Ornament className={cn('pointer-events-none absolute top-1/2 hidden w-56 -translate-y-1/2 text-primary/[0.07] lg:block dark:text-primary/[0.09]',
+      side === 'left' ? '-left-16 -rotate-12' : '-right-16 rotate-12')} />
+  )
+}
+function PatternBand({ edge }: { edge: 'top' | 'bottom' }) {
+  return (
+    <div aria-hidden className={cn('pointer-events-none absolute inset-x-0 h-56', edge === 'top'
+      ? 'top-0 [mask-image:linear-gradient(to_bottom,black,transparent)]' : 'bottom-0 [mask-image:linear-gradient(to_top,black,transparent)]')}>
+      <OrnamentPattern className="text-primary opacity-[0.07] dark:opacity-[0.09]" />
+    </div>
   )
 }
 
@@ -144,7 +161,9 @@ function HowItWorks() {
     { icon: Plus, n: 1 }, { icon: UserPlus, n: 2 }, { icon: Shuffle, n: 3 }, { icon: Trophy, n: 4 },
   ]
   return (
-    <section className="container-page py-20 sm:py-28">
+    <section className="relative overflow-hidden py-20 sm:py-28">
+      <SideOrnament side="right" />
+      <div className="container-page relative">
       <SectionTitle title={t('home.how.title')} subtitle={t('home.how.subtitle')} />
       <div className="relative mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <div className="absolute left-[12%] right-[12%] top-10 hidden h-0.5 border-t-2 border-dashed border-primary/30 lg:block" />
@@ -159,6 +178,7 @@ function HowItWorks() {
           </Reveal>
         ))}
       </div>
+    </div>
     </section>
   )
 }
@@ -170,8 +190,9 @@ function Upcoming() {
   const { data, loading, error, reload } = useAsync(() => getHomeTournaments(3))
   const mode = data?.mode ?? 'open'
   return (
-    <section className="bg-muted/50 py-20 sm:py-28">
-      <div className="container-page">
+    <section className="relative overflow-hidden bg-muted/50 py-20 sm:py-28">
+      <PatternBand edge="top" />
+      <div className="container-page relative">
         <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
           <SectionTitle center={false} title={t(`home.upcoming.${mode}.title`)} subtitle={t(`home.upcoming.${mode}.subtitle`)} />
           <Button asChild variant="outline" className="shrink-0"><Link to={mode === 'past' ? '/tournaments?status=finished' : '/tournaments'}>{t('common.viewAll')}<ArrowRight className="size-4" /></Link></Button>
@@ -182,8 +203,8 @@ function Upcoming() {
               <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {loading || !data ? Array.from({ length: 3 }, (_, i) => <TournamentCardSkeleton key={i} />)
                   : data.list.map((item, i) => <Reveal key={item.id} delay={i * 0.1}><TournamentCard t={item} /></Reveal>)}
-                {/* fewer tournaments than places in the row: the free place invites to hold one */}
-                {data && data.list.length < 3 && <Reveal delay={data.list.length * 0.1} className={data.list.length === 1 ? 'lg:col-span-2' : ''}><NoTournamentsYet compact /></Reveal>}
+                {/* fewer tournaments than places in the row: the free place offers to hear about the next one first */}
+                {data && data.list.length < 3 && <Reveal delay={data.list.length * 0.1} className={data.list.length === 1 ? 'lg:col-span-2' : ''}><SubscribeTile /></Reveal>}
               </div>
             )}
       </div>
@@ -191,31 +212,60 @@ function Upcoming() {
   )
 }
 
-// no tournaments at all: a large invitation; a free place in the row: the same as a tile
-function NoTournamentsYet({ compact = false }: { compact?: boolean }) {
+// no tournaments at all: a large invitation to hold the first one, or to hear about it in Telegram
+function NoTournamentsYet() {
   const { t } = useTranslation()
   const { data: tg } = useAsync(getTelegramConfig)
-  const box = compact
-    ? 'flex h-full min-h-80 items-center rounded-2xl border-2 border-dashed border-primary/30 bg-card/60 p-8 text-center'
-    : 'mt-10 rounded-3xl border border-border bg-card p-8 text-center shadow-sm sm:p-12'
-  const Wrap = compact ? 'div' : Reveal
   return (
-    <Wrap className={`relative overflow-hidden ${box}`}>
+    <Reveal className="relative mt-10 overflow-hidden rounded-3xl border border-border bg-card p-8 text-center shadow-sm sm:p-12">
       <OrnamentPattern className="pointer-events-none absolute inset-0 opacity-[0.04]" />
       <div className="relative mx-auto flex max-w-xl flex-col items-center">
         <span className="flex size-16 items-center justify-center rounded-2xl bg-primary-soft text-primary"><Trophy className="size-8" /></span>
-        <h3 className={`mt-5 font-extrabold tracking-tight ${compact ? 'text-xl' : 'text-2xl'}`}>{t(compact ? 'home.upcoming.moreTitle' : 'home.upcoming.emptyTitle')}</h3>
-        <p className="mt-2 text-muted-foreground">{t(compact ? 'home.upcoming.moreText' : 'home.upcoming.emptyText')}</p>
+        <h3 className="mt-5 text-2xl font-extrabold tracking-tight">{t('home.upcoming.emptyTitle')}</h3>
+        <p className="mt-2 text-muted-foreground">{t('home.upcoming.emptyText')}</p>
         <div className="mt-7 flex flex-wrap justify-center gap-3">
-          <Button asChild size={compact ? 'md' : 'lg'}><Link to="/dashboard/tournaments/new"><Plus className="size-5" />{t('home.hero.create')}</Link></Button>
+          <Button asChild size="lg"><Link to="/dashboard/tournaments/new"><Plus className="size-5" />{t('home.hero.create')}</Link></Button>
           {tg?.enabled && tg.username && (
-            <Button asChild size={compact ? 'md' : 'lg'} variant="outline">
-              <a href={`https://t.me/${tg.username}`} target="_blank" rel="noreferrer"><TelegramIcon className="size-5" />{t('home.upcoming.emptyBot')}</a>
+            <Button asChild size="lg" variant="outline">
+              <a href={`https://t.me/${tg.username}?start=subscribe`} target="_blank" rel="noreferrer"><TelegramIcon className="size-5" />{t('home.upcoming.emptyBot')}</a>
             </Button>
           )}
         </div>
       </div>
-    </Wrap>
+    </Reveal>
+  )
+}
+
+// a free place in the row: the bot tells about the next tournament first (the city and level are chosen in the bot);
+// without a bot on the server, the rating instead
+function SubscribeTile() {
+  const { t } = useTranslation()
+  const { data: tg } = useAsync(getTelegramConfig)
+  const bot = tg?.enabled && tg.username
+  const points = ['open', 'draw', 'tomorrow'] as const
+  return (
+    <div className="relative flex h-full min-h-80 flex-col overflow-hidden rounded-2xl bg-gradient-to-br from-[#2AABEE] to-[#1A6FB0] p-7 text-white shadow-lg shadow-[#2AABEE]/20">
+      <OrnamentPattern className="pointer-events-none absolute inset-0 text-white opacity-[0.08]" />
+      <div className="relative flex flex-1 flex-col">
+        <span className="flex size-12 items-center justify-center rounded-xl bg-white/15 backdrop-blur">{bot ? <Bell className="size-6" /> : <Trophy className="size-6" />}</span>
+        <h3 className="mt-5 text-xl font-extrabold tracking-tight">{t(bot ? 'home.upcoming.subscribeTitle' : 'home.upcoming.ratingTitle')}</h3>
+        <p className="mt-2 text-sm text-white/85">{t(bot ? 'home.upcoming.subscribeText' : 'home.upcoming.ratingText')}</p>
+        {bot && (
+          <ul className="mt-4 space-y-2 text-sm">
+            {points.map(k => <li key={k} className="flex items-center gap-2"><CheckCircle2 className="size-4 shrink-0 text-white/90" />{t(`home.upcoming.subscribePoints.${k}`)}</li>)}
+          </ul>
+        )}
+        <div className="mt-auto pt-6">
+          {bot ? (
+            <Button asChild className="w-full bg-white text-[#1A6FB0] hover:bg-white/90">
+              <a href={`https://t.me/${tg.username}?start=subscribe`} target="_blank" rel="noreferrer"><TelegramIcon className="size-5" />{t('home.upcoming.subscribeButton')}</a>
+            </Button>
+          ) : (
+            <Button asChild className="w-full bg-white text-[#1A6FB0] hover:bg-white/90"><Link to="/rating">{t('home.upcoming.ratingButton')}<ArrowRight className="size-4" /></Link></Button>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -230,7 +280,9 @@ function Features() {
     { k: 'lang', icon: Languages, color: 'bg-accent-soft text-navy dark:text-accent' },
   ]
   return (
-    <section className="container-page py-20 sm:py-28">
+    <section className="relative overflow-hidden py-20 sm:py-28">
+      <SideOrnament side="left" />
+      <div className="container-page relative">
       <SectionTitle title={t('home.features.title')} subtitle={t('home.features.subtitle')} />
       <div className="mt-14 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {items.map(({ k, icon: Icon, color }, i) => (
@@ -244,6 +296,7 @@ function Features() {
           </Reveal>
         ))}
       </div>
+    </div>
     </section>
   )
 }
@@ -255,8 +308,9 @@ function Audience() {
     { k: 'part', img: images.studentsHall, to: '/tournaments', variant: 'accent' as const },
   ]
   return (
-    <section className="bg-muted/50 py-20 sm:py-28">
-      <div className="container-page">
+    <section className="relative overflow-hidden bg-muted/50 py-20 sm:py-28">
+      <PatternBand edge="bottom" />
+      <div className="container-page relative">
         <SectionTitle title={t('home.audience.title')} />
         <div className="mt-14 grid grid-cols-1 gap-6 lg:grid-cols-2">
           {blocks.map(({ k, img, to, variant }, i) => (
@@ -291,7 +345,9 @@ function PricingTeaser() {
   const { data } = useAsync(getPlans)
   const limit = data?.freeTeamLimit ?? FREE_TEAM_LIMIT
   return (
-    <section className="container-page py-20 sm:py-28">
+    <section className="relative overflow-hidden py-20 sm:py-28">
+      <SideOrnament side="right" />
+      <div className="container-page relative">
       <SectionTitle title={t('home.pricing.title')} subtitle={t('home.pricing.subtitle')} />
       <div className="mx-auto mt-12 grid grid-cols-1 max-w-4xl gap-5 sm:grid-cols-2">
         <Reveal className="rounded-3xl border-2 border-primary bg-card p-8 shadow-lg shadow-primary/10">
@@ -311,6 +367,7 @@ function PricingTeaser() {
       <div className="mt-8 text-center">
         <Button asChild variant="link"><Link to="/pricing">{t('home.pricing.cta')}<ArrowRight className="size-4" /></Link></Button>
       </div>
+    </div>
     </section>
   )
 }
@@ -320,8 +377,9 @@ function Testimonials() {
   const { data } = useAsync(getTestimonials)
   const colors = ['bg-primary text-white', 'bg-accent text-navy', 'bg-navy text-white dark:bg-primary-soft dark:text-primary']
   return (
-    <section className="bg-muted/50 py-20 sm:py-28">
-      <div className="container-page">
+    <section className="relative overflow-hidden bg-muted/50 py-20 sm:py-28">
+      <PatternBand edge="top" />
+      <div className="container-page relative">
         <SectionTitle title={t('home.testimonials.title')} />
         <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
           {(data ?? Array.from({ length: 3 }, () => null)).map((item, i) => item ? (

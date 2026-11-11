@@ -1,3 +1,4 @@
+import type { User } from '../generated/prisma/client.js'
 import { notFound } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 import { toDay } from '../lib/dates.js'
@@ -7,16 +8,17 @@ import { finalPlaces } from './playoffs.js'
 import { hiddenRoundIds } from './silent.js'
 
 // A person's public page: their debate career as a speaker and as a judge, and their awards — open to everyone
-// (the owner decided against a "hide my profile" switch). Only public tournaments
+// unless the person switched "show my public profile" off: then only they (and admins) see it. Only public tournaments
 // and only what is already public there: closed (silent) rounds stay out until the break, judge ratings show only as an
 // average of at least PUBLIC_RATING_MIN reviews, never single comments.
 export const PUBLIC_RATING_MIN = 5
 
 const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null)
 
-export async function publicProfile(userId: string) {
+export async function publicProfile(userId: string, viewer?: Pick<User, 'id' | 'role'>) {
   const user = await prisma.user.findUnique({ where: { id: userId }, include: { clubMembership: { include: { club: { select: { id: true, name: true, status: true } } } } } })
-  if (!user || user.blocked) throw notFound('profile_not_found')
+  const self = !!viewer && (viewer.id === userId || viewer.role === 'admin')
+  if (!user || user.blocked || (user.profileHidden && !self)) throw notFound('profile_not_found')
 
   // ---- as a speaker ----
   const speakerSlots = await prisma.speaker.findMany({
@@ -81,6 +83,7 @@ export async function publicProfile(userId: string) {
 
   return {
     id: user.id, name: user.name, avatarUrl: user.avatarUrl ?? undefined, city: user.city ?? undefined, since: toDay(user.createdAt),
+    hidden: user.profileHidden, // only the person (or an admin) gets a hidden profile
     ...(user.clubMembership?.club.status === 'approved' && { club: { id: user.clubMembership.club.id, name: user.clubMembership.club.name } }),
     speaker: {
       tournaments: tournaments.sort((a, b) => b.startDate.localeCompare(a.startDate)),
@@ -113,7 +116,7 @@ export async function publicProfile(userId: string) {
 export async function speakerInTournament(tournamentId: string, speakerId: string) {
   const speaker = await prisma.speaker.findFirst({
     where: { id: speakerId, team: { tournamentId, swing: false, tournament: publicWhere } },
-    include: { team: { include: { tournament: true, institution: true } } },
+    include: { team: { include: { tournament: true, institution: true } }, user: { select: { profileHidden: true } } },
   })
   if (!speaker) throw notFound('speaker_not_found')
   const t = speaker.team.tournament
@@ -145,7 +148,8 @@ export async function speakerInTournament(tournamentId: string, speakerId: strin
     }
   })
   return {
-    id: speaker.id, name: speaker.name, ...(speaker.userId && { userId: speaker.userId }),
+    // a hidden profile: no link to the career, and no "no account yet" note either
+    id: speaker.id, name: speaker.name, ...(speaker.userId && (speaker.user?.profileHidden ? { hidden: true } : { userId: speaker.userId })),
     tournament: { id: t.id, name: t.name, startDate: toDay(t.startDate), status: t.status },
     team: { id: speaker.team.id, name: speaker.team.name, institution: speaker.team.institution?.name ?? undefined, place: teamPlace ?? undefined, teams: standings.teams.length, inBreak: !!speaker.team.breakSeed },
     ...(row && row.total > 0 && { rank: row.rank, average: row.average, total: row.total, speakers: standings.speakers.length }),

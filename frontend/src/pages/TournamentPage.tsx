@@ -304,8 +304,8 @@ function Overview({ data }: { data: TournamentDetails }) {
 }
 
 // a speaker's name links to their career (an account) or to their page in this tournament
-function SpeakerName({ speaker, tournamentId, className = 'hover:text-primary hover:underline' }: { speaker: { id: string; name: string; userId?: string }; tournamentId: string; className?: string }) {
-  return <Link to={speaker.userId ? `/people/${speaker.userId}` : `/tournaments/${tournamentId}/speakers/${speaker.id}`} className={className}>{speaker.name}</Link>
+function SpeakerName({ speaker, tournamentId, className = 'hover:text-primary hover:underline' }: { speaker: { id: string; name: string; userId?: string; hidden?: boolean }; tournamentId: string; className?: string }) {
+  return <Link to={speaker.userId && !speaker.hidden ? `/people/${speaker.userId}` : `/tournaments/${tournamentId}/speakers/${speaker.id}`} className={className}>{speaker.name}</Link>
 }
 
 function TeamsTab({ data }: { data: TournamentDetails }) {
@@ -666,7 +666,7 @@ function JudgesTab({ data }: { data: TournamentDetails }) {
         <Card key={j.id} className="flex items-center gap-3 p-4">
           <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{initials(j.name)}</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-bold">{j.userId ? <Link to={`/people/${j.userId}`} className="hover:text-primary hover:underline">{j.name}</Link> : j.name}</p>
+            <p className="truncate font-bold">{j.userId && !j.hidden ? <Link to={`/people/${j.userId}`} className="hover:text-primary hover:underline">{j.name}</Link> : j.name}</p>
             <p className="truncate text-xs text-muted-foreground">{j.institution}</p>
           </div>
           {sat(j.id).length > 0 && (
